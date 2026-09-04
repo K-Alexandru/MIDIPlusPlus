@@ -1,6 +1,7 @@
 ﻿#include "MIDIConnect.hpp"
 #include "InputHeader.h"
 #include <iostream>
+#include <cstring>
 
 namespace {
     static const uint8_t div12[128] = {
@@ -35,19 +36,15 @@ DWORD_PTR MIDIConnect::s_originalAffinity = 0;
 ULONG MIDIConnect::s_timerResolution = 0;
 
 MIDIConnect::MIDIConnect()
-    : m_rtMidiIn(nullptr)
-    , m_selectedDevice(-1)
+    : m_selectedDevice()
     , m_isActive(false)
-    , m_inCallback(false)
 {
     OptimizeSystem();
-
-    for (auto& input : m_batchedInputs) {
-        input.type = INPUT_KEYBOARD;
-        input.ki.wVk = 0;
-        input.ki.time = 0;
-        input.ki.dwExtraInfo = 0;
-    }
+    // The mapping tables are plain INPUT arrays, so wVk, time and dwExtraInfo
+    // are indeterminate until something writes them. Only wScan, dwFlags and
+    // type are filled in below, and the whole struct is what gets sent.
+    std::memset(m_noteMapping.data(), 0, sizeof(m_noteMapping));
+    std::memset(m_sustainMapping.data(), 0, sizeof(m_sustainMapping));
 
     // Precompute note mappings - hot path optimization
     for (int note = 0; note < 128; ++note) {
@@ -226,31 +223,31 @@ void MIDIConnect::SetCallbackThreadPriority() {
         }
     }
 }
-void MIDIConnect::OpenDevice(int deviceIndex) {
-    if (m_rtMidiIn) CloseDevice();
-    if (deviceIndex < 0) return;
-    try {
-        m_rtMidiIn = new RtMidiIn(RtMidi::Api::WINDOWS_MM, "MIDI2Key", 100);
-        if (m_rtMidiIn->getPortCount() == 0) { delete m_rtMidiIn; m_rtMidiIn = nullptr; return; }
-        m_rtMidiIn->setCallback(&RtMidiCallback, this);
-        m_rtMidiIn->ignoreTypes(true, true, true);
-        m_rtMidiIn->setBufferSize(256,1);
-        m_rtMidiIn->openPort(deviceIndex < (int)m_rtMidiIn->getPortCount() ? deviceIndex : 0);
-        SetCallbackThreadPriority();
-        m_selectedDevice = deviceIndex;
+void MIDIConnect::OpenDevice(const std::wstring& deviceId) {
+    CloseDevice();
+    if (deviceId.empty()) return;
+
+    m_input = CreateMidiInput(BackendForDeviceId(deviceId));
+    if (!m_input) return;
+
+    const bool opened = m_input->open(deviceId,
+        [this](uint64_t timestampQpc, const uint8_t* data, size_t length) {
+            this->HandleMessage(timestampQpc, data, length);
+        });
+    if (!opened) {
+        m_input.reset();
+        return;
     }
-    catch (...) {
-        if (m_rtMidiIn) { delete m_rtMidiIn; m_rtMidiIn = nullptr; }
-    }
+    SetCallbackThreadPriority();
+    m_selectedDevice = deviceId;
 }
+
 void MIDIConnect::CloseDevice() {
-    if (m_rtMidiIn) {
-        m_rtMidiIn->cancelCallback();
-        m_rtMidiIn->closePort();
-        delete m_rtMidiIn;
-        m_rtMidiIn = nullptr;
+    if (m_input) {
+        m_input->close();
+        m_input.reset();
     }
-    m_selectedDevice = -1;
+    m_selectedDevice.clear();
 }
 
 void MIDIConnect::SetActive(bool active) {
@@ -285,42 +282,40 @@ void MIDIConnect::ReleaseAllNumpadKeys() {
     NtUserSendInputCall(12, inputs, sizeof(INPUT));
 }
 
-void __stdcall MIDIConnect::RtMidiCallback(double /*deltaTime*/,
-    std::vector<unsigned char>* message,
-    void* userData)
+void MIDIConnect::HandleMessage(uint64_t /*timestampQpc*/, const uint8_t* data, size_t length)
 {
-    if (!message || message->size() < 3) return;
+    if (!data || length < 3) return;
+    if (!m_isActive.load(std::memory_order_relaxed)) return;
 
-    auto* self = reinterpret_cast<MIDIConnect*>(userData);
-    if (!self || !self->m_isActive.load(std::memory_order_relaxed)) return;
-    if (self->m_inCallback.exchange(true, std::memory_order_acquire)) return;
-
-    const uint8_t status = (*message)[0];
-    const uint8_t data1 = (*message)[1];
-    const uint8_t data2 = (*message)[2];
+    const uint8_t status = data[0];
+    const uint8_t data1 = data[1];
+    const uint8_t data2 = data[2];
     const uint8_t cmd = status & 0xF0;
 
+    // Local batch: two callbacks can now run at once without fighting over one
+    // buffer, which is what the old m_inCallback guard was papering over by
+    // dropping every message that arrived during another.
+    INPUT batched[MAX_BATCH_INPUTS];
     size_t inputCount = 0;
-    INPUT* batched = self->m_batchedInputs.data();
 
     switch (cmd) {
     case 0x90: // Note On
         if (data2 > 0) {
-            const auto& mapping = self->m_noteMapping[data1][data2];
+            const auto& mapping = m_noteMapping[data1][data2];
             for (int i = 0; i < 10 && inputCount < MAX_BATCH_INPUTS; i++) {
                 batched[inputCount++] = mapping[i];
             }
         }
         else {
-            const auto& mapping = self->m_noteMapping[data1][0];
+            const auto& mapping = m_noteMapping[data1][0];
             for (int i = 0; i < 10 && inputCount < MAX_BATCH_INPUTS; i++) {
                 batched[inputCount++] = mapping[i];
             }
         }
         break;
 
-    case 0x80: { // Note Off - Added scope to avoid variable declaration error
-        const auto& mapping = self->m_noteMapping[data1][0];
+    case 0x80: { // Note Off
+        const auto& mapping = m_noteMapping[data1][0];
         for (int i = 0; i < 10 && inputCount < MAX_BATCH_INPUTS; i++) {
             batched[inputCount++] = mapping[i];
         }
@@ -329,7 +324,7 @@ void __stdcall MIDIConnect::RtMidiCallback(double /*deltaTime*/,
 
     case 0xB0: // Control Change
         if (data1 == 64) { // Sustain pedal
-            const auto& mapping = self->m_sustainMapping[data2];
+            const auto& mapping = m_sustainMapping[data2];
             for (int i = 0; i < 10 && inputCount < MAX_BATCH_INPUTS; i++) {
                 batched[inputCount++] = mapping[i];
             }
@@ -337,7 +332,5 @@ void __stdcall MIDIConnect::RtMidiCallback(double /*deltaTime*/,
         break;
     }
 
-    if (inputCount > 0) NtUserSendInputCall(inputCount, batched, sizeof(INPUT));
-
-    self->m_inCallback.store(false, std::memory_order_release);
+    if (inputCount > 0) NtUserSendInputCall(static_cast<UINT>(inputCount), batched, sizeof(INPUT));
 }

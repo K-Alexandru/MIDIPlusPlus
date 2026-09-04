@@ -68,7 +68,7 @@ static std::unique_ptr<MIDI2Key>   g_midi2key;
 static std::unique_ptr<MIDIConnect> g_midiConnect;
 static TrackControl g_trackControl;
 int g_sustainCutoff = 64;
-static int g_selectedMidiDevice = 0;    // device index
+static std::wstring g_selectedMidiDeviceId;   // opaque id from IMidiInput, not a row number
 static int g_selectedMidiChannel = -1;    // -1 means “All channels”
 
 // Global handles and states
@@ -1191,7 +1191,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                 WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST,
                 rcDev.left, rcDev.top, RW(rcDev), 240,
                 hWnd, reinterpret_cast<HMENU>(ID_CB_MIDIDEV), g_hInst, nullptr);
-            MIDIDeviceUI::PopulateMidiInDevices(cbMidiDev, g_selectedMidiDevice);
+            MIDIDeviceUI::PopulateMidiInDevices(cbMidiDev, g_selectedMidiDeviceId);
 
             RECT rcM2K = r.take(Layout::S(92));
             CreateWindowW(L"button", L"Midi2Key",
@@ -1592,12 +1592,12 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                 std::cout << "[MIDI Devices] Refreshing device list...\n";
                 if (g_midi2key && g_midi2key->IsActive())
                     g_midi2key->CloseDevice();
-                int previousDevice = g_selectedMidiDevice;
+                std::wstring previousDevice = g_selectedMidiDeviceId;
                 HWND cbMidiDev = GetDlgItem(hWnd, ID_CB_MIDIDEV);
-                MIDIDeviceUI::PopulateMidiInDevices(cbMidiDev, g_selectedMidiDevice);
-                if (g_midi2key && g_midi2key->IsActive() && g_selectedMidiDevice >= 0) {
-                    if (MIDIDeviceUI::TestDeviceAccess(g_selectedMidiDevice))
-                        g_midi2key->OpenDevice(g_selectedMidiDevice);
+                MIDIDeviceUI::PopulateMidiInDevices(cbMidiDev, g_selectedMidiDeviceId);
+                if (g_midi2key && g_midi2key->IsActive() && !g_selectedMidiDeviceId.empty()) {
+                    if (MIDIDeviceUI::IsDeviceAvailable(g_selectedMidiDeviceId))
+                        g_midi2key->OpenDevice(g_selectedMidiDeviceId);
                     else
                         std::cout << "[MIDI Devices] Cannot reopen device - no longer accessible\n";
                 }
@@ -1764,7 +1764,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                     if (!g_midiConnect)
                         g_midiConnect = std::make_unique<MIDIConnect>();
                     g_midiConnect->SetActive(true);
-                    g_midiConnect->OpenDevice(g_selectedMidiDevice);
+                    g_midiConnect->OpenDevice(g_selectedMidiDeviceId);
                     std::cout << "[MidiConnect] ENABLED\n";
                     FocusRobloxWindow();
                     g_midiConnect->ReleaseAllNumpadKeys();
@@ -1866,7 +1866,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                     if (!g_midi2key)
                         g_midi2key = std::make_unique<MIDI2Key>(g_player);
                     g_midi2key->SetActive(true);
-                    g_midi2key->OpenDevice(g_selectedMidiDevice);
+                    g_midi2key->OpenDevice(g_selectedMidiDeviceId);
                     std::cout << "[MIDI->QWERTY] ENABLED\n";
                     std::cout << "[WARNING] DO NOT use MIDI2Key with spam / black MIDIs or similar\n";
                     FocusRobloxWindow();
@@ -1900,11 +1900,11 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
 
                 if (g_midiConnect && g_midiConnect->IsActive()) {
                     g_midiConnect->CloseDevice();
-                    g_midiConnect->OpenDevice(g_selectedMidiDevice);
+                    g_midiConnect->OpenDevice(g_selectedMidiDeviceId);
                 }
                 if (g_midi2key && g_midi2key->IsActive()) {
                     g_midi2key->CloseDevice();
-                    g_midi2key->OpenDevice(g_selectedMidiDevice);
+                    g_midi2key->OpenDevice(g_selectedMidiDeviceId);
                 }
             }
             break;
@@ -1913,14 +1913,14 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
             if (code == CBN_SELCHANGE) {
                 HWND cb = GetDlgItem(hWnd, ID_CB_MIDIDEV);
                 int sel = static_cast<int>(SendMessage(cb, CB_GETCURSEL, 0, 0));
-                g_selectedMidiDevice = sel;
+                g_selectedMidiDeviceId = MIDIDeviceUI::DeviceIdAt(sel);
                 if (g_midi2key && g_midi2key->IsActive()) {
                     g_midi2key->CloseDevice();
-                    g_midi2key->OpenDevice(sel);
+                    g_midi2key->OpenDevice(g_selectedMidiDeviceId);
                 }
                 if (g_midiConnect && g_midiConnect->IsActive()) {
                     g_midiConnect->CloseDevice();
-                    g_midiConnect->OpenDevice(sel);
+                    g_midiConnect->OpenDevice(g_selectedMidiDeviceId);
                 }
             }
             break;

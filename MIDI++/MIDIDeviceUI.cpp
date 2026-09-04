@@ -1,51 +1,58 @@
 #include "MIDIDeviceUI.hpp"
 #include <mmsystem.h>
-// MIDIDeviceUI.cpp modifications
 
-bool MIDIDeviceUI::TestDeviceAccess(UINT deviceIndex) {
-    HMIDIIN hMidiIn;
-    MMRESULT result = midiInOpen(&hMidiIn, deviceIndex, 0, 0, CALLBACK_NULL);
-    if (result == MMSYSERR_NOERROR) {
-        midiInClose(hMidiIn);
-        return true;
-    }
-    return false;
+namespace {
+    // Whatever the combo currently shows, in the same order.
+    std::vector<MidiInputDevice> g_devices;
 }
 
-void MIDIDeviceUI::PopulateMidiInDevices(HWND combo, int& selectedDevice) {
+const std::vector<MidiInputDevice>& MIDIDeviceUI::Devices() {
+    return g_devices;
+}
+
+std::wstring MIDIDeviceUI::DeviceIdAt(int comboIndex) {
+    if (comboIndex < 0 || comboIndex >= static_cast<int>(g_devices.size())) return {};
+    return g_devices[static_cast<size_t>(comboIndex)].id;
+}
+
+int MIDIDeviceUI::IndexOfDeviceId(const std::wstring& deviceId) {
+    for (size_t i = 0; i < g_devices.size(); ++i) {
+        if (g_devices[i].id == deviceId) return static_cast<int>(i);
+    }
+    return -1;
+}
+
+bool MIDIDeviceUI::IsDeviceAvailable(const std::wstring& deviceId) {
+    return IndexOfDeviceId(deviceId) >= 0;
+}
+
+void MIDIDeviceUI::PopulateMidiInDevices(HWND combo, std::wstring& selectedDeviceId) {
     SendMessage(combo, CB_RESETCONTENT, 0, 0);
-    UINT numDevs = midiInGetNumDevs();
 
-    bool foundValidDevice = false;
-    int validDeviceCount = 0;
+    // No access test and no filtering: a device that fails to open reports it
+    // when it is opened, and dropping rows here is what made the combo index
+    // disagree with every other index space in the app.
+    g_devices = EnumerateMidiInputs();
 
-    for (UINT i = 0; i < numDevs; i++) {
-        MIDIINCAPS mic{};
-        if (midiInGetDevCaps(i, &mic, sizeof(mic)) == MMSYSERR_NOERROR) {
-            if (TestDeviceAccess(i)) {
-                SendMessageW(combo, CB_ADDSTRING, 0, (LPARAM)mic.szPname);
-                validDeviceCount++;
-
-                if (i == selectedDevice) {
-                    foundValidDevice = true;
-                    SendMessage(combo, CB_SETCURSEL, validDeviceCount - 1, 0);
-                }
-            }
-        }
-    }
-
-    if (validDeviceCount > 0) {
-        if (!foundValidDevice) {
-            SendMessage(combo, CB_SETCURSEL, 0, 0);
-            selectedDevice = 0;
-        }
-    }
-    else {
+    if (g_devices.empty()) {
         SendMessageW(combo, CB_ADDSTRING, 0, (LPARAM)L"No Devices");
         SendMessage(combo, CB_SETCURSEL, 0, 0);
-        selectedDevice = -1;
+        selectedDeviceId.clear();
+        return;
     }
+
+    for (const auto& device : g_devices) {
+        SendMessageW(combo, CB_ADDSTRING, 0, (LPARAM)device.name.c_str());
+    }
+
+    int index = selectedDeviceId.empty() ? -1 : IndexOfDeviceId(selectedDeviceId);
+    if (index < 0) {
+        index = 0;
+        selectedDeviceId = g_devices[0].id;
+    }
+    SendMessage(combo, CB_SETCURSEL, index, 0);
 }
+
 void MIDIDeviceUI::PopulateChannelList(HWND combo, int& selectedChannel) {
     SendMessage(combo, CB_RESETCONTENT, 0, 0);
     SendMessageW(combo, CB_ADDSTRING, 0, (LPARAM)L"All Channels");
@@ -58,19 +65,4 @@ void MIDIDeviceUI::PopulateChannelList(HWND combo, int& selectedChannel) {
 
     SendMessage(combo, CB_SETCURSEL, 0, 0);
     selectedChannel = -1;
-}
-
-UINT MIDIDeviceUI::GetMidiDeviceCount() {
-    return midiInGetNumDevs();
-}
-
-bool MIDIDeviceUI::GetMidiDeviceName(UINT deviceIndex, wchar_t* name, UINT nameSize) {
-    if (!name || nameSize == 0) return false;
-
-    MIDIINCAPS mic{};
-    if (midiInGetDevCaps(deviceIndex, &mic, sizeof(mic)) == MMSYSERR_NOERROR) {
-        wcsncpy_s(name, nameSize, mic.szPname, _TRUNCATE);
-        return true;
-    }
-    return false;
 }

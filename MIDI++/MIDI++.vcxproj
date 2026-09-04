@@ -148,6 +148,8 @@
     <ClCompile Include="MIDI2Key.cpp" />
     <ClCompile Include="MIDIConnect.cpp" />
     <ClCompile Include="MIDIDeviceUI.cpp" />
+    <ClCompile Include="WootingAnalog.cpp" />
+    <ClCompile Include="MidiInput.cpp" />
     <ClCompile Include="MIDIParser.cpp" />
     <ClCompile Include="PlaybackCore.cpp" />
     <ClCompile Include="RtMidi.cpp" />
@@ -163,6 +165,8 @@
     <ClInclude Include="MIDI2Key.hpp" />
     <ClInclude Include="MIDIConnect.hpp" />
     <ClInclude Include="MIDIDeviceUI.hpp" />
+    <ClInclude Include="MidiInput.hpp" />
+    <ClInclude Include="WootingAnalog.hpp" />
     <ClInclude Include="midi_parser.h" />
     <ClInclude Include="midi_structures.h" />
     <ClInclude Include="PlaybackSystem.hpp" />

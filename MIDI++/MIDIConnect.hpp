@@ -3,7 +3,9 @@
 #include <atomic>
 #include <array>
 #include <vector>
-#include "RtMidi.h"
+#include "MidiInput.hpp"
+#include <memory>
+#include <string>
 #include "InputHeader.h"
 #include <windows.h>
 #include <timeapi.h>
@@ -22,15 +24,18 @@ public:
     MIDIConnect();
     ~MIDIConnect();
 
-    void OpenDevice(int deviceIndex);
+    void OpenDevice(const std::wstring& deviceId);
     void CloseDevice();
     inline bool IsActive() const { return m_isActive.load(std::memory_order_relaxed); }
-    inline int GetSelectedDevice() const { return m_selectedDevice; }
+    inline const std::wstring& GetSelectedDevice() const { return m_selectedDevice; }
     void SetActive(bool active);
     void ReleaseAllNumpadKeys();
 
 private:
-    static void __stdcall RtMidiCallback(double deltaTime, std::vector<unsigned char>* message, void* userData);
+    // One message from whichever transport is open. The INPUT batch is a local,
+    // not a shared member, so concurrent callbacks cannot scribble over each
+    // other and no re-entrancy guard has to drop messages to stay safe.
+    void HandleMessage(uint64_t timestampQpc, const uint8_t* data, size_t length);
 
     static constexpr struct {
         WORD down;
@@ -42,14 +47,12 @@ private:
     };
 
     static constexpr size_t MAX_BATCH_INPUTS = 32;
-    alignas(CACHE_LINE_SIZE) std::array<INPUT, MAX_BATCH_INPUTS> m_batchedInputs;
     alignas(CACHE_LINE_SIZE) std::array<std::array<std::array<INPUT, 10>, 128>, 128> m_noteMapping;
     alignas(CACHE_LINE_SIZE) std::array<std::array<INPUT, 10>, 128> m_sustainMapping;
 
-    RtMidiIn* m_rtMidiIn;
-    int m_selectedDevice;
+    std::unique_ptr<IMidiInput> m_input;
+    std::wstring m_selectedDevice;
     std::atomic<bool> m_isActive;
-    std::atomic<bool> m_inCallback;
 
     static HANDLE s_mmcssHandle;
     static DWORD s_mmcssTaskIndex;

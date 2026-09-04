@@ -2,18 +2,8 @@
 
 #include "MIDI2Key.hpp"
 #include "InputHeader.h"
-#include <winrt/Windows.Foundation.h>
-#include <winrt/Windows.Devices.Midi.h>
-#include <winrt/Windows.Devices.Enumeration.h>
-#include <winrt/Windows.Foundation.Collections.h>
-#include <winrt/Windows.System.h>
-#include <winrt/Windows.Storage.Streams.h>
 
 #pragma comment(lib, "avrt.lib")
-
-using namespace winrt;
-using namespace Windows::Devices::Midi;
-using namespace Windows::Devices::Enumeration;
 
 static void setThreadToRealTime() {
     SetPriorityClass(GetCurrentProcess(), REALTIME_PRIORITY_CLASS);
@@ -345,24 +335,12 @@ static void precomputeAllMappings(VirtualPianoPlayer& player) {
 // MIDI2Key Implementation
 // -----------------------------------------------------------------------------
 MIDI2Key::MIDI2Key(VirtualPianoPlayer* player)
-    : m_midiInPort(nullptr)
-    , m_selectedDevice(-1)
-    , m_selectedChannel(-1)
+    : m_selectedChannel(-1)
     , m_isActive(false)
     , m_player(player)
 {
     for (auto& b : pressed) {
         b.store(false, std::memory_order_relaxed);
-    }
-    // The UI thread may already be an STA (shell dialogs, drag-drop and OLE all
-    // do this), in which case requesting an MTA throws RPC_E_CHANGED_MODE. An
-    // existing apartment of either kind is fine for our use, so treat that as
-    // success rather than letting it escape a constructor.
-    try {
-        init_apartment(apartment_type::multi_threaded);
-    }
-    catch (hresult_error const& ex) {
-        if (ex.code() != RPC_E_CHANGED_MODE) throw;
     }
     setThreadToRealTime();
 }
@@ -371,45 +349,31 @@ MIDI2Key::~MIDI2Key() {
     CloseDevice();
 }
 
-void MIDI2Key::OpenDevice(int deviceIndex) {
+void MIDI2Key::OpenDevice(const std::wstring& deviceId) {
     CloseDevice();
-    if (deviceIndex < 0) return;
+    if (deviceId.empty()) return;
 
-    auto selector = MidiInPort::GetDeviceSelector();
-    auto devices = DeviceInformation::FindAllAsync(selector).get();
-    if (devices.Size() == 0) {
-        std::wcerr << L"No MIDI input devices found.\n";
+    m_input = CreateMidiInput(BackendForDeviceId(deviceId));
+    if (!m_input) return;
+
+    const bool opened = m_input->open(deviceId,
+        [this](uint64_t timestampQpc, const uint8_t* data, size_t length) {
+            this->ProcessMidiMessage(timestampQpc, data, length);
+        });
+    if (!opened) {
+        std::wcerr << L"Failed to open MIDI device: " << deviceId << std::endl;
+        m_input.reset();
         return;
     }
-    if (deviceIndex >= devices.Size()) {
-        deviceIndex = 0;
-    }
-    auto deviceInfo = devices.GetAt(deviceIndex);
-    try {
-        m_midiInPort = MidiInPort::FromIdAsync(deviceInfo.Id()).get();
-    }
-    catch (hresult_error const& ex) {
-        std::wcerr << L"Failed to open MIDI device: " << ex.message().c_str() << std::endl;
-        m_midiInPort = nullptr;
-        return;
-    }
-    if (!m_midiInPort) return;
-
-    // Attach callback
-    m_messageToken = m_midiInPort.MessageReceived(
-        [this](MidiInPort const&, MidiMessageReceivedEventArgs const& args) {
-            this->ProcessMidiMessage(args.Message());
-        }
-    );
-    m_selectedDevice = deviceIndex;
+    m_selectedDevice = deviceId;
 }
 
 void MIDI2Key::CloseDevice() {
-    if (m_midiInPort) {
-        m_midiInPort.MessageReceived(m_messageToken);
-        m_midiInPort.Close();
-        m_midiInPort = nullptr;
+    if (m_input) {
+        m_input->close();
+        m_input.reset();
     }
+    m_selectedDevice.clear();
 }
 
 void MIDI2Key::SetMidiChannel(int channel) {
@@ -427,7 +391,7 @@ void MIDI2Key::SetActive(bool active) {
     }
 }
 
-int MIDI2Key::GetSelectedDevice() const {
+const std::wstring& MIDI2Key::GetSelectedDevice() const {
     return m_selectedDevice;
 }
 
@@ -435,11 +399,9 @@ int MIDI2Key::GetSelectedChannel() const {
     return m_selectedChannel;
 }
 
-void MIDI2Key::ProcessMidiMessage(IMidiMessage const& midiMessage) {
+void MIDI2Key::ProcessMidiMessage(uint64_t /*timestampQpc*/, const uint8_t* bytes, size_t length) {
     if (!m_isActive.load(std::memory_order_acquire)) return;
-    auto rawData = midiMessage.RawData();
-    if (!rawData || rawData.Length() < 3) return;
-    uint8_t* bytes = rawData.data();
+    if (!bytes || length < 3) return;
     uint8_t status = bytes[0];
     uint8_t cmd = status & 0xF0;
     uint8_t channel = status & 0x0F;

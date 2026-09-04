@@ -9,10 +9,9 @@
 #include <string_view>
 #include <vector>
 
-// WinRT for MIDI
-#include <winrt/Windows.Foundation.h>
-#include <winrt/Windows.Devices.Enumeration.h>
-#include <winrt/Windows.Devices.Midi.h>
+// MIDI transport lives behind IMidiInput, so this class no longer knows or
+// cares whether the bytes arrived over WinRT or WinMM.
+#include "MidiInput.hpp"
 
 // Classic Windows
 #include <windows.h>
@@ -30,24 +29,24 @@ public:
     MIDI2Key(VirtualPianoPlayer* player);
     ~MIDI2Key();
 
-    void OpenDevice(int deviceIndex);
+    void OpenDevice(const std::wstring& deviceId);
     void CloseDevice();
     void SetMidiChannel(int channel);
 
     bool IsActive() const;
     void SetActive(bool active);
 
-    int GetSelectedDevice() const;
+    const std::wstring& GetSelectedDevice() const;
     int GetSelectedChannel() const;
 
 private:
-    void ProcessMidiMessage(winrt::Windows::Devices::Midi::IMidiMessage const& midiMessage);
+    void ProcessMidiMessage(uint64_t timestampQpc, const uint8_t* data, size_t length);
 
-    // WinRT MIDI port
-    winrt::Windows::Devices::Midi::MidiInPort m_midiInPort{ nullptr };
-    winrt::event_token m_messageToken;
+    // Transport, chosen per device id
+    std::unique_ptr<IMidiInput> m_input;
+    std::wstring m_selectedDevice;
 
-    int m_selectedDevice;
+
     int m_selectedChannel;
     std::atomic<bool> m_isActive;
     VirtualPianoPlayer* m_player; // copy 
