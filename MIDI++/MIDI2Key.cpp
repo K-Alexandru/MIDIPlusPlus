@@ -354,7 +354,16 @@ MIDI2Key::MIDI2Key(VirtualPianoPlayer* player)
     for (auto& b : pressed) {
         b.store(false, std::memory_order_relaxed);
     }
-    init_apartment(apartment_type::multi_threaded);
+    // The UI thread may already be an STA (shell dialogs, drag-drop and OLE all
+    // do this), in which case requesting an MTA throws RPC_E_CHANGED_MODE. An
+    // existing apartment of either kind is fine for our use, so treat that as
+    // success rather than letting it escape a constructor.
+    try {
+        init_apartment(apartment_type::multi_threaded);
+    }
+    catch (hresult_error const& ex) {
+        if (ex.code() != RPC_E_CHANGED_MODE) throw;
+    }
     setThreadToRealTime();
 }
 
