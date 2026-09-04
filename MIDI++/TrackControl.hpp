@@ -5,6 +5,7 @@
 #include <string>
 #include <memory>
 #include <unordered_map>
+#include "Theme.hpp"
 
 class VirtualPianoPlayer;
 
@@ -31,13 +32,17 @@ public:
     static LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);
     HWND GetWindowHandle() const { return m_hWnd; }
 
+    // Rescales all metrics for the current display DPI. Call before Create().
+    static void SetDpi();
+
 private:
-    static constexpr int HEADER_HEIGHT = 20;
-    static constexpr int TRACK_HEIGHT = 30;
-    static constexpr int SCROLLBAR_WIDTH = 16;
-    static constexpr int BUTTON_WIDTH = 40;
-    static constexpr int BUTTON_HEIGHT = 22;
-    static constexpr int BUTTON_MARGIN = 4;
+    // Metrics are design units at 96 DPI, rescaled once by SetDpi().
+    static int HEADER_HEIGHT;
+    static int TRACK_HEIGHT;
+    static int SCROLLBAR_WIDTH;
+    static int BUTTON_WIDTH;
+    static int BUTTON_HEIGHT;
+    static int BUTTON_MARGIN;
     RECT m_rcTrackUpdate = {};
 
     enum class Column {

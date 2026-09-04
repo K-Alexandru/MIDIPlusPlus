@@ -10,6 +10,13 @@
 
 #define CACHE_LINE_SIZE 64
 
+// MIDI2Key.hpp defines MAX_BATCH_INPUTS as a macro. When that header is included
+// first (as in MIDI++.cpp) the macro rewrites the class constant below into
+// "static constexpr size_t 32 = 32;". Drop the macro before declaring the class.
+#ifdef MAX_BATCH_INPUTS
+#undef MAX_BATCH_INPUTS
+#endif
+
 class MIDIConnect {
 public:
     MIDIConnect();

@@ -4,6 +4,23 @@
 #include <algorithm>
 #include <sstream>
 
+// Metric definitions. Design units at 96 DPI; SetDpi() rescales them in place.
+int TrackControl::HEADER_HEIGHT   = 20;
+int TrackControl::TRACK_HEIGHT    = 30;
+int TrackControl::SCROLLBAR_WIDTH = 16;
+int TrackControl::BUTTON_WIDTH    = 40;
+int TrackControl::BUTTON_HEIGHT   = 22;
+int TrackControl::BUTTON_MARGIN   = 4;
+
+void TrackControl::SetDpi() {
+    HEADER_HEIGHT   = Theme::S(20);
+    TRACK_HEIGHT    = Theme::S(30);
+    SCROLLBAR_WIDTH = Theme::S(16);
+    BUTTON_WIDTH    = Theme::S(40);
+    BUTTON_HEIGHT   = Theme::S(22);
+    BUTTON_MARGIN   = Theme::S(4);
+}
+
 // if this SHIT DOES NOT FUCKING REGISTER CORRECTLY IM SWITCHING TO FUCKING MAC
 static bool RegisterTrackControlClass(HINSTANCE hInstance) {
     static bool registered = false;
@@ -45,21 +62,15 @@ TrackControl::TrackControl()
 {
     SetRectEmpty(&m_rcTrackUpdate);
 
-    m_hBackgroundBrush = CreateSolidBrush(RGB(248, 248, 250));        
-    m_hTrackBrush = CreateSolidBrush(RGB(252, 252, 255));          
-    m_hSelectedTrackBrush = CreateSolidBrush(RGB(230, 240, 255));     
-    m_hHeaderBrush = CreateSolidBrush(RGB(235, 235, 240));            
+    m_hBackgroundBrush = CreateSolidBrush(Theme::TABLE_BG);        
+    m_hTrackBrush = CreateSolidBrush(Theme::TABLE_ROW_ALT);          
+    m_hSelectedTrackBrush = CreateSolidBrush(Theme::TABLE_SELECTED);     
+    m_hHeaderBrush = CreateSolidBrush(Theme::TABLE_HEADER_BG);            
 
-    NONCLIENTMETRICS ncm = { sizeof(NONCLIENTMETRICS) };
-    SystemParametersInfo(SPI_GETNONCLIENTMETRICS, sizeof(NONCLIENTMETRICS), &ncm, 0);
-
-    LOGFONT lf = ncm.lfMessageFont;
-    lf.lfHeight = (lf.lfHeight * 11) / 10;  
-    lf.lfQuality = CLEARTYPE_QUALITY;      
-    m_hFont = CreateFontIndirect(&lf);
-
-    lf.lfWeight = FW_BOLD;
-    m_hBoldFont = CreateFontIndirect(&lf);
+    // Own copies so the destructor can free them, but the same face and
+    // DPI scaling the rest of the UI uses.
+    m_hFont     = Theme::MakeFont(Theme::S(14), FW_NORMAL,   L"Segoe UI");
+    m_hBoldFont = Theme::MakeFont(Theme::S(14), FW_SEMIBOLD, L"Segoe UI");
 }
 
 TrackControl::~TrackControl() {
@@ -162,20 +173,20 @@ void TrackControl::RefreshDisplay() {
 
 int TrackControl::GetColumnWidth(Column col) const {
     switch (col) {
-    case Column::TrackNumber: return 40;   
-    case Column::TrackName: return 180;
-    case Column::Channel: return 70; 
-    case Column::Program: return 190;      
-    case Column::NoteCount: return 80;
-    case Column::Mute: return 60;         
-    case Column::Solo: return 60;        
+    case Column::TrackNumber: return Theme::S(40);   
+    case Column::TrackName: return Theme::S(200);
+    case Column::Channel: return Theme::S(70); 
+    case Column::Program: return Theme::S(190);      
+    case Column::NoteCount: return Theme::S(80);
+    case Column::Mute: return Theme::S(60);         
+    case Column::Solo: return Theme::S(60);        
     default: return 0;
     }
 }
 
 int TrackControl::GetColumnPosition(Column col) const {
-    int pos = 10; 
-    const int COLUMN_PADDING = 12;
+    int pos = Theme::S(10);
+    const int COLUMN_PADDING = Theme::S(12);
 
     for (int i = 0; i < static_cast<int>(col); ++i) {
         pos += GetColumnWidth(static_cast<Column>(i)) + COLUMN_PADDING;
@@ -396,7 +407,7 @@ void TrackControl::DrawHeaders(HDC hdc) {
     RECT headerRect = { 0, 0, m_width, HEADER_HEIGHT };
     FillRect(hdc, &headerRect, m_hHeaderBrush);
 
-    HPEN hPen = CreatePen(PS_SOLID, 2, RGB(190, 190, 200));
+    HPEN hPen = CreatePen(PS_SOLID, 1, Theme::TABLE_GRID);
     HPEN hOldPen = (HPEN)SelectObject(hdc, hPen);
     MoveToEx(hdc, 0, HEADER_HEIGHT - 1, nullptr);
     LineTo(hdc, m_width, HEADER_HEIGHT - 1);
@@ -404,12 +415,12 @@ void TrackControl::DrawHeaders(HDC hdc) {
     DeleteObject(hPen);
 
     SetBkMode(hdc, TRANSPARENT);
-    SetTextColor(hdc, RGB(60, 60, 80));
+    SetTextColor(hdc, Theme::TEXT_MUTED);
     HFONT hOldFont = (HFONT)SelectObject(hdc, m_hBoldFont);
 
     const char* headers[] = { "#", "Track Name", "Channel", "Instrument", "Notes", "Mute", "Solo" };
     UINT alignments[] = { DT_CENTER, DT_LEFT, DT_CENTER, DT_LEFT, DT_CENTER, DT_CENTER, DT_CENTER };
-    const int HEADER_PADDING = 10;
+    const int HEADER_PADDING = Theme::S(10);
 
     for (int i = 0; i < 7; ++i) {
         int x = GetColumnPosition(static_cast<Column>(i));
@@ -417,7 +428,7 @@ void TrackControl::DrawHeaders(HDC hdc) {
         DrawTextA(hdc, headers[i], -1, &textRect, alignments[i] | DT_VCENTER | DT_SINGLELINE);
     }
 
-    HPEN hDividerPen = CreatePen(PS_SOLID, 1, RGB(210, 210, 215));
+    HPEN hDividerPen = CreatePen(PS_SOLID, 1, Theme::TABLE_GRID);
     SelectObject(hdc, hDividerPen);
     for (int i = 0; i < 6; ++i) {
         int x = GetColumnPosition(static_cast<Column>(i)) + GetColumnWidth(static_cast<Column>(i)) - 1;

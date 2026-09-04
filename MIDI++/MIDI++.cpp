@@ -5,6 +5,7 @@
 #include "MIDIConnect.hpp"
 #include "MIDIDeviceUI.hpp"
 #include "resource.h"
+#include "Theme.hpp"
 
 #include <CommCtrl.h>
 #include <GdiPlus.h>
@@ -88,66 +89,190 @@ static std::unordered_map<int, bool> g_toggleStates;
 
 static bool g_randomSongEnabled = false;
 
+
 // -----------------------------------------------------------------------------
-// Control layout constants
+// Layout: design values are authored at 96 DPI and scaled once at startup.
+// Everything below the roots is derived, so nothing needs hand-tuning.
 // -----------------------------------------------------------------------------
 namespace Layout {
-    // Window dimensions
-    static const int WIN_W = 880;
-    static const int WIN_H = 760;
+    // ============ ROOT KNOBS (design units @ 96 DPI) ============
+    static const int D_PAD        = 12;   // window edge padding
+    static const int D_GAP        = 10;   // gap between cards
+    static const int D_SIDEBAR_W  = 440;  // <<< MIDI file browser width
+    static const int D_RIGHT_W    = 640;  // right-hand control column width
+    static const int D_CARD_PAD   = 12;   // padding inside a card
+    static const int D_HEADER_H   = 30;   // card title strip height
+    static const int D_ROW_H      = 28;   // standard control height
+    static const int D_ROW_GAP    = 8;    // vertical gap between rows
+    static const int D_BTN_W      = 84;   // standard button width
+    static const int D_BTN_GAP    = 8;    // gap between buttons in a row
+    static const int D_LABEL_H    = 20;
+    static const int D_COMBO_W    = 140;
+    static const int D_DET_EDIT_H = 112;
+    static const int D_TRK_H      = 150;
+    static const int D_LOG_H      = 170;
 
-    // MIDI Files group
-    static const int FILES_X = 10;
-    static const int FILES_Y = 10;
-    static const int FILES_W = 240;
-    static const int FILES_H = 405;
+    // Scales an arbitrary design-unit value. Use for any literal pixel size.
+    static inline int S(int v) { return Theme::S(v); }
 
-    // Playback (Basic) group
-    static const int PBASIC_X = 260;
-    static const int PBASIC_Y = 10;
-    static const int PBASIC_W = 600;
-    static const int PBASIC_H = 100;
-    static const int PB_ROW1_Y = PBASIC_Y + 25;
-    static const int PB_ROW2_Y = PBASIC_Y + 25 + 28 + 8;
-    static const int PB_BTN_WIDTH = 80;
-    static const int PB_BTN_HEIGHT = 28;
-    static const int PB_BTN_GAP = 10;
-    static const int PB_MIDI_QWERTY_X = PBASIC_X + 340;
-    static const int PB_MIDI_QWERTY_Y = PB_ROW1_Y;
-    static const int PB_STATIC_TIME_X = PBASIC_X + 470;
-    static const int PB_STATIC_TIME_Y = PBASIC_Y + 28;
-    static const int PB_STATIC_TIME_W = 120;
-    static const int PB_STATIC_TIME_H = 25;
+    // ============ RUNTIME VALUES (filled in by Init) ============
+    static int PAD, GAP, SIDEBAR_W, RIGHT_W, CARD_PAD, HEADER_H, ROW_H, ROW_GAP;
+    static int BTN_W, BTN_GAP, LABEL_H, COMBO_W, DET_EDIT_H;
+    static int LEFT_X, RIGHT_X, TOP_Y;
+    static int PBASIC_H, PADV_H, CFG_H, DET_H;
+    static int PBASIC_X, PBASIC_W, PBASIC_Y;
+    static int PADV_X,   PADV_W,   PADV_Y;
+    static int CFG_X,    CFG_W,    CFG_Y;
+    static int DET_X,    DET_W,    DET_Y;
+    static int FILES_X,  FILES_Y,  FILES_W, FILES_H;
+    static int FULL_W;
+    static int TRK_X, TRK_W, TRK_H, TRK_Y;
+    static int LOG_X, LOG_W, LOG_H, LOG_Y;
+    static int CLIENT_W, CLIENT_H;
 
-    // Advanced group
-    static const int PADV_X = 260;
-    static const int PADV_Y = PBASIC_Y + PBASIC_H + 5;
-    static const int PADV_W = 600;
-    static const int PADV_H = 100;
+    // Computes every derived value from the scaled roots. Call after Theme::SetDpi.
+    static void Init() {
+        PAD        = S(D_PAD);
+        GAP        = S(D_GAP);
+        SIDEBAR_W  = S(D_SIDEBAR_W);
+        RIGHT_W    = S(D_RIGHT_W);
+        CARD_PAD   = S(D_CARD_PAD);
+        HEADER_H   = S(D_HEADER_H);
+        ROW_H      = S(D_ROW_H);
+        ROW_GAP    = S(D_ROW_GAP);
+        BTN_W      = S(D_BTN_W);
+        BTN_GAP    = S(D_BTN_GAP);
+        LABEL_H    = S(D_LABEL_H);
+        COMBO_W    = S(D_COMBO_W);
+        DET_EDIT_H = S(D_DET_EDIT_H);
 
-    // Config group
-    static const int CFG_X = 260;
-    static const int CFG_Y = PADV_Y + PADV_H + 5;
-    static const int CFG_W = 600;
-    static const int CFG_H = 60;
+        LEFT_X  = PAD;
+        RIGHT_X = LEFT_X + SIDEBAR_W + GAP;
+        TOP_Y   = PAD;
 
-    // Details group
-    static const int DET_X = 260;
-    static const int DET_Y = CFG_Y + CFG_H + 5;
-    static const int DET_W = 600;
-    static const int DET_H = 130;
+        // Card heights expressed as the content they hold.
+        PBASIC_H = HEADER_H + CARD_PAD + ROW_H + ROW_GAP + ROW_H + CARD_PAD;
+        PADV_H   = PBASIC_H;
+        CFG_H    = HEADER_H + CARD_PAD + ROW_H + CARD_PAD;
+        DET_H    = HEADER_H + CARD_PAD + DET_EDIT_H + CARD_PAD;
 
-    // Tracks group
-    static const int TRK_X = 10;
-    static const int TRK_Y = DET_Y + DET_H + 10;
-    static const int TRK_W = 850;
-    static const int TRK_H = 120;
+        // Right column stack.
+        PBASIC_X = RIGHT_X; PBASIC_W = RIGHT_W; PBASIC_Y = TOP_Y;
+        PADV_X   = RIGHT_X; PADV_W   = RIGHT_W; PADV_Y   = PBASIC_Y + PBASIC_H + GAP;
+        CFG_X    = RIGHT_X; CFG_W    = RIGHT_W; CFG_Y    = PADV_Y   + PADV_H   + GAP;
+        DET_X    = RIGHT_X; DET_W    = RIGHT_W; DET_Y    = CFG_Y    + CFG_H    + GAP;
 
-    // Log group
-    static const int LOG_X = 10;
-    static const int LOG_Y = TRK_Y + TRK_H + 10;
-    static const int LOG_W = 850;
-    static const int LOG_H = 150;
+        // Left column height mirrors the right column so the two align exactly.
+        FILES_X = LEFT_X;
+        FILES_Y = TOP_Y;
+        FILES_W = SIDEBAR_W;
+        FILES_H = (DET_Y + DET_H) - TOP_Y;
+
+        // Full-width rows beneath both columns.
+        FULL_W = SIDEBAR_W + GAP + RIGHT_W;
+        TRK_X = LEFT_X; TRK_W = FULL_W; TRK_H = S(D_TRK_H);
+        TRK_Y = FILES_Y + FILES_H + GAP;
+        LOG_X = LEFT_X; LOG_W = FULL_W; LOG_H = S(D_LOG_H);
+        LOG_Y = TRK_Y + TRK_H + GAP;
+
+        CLIENT_W = PAD + FULL_W + PAD;
+        CLIENT_H = LOG_Y + LOG_H + PAD;
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Small layout helpers so control placement reads as structure, not arithmetic.
+// -----------------------------------------------------------------------------
+
+// Lays controls out left-to-right on a single row.
+struct RowCursor {
+    int x, y, h, gap;
+    RowCursor(int x_, int y_, int h_ = 0, int gap_ = 0)
+        : x(x_), y(y_),
+          h(h_ ? h_ : Layout::ROW_H),
+          gap(gap_ ? gap_ : Layout::BTN_GAP) {}
+    // Take the next slot of the given width and advance past it.
+    RECT take(int w) {
+        RECT r{ x, y, x + w, y + h };
+        x += w + gap;
+        return r;
+    }
+    void skip(int px) { x += px; }
+};
+
+// Describes the content area inside a card (below its title strip).
+struct CardBody {
+    int x, y, w;
+    CardBody(int cardX, int cardY, int cardW)
+        : x(cardX + Layout::CARD_PAD),
+          y(cardY + Layout::HEADER_H + Layout::CARD_PAD),
+          w(cardW - Layout::CARD_PAD * 2) {}
+    int rowY(int index) const { return y + index * (Layout::ROW_H + Layout::ROW_GAP); }
+    RowCursor row(int index, int h = 0) const { return RowCursor(x, rowY(index), h); }
+    int right() const { return x + w; }
+};
+
+// A card is painted by the parent in WM_PAINT; no BS_GROUPBOX involved.
+struct CardSpec {
+    RECT rc;
+    std::wstring title;
+};
+static std::vector<CardSpec> g_cards;
+
+static void AddCard(int x, int y, int w, int h, const wchar_t* title) {
+    CardSpec c;
+    c.rc = RECT{ x, y, x + w, y + h };
+    c.title = title;
+    g_cards.push_back(c);
+}
+
+// Convenience accessors so control creation reads as (rect, w, h).
+static inline int RW(const RECT& r) { return r.right - r.left; }
+static inline int RH(const RECT& r) { return r.bottom - r.top; }
+
+// Splits one card row into N equally sized columns. Used wherever a group of
+// buttons should span the full card width regardless of how many there are.
+struct RowSplit {
+    int x, y, h, gap, w;
+    RowSplit(const CardBody& b, int rowIndex, int n, int h_ = 0)
+        : x(b.x), y(b.rowY(rowIndex)),
+          h(h_ ? h_ : Layout::ROW_H),
+          gap(Layout::BTN_GAP) {
+        if (n < 1) n = 1;
+        w = (b.w - gap * (n - 1)) / n;
+    }
+    RECT next() {
+        RECT r{ x, y, x + w, y + h };
+        x += w + gap;
+        return r;
+    }
+};
+
+// Opts the process into per-monitor DPI awareness so Windows renders the UI at
+// native resolution instead of bitmap-stretching a 96 DPI window.
+static void EnableDpiAwareness() {
+    using SetCtxFn = BOOL(WINAPI*)(HANDLE);
+    if (HMODULE u32 = GetModuleHandleW(L"user32.dll")) {
+        if (auto fn = reinterpret_cast<SetCtxFn>(GetProcAddress(u32, "SetProcessDpiAwarenessContext"))) {
+            // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 == (HANDLE)-4
+            if (fn(reinterpret_cast<HANDLE>(-4))) return;
+            if (fn(reinterpret_cast<HANDLE>(-3))) return;  // PER_MONITOR_AWARE
+        }
+    }
+    SetProcessDPIAware();
+}
+
+// Reads the system DPI, falling back to the desktop DC on older systems.
+static int QuerySystemDpi() {
+    using GetDpiFn = UINT(WINAPI*)(void);
+    if (HMODULE u32 = GetModuleHandleW(L"user32.dll")) {
+        if (auto fn = reinterpret_cast<GetDpiFn>(GetProcAddress(u32, "GetDpiForSystem")))
+            return static_cast<int>(fn());
+    }
+    HDC dc = GetDC(nullptr);
+    int dpi = dc ? GetDeviceCaps(dc, LOGPIXELSX) : 96;
+    if (dc) ReleaseDC(nullptr, dc);
+    return dpi;
 }
 
 // Global sustain cutoff value box (edit control)
@@ -254,7 +379,8 @@ struct MidiItem {
     std::wstring name;
     std::wstring fullPath;
     bool isFolder;
-    std::time_t lastWrite; 
+    std::time_t lastWrite;
+    uintmax_t   fileSize = 0;
 };
 
 static std::vector<MidiItem> g_midiItems;
@@ -299,6 +425,9 @@ static void ScanMidiFolder() {
                 ftime - std::filesystem::file_time_type::clock::now() + std::chrono::system_clock::now()
             );
             item.lastWrite = std::chrono::system_clock::to_time_t(sctp);
+            std::error_code sizeEc;
+            item.fileSize = std::filesystem::file_size(entry.path(), sizeEc);
+            if (sizeEc) item.fileSize = 0;
         }
         else {
             item.lastWrite = 0;
@@ -358,6 +487,14 @@ static void SortMidiItems() {
             return a.lastWrite < b.lastWrite;
         case 3: // Date (New-Old)
             return a.lastWrite > b.lastWrite;
+        case 4: // Size (Large-Small)
+            if (a.fileSize != b.fileSize)
+                return a.fileSize > b.fileSize;
+            return _wcsicmp(a.name.c_str(), b.name.c_str()) < 0;
+        case 5: // Size (Small-Large)
+            if (a.fileSize != b.fileSize)
+                return a.fileSize < b.fileSize;
+            return _wcsicmp(a.name.c_str(), b.name.c_str()) < 0;
         default:
             return _wcsicmp(a.name.c_str(), b.name.c_str()) < 0;
         }
@@ -550,11 +687,78 @@ static void UpdateWindowFocusability() {
     }
 }
 
-static COLORREF g_colorOn = RGB(100, 255, 100);
-static COLORREF g_colorOff = RGB(220, 220, 220);
-static COLORREF g_colorHover = RGB(180, 180, 250);
-static COLORREF g_colorPush = RGB(160, 160, 255);
-static COLORREF g_colorText = RGB(0, 0, 0);
+// -----------------------------------------------------------------------------
+// Drawing: everything below renders from the Theme namespace, so restyling the
+// app is a matter of editing colours there rather than touching this code.
+// -----------------------------------------------------------------------------
+
+static inline Gdiplus::Color GpC(COLORREF c, BYTE a = 255) {
+    return Gdiplus::Color(a, GetRValue(c), GetGValue(c), GetBValue(c));
+}
+
+// Fills and strokes a rounded rectangle. Pass a zero alpha border to skip the stroke.
+static void GpRoundRect(Gdiplus::Graphics& g, const Gdiplus::RectF& r, float radius,
+                        const Gdiplus::Color& fill, const Gdiplus::Color& border,
+                        float borderWidth = 1.0f) {
+    Gdiplus::GraphicsPath path;
+    float d = radius * 2.0f;
+    path.AddArc(r.X, r.Y, d, d, 180.0f, 90.0f);
+    path.AddArc(r.GetRight() - d, r.Y, d, d, 270.0f, 90.0f);
+    path.AddArc(r.GetRight() - d, r.GetBottom() - d, d, d, 0.0f, 90.0f);
+    path.AddArc(r.X, r.GetBottom() - d, d, d, 90.0f, 90.0f);
+    path.CloseFigure();
+
+    Gdiplus::SolidBrush b(fill);
+    g.FillPath(&b, &path);
+    if (border.GetAlpha() != 0) {
+        Gdiplus::Pen p(border, borderWidth);
+        g.DrawPath(&p, &path);
+    }
+}
+
+// Applies the UI font to every child control, with a monospace face for the
+// read-only text panes.
+static void ApplyThemeFonts(HWND hWnd) {
+    EnumChildWindows(hWnd, [](HWND child, LPARAM) -> BOOL {
+        int id = GetDlgCtrlID(child);
+        HFONT f = (id == ID_EDIT_LOG || id == ID_EDIT_DETAILS || id == ID_EDIT_TRACKS)
+                      ? Theme::Mono()
+                      : Theme::UI();
+        SendMessageW(child, WM_SETFONT, reinterpret_cast<WPARAM>(f), TRUE);
+        return TRUE;
+    }, 0);
+}
+
+// Paints the window background and every registered card. Controls are children
+// and draw themselves on top of this.
+static void DrawCards(HDC hdc, const RECT& client) {
+    Gdiplus::Graphics g(hdc);
+    g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+
+    Gdiplus::SolidBrush bg(GpC(Theme::WINDOW_BG));
+    g.FillRectangle(&bg, (INT)client.left, (INT)client.top,
+                    (INT)(client.right - client.left), (INT)(client.bottom - client.top));
+
+    for (const auto& c : g_cards) {
+        Gdiplus::RectF rf((Gdiplus::REAL)c.rc.left + 0.5f,
+                          (Gdiplus::REAL)c.rc.top + 0.5f,
+                          (Gdiplus::REAL)(c.rc.right - c.rc.left) - 1.0f,
+                          (Gdiplus::REAL)(c.rc.bottom - c.rc.top) - 1.0f);
+        GpRoundRect(g, rf, (float)Theme::CardCornerRadius(),
+                    GpC(Theme::CARD_BG), GpC(Theme::CARD_BORDER));
+    }
+
+    // Titles go through GDI so they get ClearType rather than GDI+ greyscale AA.
+    SetBkMode(hdc, TRANSPARENT);
+    HFONT oldFont = reinterpret_cast<HFONT>(SelectObject(hdc, Theme::UITitle()));
+    SetTextColor(hdc, Theme::TEXT);
+    for (const auto& c : g_cards) {
+        RECT t{ c.rc.left + Layout::CARD_PAD, c.rc.top,
+                c.rc.right - Layout::CARD_PAD, c.rc.top + Layout::HEADER_H };
+        DrawTextW(hdc, c.title.c_str(), -1, &t, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+    }
+    SelectObject(hdc, oldFont);
+}
 
 static void DrawFancyButton(const DRAWITEMSTRUCT* dis) {
     if (dis->CtlType != ODT_BUTTON)
@@ -570,58 +774,58 @@ static void DrawFancyButton(const DRAWITEMSTRUCT* dis) {
     bool isPressed = (dis->itemState & ODS_SELECTED) != 0;
     bool isFocused = (dis->itemState & ODS_FOCUS) != 0;
 
-    COLORREF fill = g_colorOff;
+    COLORREF fill = Theme::BTN_BG;
+    COLORREF border = Theme::BTN_BORDER;
+    COLORREF text = Theme::TEXT;
+
     if (ctrlID == ID_BTN_SUSTAIN && g_player != nullptr) {
         switch (g_player->currentSustainMode) {
         case SustainMode::IG:
-            fill = RGB(220, 220, 220);
             break;
         case SustainMode::SPACE_DOWN:
-            fill = RGB(100, 255, 100);
+            fill = Theme::SUS_DOWN_BG; border = Theme::SUS_DOWN_BORDER; text = Theme::ON_TEXT;
             break;
         case SustainMode::SPACE_UP:
-            fill = RGB(100, 100, 255);
+            fill = Theme::SUS_UP_BG;   border = Theme::SUS_UP_BORDER;   text = Theme::TEXT;
             break;
         }
     }
     else if (togglable && toggled) {
-        fill = g_colorOn;
+        fill = Theme::ON_BG; border = Theme::ON_BORDER; text = Theme::ON_TEXT;
     }
-    if (isPressed)
-        fill = g_colorPush;
-    else if (isHot)
-        fill = g_colorHover;
 
-    HBRUSH br = CreateSolidBrush(fill);
-    FillRect(hdc, &rc, br);
-    DeleteObject(br);
+    if (isPressed) { fill = Theme::BTN_PRESS; border = Theme::ACCENT; }
+    else if (isHot) { fill = Theme::BTN_HOVER; border = Theme::ACCENT; }
 
-    FrameRect(hdc, &rc, reinterpret_cast<HBRUSH>(GetStockObject(BLACK_BRUSH)));
+    Gdiplus::Graphics g(hdc);
+    g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
 
-    wchar_t text[128] = { 0 };
-    GetWindowTextW(dis->hwndItem, text, 128);
+    // Paint the card colour first so the area outside the rounded corners blends in.
+    Gdiplus::SolidBrush cardBg(GpC(Theme::CARD_BG));
+    g.FillRectangle(&cardBg, (INT)rc.left, (INT)rc.top,
+                    (INT)(rc.right - rc.left), (INT)(rc.bottom - rc.top));
 
-    SetTextColor(hdc, g_colorText);
+    Gdiplus::RectF rf((Gdiplus::REAL)rc.left + 0.5f,
+                      (Gdiplus::REAL)rc.top + 0.5f,
+                      (Gdiplus::REAL)(rc.right - rc.left) - 1.0f,
+                      (Gdiplus::REAL)(rc.bottom - rc.top) - 1.0f);
+    GpRoundRect(g, rf, (float)Theme::CornerRadius(), GpC(fill), GpC(border));
+
+    wchar_t txt[128] = { 0 };
+    GetWindowTextW(dis->hwndItem, txt, 128);
+
+    SetTextColor(hdc, text);
     SetBkMode(hdc, TRANSPARENT);
-
-    static HFONT s_hRegularFont = nullptr;
-    static HFONT s_hBoldFont = nullptr;
-    if (!s_hRegularFont) {
-        s_hRegularFont = reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
-        LOGFONT lf = {};
-        GetObject(s_hRegularFont, sizeof(lf), &lf);
-        lf.lfWeight = FW_BOLD;
-        s_hBoldFont = CreateFontIndirect(&lf);
-    }
-    HFONT hFontToUse = (togglable && toggled) ? s_hBoldFont : s_hRegularFont;
+    HFONT hFontToUse = (togglable && toggled) ? Theme::UIBold() : Theme::UI();
     HFONT hOldFont = reinterpret_cast<HFONT>(SelectObject(hdc, hFontToUse));
-    DrawTextW(hdc, text, -1, &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    DrawTextW(hdc, txt, -1, &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+    SelectObject(hdc, hOldFont);
+
     if (isFocused) {
         RECT frc = rc;
         InflateRect(&frc, -3, -3);
         DrawFocusRect(hdc, &frc);
     }
-    SelectObject(hdc, hOldFont);
 }
 
 // -----------------------------------------------------------------------------
@@ -908,258 +1112,291 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
         icex.dwICC = ICC_BAR_CLASSES;
         InitCommonControlsEx(&icex);
 
-        // MIDI Files Group
-        CreateWindowW(L"button", L"MIDI Files",
-            WS_CHILD | WS_VISIBLE | BS_GROUPBOX,
-            Layout::FILES_X, Layout::FILES_Y, Layout::FILES_W, Layout::FILES_H,
-            hWnd, reinterpret_cast<HMENU>(1), g_hInst, nullptr);
+        g_cards.clear();
 
-        HWND cbSort = CreateWindowW(L"combobox", nullptr,
-            WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST,
-            Layout::FILES_X + 10, Layout::FILES_Y + 20, 130, 110,
-            hWnd, reinterpret_cast<HMENU>(ID_CB_SORT), g_hInst, nullptr);
-        SendMessageW(cbSort, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Name (A-Z)"));
-        SendMessageW(cbSort, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Name (Z-A)"));
-        SendMessageW(cbSort, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Date (Old-New)"));
-        SendMessageW(cbSort, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Date (New-Old)"));
-        SendMessageW(cbSort, CB_SETCURSEL, 0, 0);
-        CreateWindowW(L"button", L"Refresh",
-            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-            Layout::FILES_X + 150, Layout::FILES_Y + 20, 70, 25,
-            hWnd, reinterpret_cast<HMENU>(ID_BTN_REFRESH), g_hInst, nullptr);
-        g_lbMidi = CreateWindowW(L"listbox", nullptr,
-            WS_CHILD | WS_VISIBLE | LBS_NOTIFY | WS_VSCROLL | WS_HSCROLL | WS_BORDER | LBS_NOINTEGRALHEIGHT,
-            Layout::FILES_X + 10, Layout::FILES_Y + 50, 210, 350,
-            hWnd, reinterpret_cast<HMENU>(ID_LB_MIDI), g_hInst, nullptr);
-        SetWindowSubclass(g_lbMidi, MidiListSubclassProc, 0, 0);
-
-        // Playback (Basic) Group
-        CreateWindowW(L"button", L"Playback (Basic)",
-            WS_CHILD | WS_VISIBLE | BS_GROUPBOX,
-            Layout::PBASIC_X, Layout::PBASIC_Y, Layout::PBASIC_W, Layout::PBASIC_H,
-            hWnd, reinterpret_cast<HMENU>(ID_GRP_PLAY), g_hInst, nullptr);
-        int bx = Layout::PBASIC_X + 20;
-        CreateWindowW(L"button", L"Load",
-            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-            bx, Layout::PB_ROW1_Y, Layout::PB_BTN_WIDTH, Layout::PB_BTN_HEIGHT,
-            hWnd, reinterpret_cast<HMENU>(ID_BTN_LOAD), g_hInst, nullptr);
-        bx += Layout::PB_BTN_WIDTH + Layout::PB_BTN_GAP;
-        CreateWindowW(L"button", L"Play/Pause",
-            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-            bx, Layout::PB_ROW1_Y, Layout::PB_BTN_WIDTH, Layout::PB_BTN_HEIGHT,
-            hWnd, reinterpret_cast<HMENU>(ID_BTN_PLAY), g_hInst, nullptr);
-        bx += Layout::PB_BTN_WIDTH + Layout::PB_BTN_GAP;
-        CreateWindowW(L"button", L"Restart",
-            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-            bx, Layout::PB_ROW1_Y, Layout::PB_BTN_WIDTH, Layout::PB_BTN_HEIGHT,
-            hWnd, reinterpret_cast<HMENU>(ID_BTN_RESTART), g_hInst, nullptr);
-        bx = Layout::PBASIC_X + 20;
-        CreateWindowW(L"button", L"Skip+10",
-            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-            bx, Layout::PB_ROW2_Y, Layout::PB_BTN_WIDTH, Layout::PB_BTN_HEIGHT,
-            hWnd, reinterpret_cast<HMENU>(ID_BTN_SKIP), g_hInst, nullptr);
-        bx += Layout::PB_BTN_WIDTH + Layout::PB_BTN_GAP;
-        CreateWindowW(L"button", L"Rew-10",
-            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-            bx, Layout::PB_ROW2_Y, Layout::PB_BTN_WIDTH, Layout::PB_BTN_HEIGHT,
-            hWnd, reinterpret_cast<HMENU>(ID_BTN_REW), g_hInst, nullptr);
-        bx += Layout::PB_BTN_WIDTH + Layout::PB_BTN_GAP;
-        CreateWindowW(L"button", L"Speed++",
-            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-            bx, Layout::PB_ROW2_Y, Layout::PB_BTN_WIDTH, Layout::PB_BTN_HEIGHT,
-            hWnd, reinterpret_cast<HMENU>(ID_BTN_SPEEDUP), g_hInst, nullptr);
-        bx += Layout::PB_BTN_WIDTH + Layout::PB_BTN_GAP;
-        CreateWindowW(L"button", L"Speed--",
-            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-            bx, Layout::PB_ROW2_Y, Layout::PB_BTN_WIDTH, Layout::PB_BTN_HEIGHT,
-            hWnd, reinterpret_cast<HMENU>(ID_BTN_SPEEDDN), g_hInst, nullptr);
-        CreateWindowW(L"button", L"Midi2Key",
-            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-            Layout::PB_MIDI_QWERTY_X + 35, Layout::PB_MIDI_QWERTY_Y, 80, Layout::PB_BTN_HEIGHT,
-            hWnd, reinterpret_cast<HMENU>(ID_BTN_MIDI2QWERTY), g_hInst, nullptr);
-        CreateWindowW(L"button", L"MidiConnect",
-            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-            bx, Layout::PB_ROW1_Y, Layout::PB_BTN_WIDTH, Layout::PB_BTN_HEIGHT,
-            hWnd, reinterpret_cast<HMENU>(ID_BTN_MIDICONNECT), g_hInst, nullptr);
-        bx += Layout::PB_BTN_WIDTH + Layout::PB_BTN_GAP;
-        HWND cbMidiDev = CreateWindowW(L"combobox", nullptr,
-            WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST,
-            Layout::PB_MIDI_QWERTY_X + 120, Layout::PB_MIDI_QWERTY_Y, 130, 200,
-            hWnd, reinterpret_cast<HMENU>(ID_CB_MIDIDEV), g_hInst, nullptr);
-        MIDIDeviceUI::PopulateMidiInDevices(cbMidiDev, g_selectedMidiDevice);
-        HWND cbMidiCh = CreateWindowW(L"combobox", nullptr,
-            WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST,
-            Layout::PB_MIDI_QWERTY_X + 120, Layout::PB_ROW2_Y, 130, 200,
-            hWnd, reinterpret_cast<HMENU>(ID_CB_MIDICH), g_hInst, nullptr);
-        MIDIDeviceUI::PopulateChannelList(cbMidiCh, g_selectedMidiChannel);
-        CreateWindowW(L"static", L"0:00 / 0:00",
-            WS_CHILD | WS_VISIBLE | SS_CENTER,
-            Layout::PB_STATIC_TIME_X - 90, Layout::PB_STATIC_TIME_Y + 36,
-            Layout::PB_STATIC_TIME_W - 50, Layout::PB_STATIC_TIME_H,
-            hWnd, reinterpret_cast<HMENU>(ID_STATIC_TIME), g_hInst, nullptr);
-
-        // Advanced Group
-        CreateWindowW(L"button", L"Advanced",
-            WS_CHILD | WS_VISIBLE | BS_GROUPBOX,
-            Layout::PADV_X, Layout::PADV_Y, Layout::PADV_W, Layout::PADV_H,
-            hWnd, reinterpret_cast<HMENU>(ID_GRP_ADV), g_hInst, nullptr);
-        int advx = Layout::PADV_X + 15;
-        int advy = Layout::PADV_Y + 25;
-        const int advBw = 80, advBh = 28, advGap = 5;
-        CreateWindowW(L"button", L"88-Key",
-            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-            advx, advy, advBw, advBh,
-            hWnd, reinterpret_cast<HMENU>(ID_BTN_88KEY), g_hInst, nullptr);
-        advx += (advBw + advGap);
-        CreateWindowW(L"button", L"AutoVol",
-            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-            advx, advy, advBw, advBh,
-            hWnd, reinterpret_cast<HMENU>(ID_BTN_VOLADJ), g_hInst, nullptr);
-        advx += (advBw + advGap);
-        CreateWindowW(L"button", L"Velocity",
-            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-            advx, advy, advBw, advBh,
-            hWnd, reinterpret_cast<HMENU>(ID_BTN_VELOCITY), g_hInst, nullptr);
-        advx += (advBw + advGap);
-        CreateWindowW(L"button", L"Sustain",
-            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-            advx, advy, advBw, advBh,
-            hWnd, reinterpret_cast<HMENU>(ID_BTN_SUSTAIN), g_hInst, nullptr);
-        advx += (advBw + advGap);
-        CreateWindowW(L"button", L"Transpose",
-            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-            advx, advy, advBw + 20, advBh,
-            hWnd, reinterpret_cast<HMENU>(ID_BTN_TRANSPOSE), g_hInst, nullptr);
-        advx += (advBw + 20 + advGap);
-        CreateWindowW(L"button", L"OutRange",
-            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-            advx, advy, advBw + 15, advBh,
-            hWnd, reinterpret_cast<HMENU>(ID_BTN_TRANSPOSEOUT), g_hInst, nullptr);
+        // =====================================================================
+        // MIDI Files  (left column, full height)
+        // =====================================================================
+        AddCard(Layout::FILES_X, Layout::FILES_Y, Layout::FILES_W, Layout::FILES_H, L"MIDI Files");
         {
-            HWND hStaticSustainLbl = CreateWindowW(L"static", L"Sustain Cutoff:",
-                WS_CHILD | WS_VISIBLE,
-                Layout::PADV_X + 20, Layout::PADV_Y + 67,
-                100, 20,
+            CardBody body(Layout::FILES_X, Layout::FILES_Y, Layout::FILES_W);
+            RowCursor r = body.row(0);
+
+            RECT rcSort = r.take(Layout::COMBO_W);
+            HWND cbSort = CreateWindowW(L"combobox", nullptr,
+                WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST,
+                rcSort.left, rcSort.top, RW(rcSort), 240,
+                hWnd, reinterpret_cast<HMENU>(ID_CB_SORT), g_hInst, nullptr);
+            SendMessageW(cbSort, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Name (A-Z)"));
+            SendMessageW(cbSort, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Name (Z-A)"));
+            SendMessageW(cbSort, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Date (Old-New)"));
+            SendMessageW(cbSort, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Date (New-Old)"));
+            SendMessageW(cbSort, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Size (Large-Small)"));
+            SendMessageW(cbSort, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Size (Small-Large)"));
+            SendMessageW(cbSort, CB_SETCURSEL, 0, 0);
+
+            RECT rcRefresh = r.take(Layout::S(92));
+            CreateWindowW(L"button", L"Refresh",
+                WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
+                rcRefresh.left, rcRefresh.top, RW(rcRefresh), RH(rcRefresh),
+                hWnd, reinterpret_cast<HMENU>(ID_BTN_REFRESH), g_hInst, nullptr);
+
+            // The list simply fills whatever height is left inside the card.
+            int listTop = body.rowY(1);
+            int listBottom = Layout::FILES_Y + Layout::FILES_H - Layout::CARD_PAD;
+            g_lbMidi = CreateWindowW(L"listbox", nullptr,
+                WS_CHILD | WS_VISIBLE | LBS_NOTIFY | WS_VSCROLL | WS_HSCROLL | WS_BORDER | LBS_NOINTEGRALHEIGHT,
+                body.x, listTop, body.w, listBottom - listTop,
+                hWnd, reinterpret_cast<HMENU>(ID_LB_MIDI), g_hInst, nullptr);
+            SetWindowSubclass(g_lbMidi, MidiListSubclassProc, 0, 0);
+        }
+
+        // =====================================================================
+        // Playback  (transport row, then MIDI I/O row)
+        // =====================================================================
+        AddCard(Layout::PBASIC_X, Layout::PBASIC_Y, Layout::PBASIC_W, Layout::PBASIC_H, L"Playback");
+        {
+            CardBody body(Layout::PBASIC_X, Layout::PBASIC_Y, Layout::PBASIC_W);
+
+            // Row 0: seven equal transport buttons spanning the card width.
+            RowSplit t(body, 0, 7);
+            struct TransportBtn { const wchar_t* label; int id; };
+            const TransportBtn transport[] = {
+                { L"Load",       ID_BTN_LOAD    },
+                { L"Play/Pause", ID_BTN_PLAY    },
+                { L"Restart",    ID_BTN_RESTART },
+                { L"Skip +10",   ID_BTN_SKIP    },
+                { L"Rew -10",    ID_BTN_REW     },
+                { L"Speed +",    ID_BTN_SPEEDUP },
+                { L"Speed -",    ID_BTN_SPEEDDN },
+            };
+            for (const auto& b : transport) {
+                RECT rc = t.next();
+                CreateWindowW(L"button", b.label,
+                    WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
+                    rc.left, rc.top, RW(rc), RH(rc),
+                    hWnd, reinterpret_cast<HMENU>(b.id), g_hInst, nullptr);
+            }
+
+            // Row 1: MIDI input wiring, clock right-aligned.
+            RowCursor r = body.row(1);
+            RECT rcConnect = r.take(Layout::S(100));
+            CreateWindowW(L"button", L"MidiConnect",
+                WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
+                rcConnect.left, rcConnect.top, RW(rcConnect), RH(rcConnect),
+                hWnd, reinterpret_cast<HMENU>(ID_BTN_MIDICONNECT), g_hInst, nullptr);
+
+            RECT rcDev = r.take(Layout::S(150));
+            HWND cbMidiDev = CreateWindowW(L"combobox", nullptr,
+                WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST,
+                rcDev.left, rcDev.top, RW(rcDev), 240,
+                hWnd, reinterpret_cast<HMENU>(ID_CB_MIDIDEV), g_hInst, nullptr);
+            MIDIDeviceUI::PopulateMidiInDevices(cbMidiDev, g_selectedMidiDevice);
+
+            RECT rcM2K = r.take(Layout::S(92));
+            CreateWindowW(L"button", L"Midi2Key",
+                WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
+                rcM2K.left, rcM2K.top, RW(rcM2K), RH(rcM2K),
+                hWnd, reinterpret_cast<HMENU>(ID_BTN_MIDI2QWERTY), g_hInst, nullptr);
+
+            RECT rcCh = r.take(Layout::S(140));
+            HWND cbMidiCh = CreateWindowW(L"combobox", nullptr,
+                WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST,
+                rcCh.left, rcCh.top, RW(rcCh), 240,
+                hWnd, reinterpret_cast<HMENU>(ID_CB_MIDICH), g_hInst, nullptr);
+            MIDIDeviceUI::PopulateChannelList(cbMidiCh, g_selectedMidiChannel);
+
+            const int clockW = Layout::S(104);
+            CreateWindowW(L"static", L"0:00 / 0:00",
+                WS_CHILD | WS_VISIBLE | SS_CENTERIMAGE | SS_RIGHT,
+                body.right() - clockW, body.rowY(1), clockW, Layout::ROW_H,
+                hWnd, reinterpret_cast<HMENU>(ID_STATIC_TIME), g_hInst, nullptr);
+        }
+
+        // =====================================================================
+        // Advanced
+        // =====================================================================
+        AddCard(Layout::PADV_X, Layout::PADV_Y, Layout::PADV_W, Layout::PADV_H, L"Advanced");
+        {
+            CardBody body(Layout::PADV_X, Layout::PADV_Y, Layout::PADV_W);
+
+            RowSplit t(body, 0, 6);
+            struct AdvBtn { const wchar_t* label; int id; };
+            const AdvBtn adv[] = {
+                { L"88-Key",    ID_BTN_88KEY        },
+                { L"AutoVol",   ID_BTN_VOLADJ       },
+                { L"Velocity",  ID_BTN_VELOCITY     },
+                { L"Sustain",   ID_BTN_SUSTAIN      },
+                { L"Transpose", ID_BTN_TRANSPOSE    },
+                { L"OutRange",  ID_BTN_TRANSPOSEOUT },
+            };
+            for (const auto& b : adv) {
+                RECT rc = t.next();
+                CreateWindowW(L"button", b.label,
+                    WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
+                    rc.left, rc.top, RW(rc), RH(rc),
+                    hWnd, reinterpret_cast<HMENU>(b.id), g_hInst, nullptr);
+            }
+
+            RowCursor r = body.row(1);
+            RECT rcSusLbl = r.take(Layout::S(96));
+            CreateWindowW(L"static", L"Sustain Cutoff",
+                WS_CHILD | WS_VISIBLE | SS_CENTERIMAGE,
+                rcSusLbl.left, rcSusLbl.top, RW(rcSusLbl), RH(rcSusLbl),
                 hWnd, reinterpret_cast<HMENU>(ID_STATIC_SUSTAIN_LABEL), g_hInst, nullptr);
+
+            RECT rcSusSlider = r.take(Layout::S(168));
             HWND hSustainSlider = CreateWindowExW(0, TRACKBAR_CLASSW, L"",
                 WS_CHILD | WS_VISIBLE | TBS_AUTOTICKS,
-                Layout::PADV_X + 115, Layout::PADV_Y + 61,
-                160, 30,
+                rcSusSlider.left, rcSusSlider.top, RW(rcSusSlider), RH(rcSusSlider),
                 hWnd, reinterpret_cast<HMENU>(ID_SLIDER_SUSTAIN_CUTOFF), g_hInst, nullptr);
             SendMessage(hSustainSlider, TBM_SETRANGE, TRUE, MAKELPARAM(0, 127));
             SendMessage(hSustainSlider, TBM_SETTICFREQ, 16, 0);
             SendMessage(hSustainSlider, TBM_SETPOS, TRUE, g_sustainCutoff);
-            g_hSustainCutoffValueBox = CreateWindowExW(WS_EX_CLIENTEDGE,
-                L"edit",
-                L"64",
+
+            RECT rcSusVal = r.take(Layout::S(46));
+            g_hSustainCutoffValueBox = CreateWindowExW(WS_EX_CLIENTEDGE, L"edit", L"64",
                 WS_CHILD | WS_VISIBLE | ES_READONLY | ES_CENTER,
-                Layout::PADV_X + 280, Layout::PADV_Y + 65,
-                35, 20,
+                rcSusVal.left, rcSusVal.top + Layout::S(3), RW(rcSusVal), RH(rcSusVal) - Layout::S(6),
                 hWnd, nullptr, g_hInst, nullptr);
+
+            r.skip(Layout::S(12));
+            RECT rcVelLbl = r.take(Layout::S(68));
+            CreateWindowW(L"static", L"VelCurve",
+                WS_CHILD | WS_VISIBLE | SS_CENTERIMAGE,
+                rcVelLbl.left, rcVelLbl.top, RW(rcVelLbl), RH(rcVelLbl),
+                hWnd, nullptr, g_hInst, nullptr);
+
+            RECT rcVelCombo = r.take(Layout::S(160));
+            CreateWindowW(L"combobox", nullptr,
+                WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST,
+                rcVelCombo.left, rcVelCombo.top, RW(rcVelCombo), 240,
+                hWnd, reinterpret_cast<HMENU>(ID_CB_VELOCITY_CURVE), g_hInst, nullptr);
+            RefreshVelocityCurveCombo(hWnd);
         }
-        CreateWindowW(L"combobox", nullptr,
-            WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST,
-            advx - 53, advy + 38, 150, 200,
-            hWnd, reinterpret_cast<HMENU>(ID_CB_VELOCITY_CURVE), g_hInst, nullptr);
-        RefreshVelocityCurveCombo(hWnd);
-        HWND hStaticVelLbl = CreateWindowW(L"static", L"VelCurve:",
-            WS_CHILD | WS_VISIBLE,
-            advx - 125, advy + 41, 65, 20,
-            hWnd, reinterpret_cast<HMENU>(ID_STATIC_SUSTAIN_LABEL), g_hInst, nullptr);
 
-        // Config Group
-        CreateWindowW(L"button", L"Config",
-            WS_CHILD | WS_VISIBLE | BS_GROUPBOX,
-            Layout::CFG_X, Layout::CFG_Y, Layout::CFG_W, Layout::CFG_H,
-            hWnd, reinterpret_cast<HMENU>(ID_GRP_CONFIG), g_hInst, nullptr);
+        // =====================================================================
+        // Config
+        // =====================================================================
+        AddCard(Layout::CFG_X, Layout::CFG_Y, Layout::CFG_W, Layout::CFG_H, L"Config");
+        {
+            CardBody body(Layout::CFG_X, Layout::CFG_Y, Layout::CFG_W);
+            RowCursor r = body.row(0);
 
-        HWND hChkAlwaysOnTop = CreateWindowW(L"button", L"Always On Top",
-            WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
-            Layout::CFG_X + 10, Layout::CFG_Y + 25, 120, 20,
-            hWnd, reinterpret_cast<HMENU>(ID_CHK_TOP), g_hInst, nullptr);
-        bool alwaysOnTop = midi::Config::getInstance().ui.alwaysOnTop;
-        SendMessage(hChkAlwaysOnTop, BM_SETCHECK, alwaysOnTop ? BST_CHECKED : BST_UNCHECKED, 0);
-        SetAlwaysOnTop(hWnd, alwaysOnTop);
+            RECT rcTop = r.take(Layout::S(118));
+            HWND hChkAlwaysOnTop = CreateWindowW(L"button", L"Always On Top",
+                WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
+                rcTop.left, rcTop.top, RW(rcTop), RH(rcTop),
+                hWnd, reinterpret_cast<HMENU>(ID_CHK_TOP), g_hInst, nullptr);
+            bool alwaysOnTop = midi::Config::getInstance().ui.alwaysOnTop;
+            SendMessage(hChkAlwaysOnTop, BM_SETCHECK, alwaysOnTop ? BST_CHECKED : BST_UNCHECKED, 0);
+            SetAlwaysOnTop(hWnd, alwaysOnTop);
 
-        HWND hChkRandomSong = CreateWindowW(L"button", L"Shuffle Play",
-            WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
-            Layout::CFG_X + 140, Layout::CFG_Y + 25, 115, 20,
-            hWnd, reinterpret_cast<HMENU>(ID_CHK_RANDOM_SONG), g_hInst, nullptr);
-        SendMessage(hChkRandomSong, BM_SETCHECK, g_randomSongEnabled ? BST_CHECKED : BST_UNCHECKED, 0);
+            RECT rcShuffle = r.take(Layout::S(106));
+            HWND hChkRandomSong = CreateWindowW(L"button", L"Shuffle Play",
+                WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
+                rcShuffle.left, rcShuffle.top, RW(rcShuffle), RH(rcShuffle),
+                hWnd, reinterpret_cast<HMENU>(ID_CHK_RANDOM_SONG), g_hInst, nullptr);
+            SendMessage(hChkRandomSong, BM_SETCHECK, g_randomSongEnabled ? BST_CHECKED : BST_UNCHECKED, 0);
 
-        HWND hStaticOpacity = CreateWindowW(L"static", L"Opacity:",
-            WS_CHILD | WS_VISIBLE,
-            Layout::CFG_X + 255, Layout::CFG_Y + 25, 60, 20,
-            hWnd, nullptr, g_hInst, nullptr);
+            RECT rcOpLbl = r.take(Layout::S(54));
+            CreateWindowW(L"static", L"Opacity",
+                WS_CHILD | WS_VISIBLE | SS_CENTERIMAGE,
+                rcOpLbl.left, rcOpLbl.top, RW(rcOpLbl), RH(rcOpLbl),
+                hWnd, nullptr, g_hInst, nullptr);
 
-        HWND hOpacitySlider = CreateWindowExW(0, TRACKBAR_CLASSW, L"",
-            WS_CHILD | WS_VISIBLE | TBS_AUTOTICKS,
-            Layout::CFG_X + 310, Layout::CFG_Y + 20, 120, 30,
-            hWnd, reinterpret_cast<HMENU>(ID_SLIDER_OPACITY), g_hInst, nullptr);
-        SendMessage(hOpacitySlider, TBM_SETRANGE, TRUE, MAKELPARAM(100, 255));
-        SendMessage(hOpacitySlider, TBM_SETTICFREQ, 15, 0);
-        SendMessage(hOpacitySlider, TBM_SETPOS, TRUE, 255);
+            RECT rcOpSlider = r.take(Layout::S(118));
+            HWND hOpacitySlider = CreateWindowExW(0, TRACKBAR_CLASSW, L"",
+                WS_CHILD | WS_VISIBLE | TBS_AUTOTICKS,
+                rcOpSlider.left, rcOpSlider.top, RW(rcOpSlider), RH(rcOpSlider),
+                hWnd, reinterpret_cast<HMENU>(ID_SLIDER_OPACITY), g_hInst, nullptr);
+            SendMessage(hOpacitySlider, TBM_SETRANGE, TRUE, MAKELPARAM(100, 255));
+            SendMessage(hOpacitySlider, TBM_SETTICFREQ, 15, 0);
+            SendMessage(hOpacitySlider, TBM_SETPOS, TRUE, 255);
 
-        g_hOpacityIndicatorBox = CreateWindowExW(WS_EX_CLIENTEDGE,
-            L"edit",
-            L"255",
-            WS_CHILD | WS_VISIBLE | ES_READONLY | ES_CENTER,
-            Layout::CFG_X + 445, Layout::CFG_Y + 25, 40, 20,
-            hWnd, nullptr, g_hInst, nullptr);
-        HWND hPrevSongBtn = CreateWindowW(L"button", L"Prev",
-            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-            Layout::CFG_X + 495, Layout::CFG_Y + 25, 40, 20,
-            hWnd, reinterpret_cast<HMENU>(ID_BTN_PREV_SONG), g_hInst, nullptr);
-        HWND hNextSongBtn = CreateWindowW(L"button", L"Next",
-            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-            Layout::CFG_X + 495 + 45, Layout::CFG_Y + 25, 40, 20,
-            hWnd, reinterpret_cast<HMENU>(ID_BTN_NEXT_SONG), g_hInst, nullptr);
+            RECT rcOpVal = r.take(Layout::S(44));
+            g_hOpacityIndicatorBox = CreateWindowExW(WS_EX_CLIENTEDGE, L"edit", L"255",
+                WS_CHILD | WS_VISIBLE | ES_READONLY | ES_CENTER,
+                rcOpVal.left, rcOpVal.top + Layout::S(3), RW(rcOpVal), RH(rcOpVal) - Layout::S(6),
+                hWnd, nullptr, g_hInst, nullptr);
 
-        // Details Group
-        CreateWindowW(L"button", L"Details",
-            WS_CHILD | WS_VISIBLE | BS_GROUPBOX,
-            Layout::DET_X, Layout::DET_Y, Layout::DET_W, Layout::DET_H,
-            hWnd, reinterpret_cast<HMENU>(ID_GRP_DETAILS), g_hInst, nullptr);
-        g_editDetails = CreateWindowW(L"edit", L"",
-            WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL | WS_BORDER,
-            Layout::DET_X + 10, Layout::DET_Y + 20, Layout::DET_W - 20, Layout::DET_H - 30,
-            hWnd, reinterpret_cast<HMENU>(ID_EDIT_DETAILS), g_hInst, nullptr);
+            // Prev / Next pinned to the right edge of the card.
+            const int navW = Layout::S(56);
+            CreateWindowW(L"button", L"Prev",
+                WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
+                body.right() - navW * 2 - Layout::BTN_GAP, body.rowY(0), navW, Layout::ROW_H,
+                hWnd, reinterpret_cast<HMENU>(ID_BTN_PREV_SONG), g_hInst, nullptr);
+            CreateWindowW(L"button", L"Next",
+                WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
+                body.right() - navW, body.rowY(0), navW, Layout::ROW_H,
+                hWnd, reinterpret_cast<HMENU>(ID_BTN_NEXT_SONG), g_hInst, nullptr);
+        }
 
-        // Tracks Group
-        g_trackControl.Create(hWnd, Layout::TRK_X, Layout::TRK_Y, Layout::TRK_W, Layout::TRK_H - 2);
+        // =====================================================================
+        // Details
+        // =====================================================================
+        AddCard(Layout::DET_X, Layout::DET_Y, Layout::DET_W, Layout::DET_H, L"Details");
+        {
+            CardBody body(Layout::DET_X, Layout::DET_Y, Layout::DET_W);
+            g_editDetails = CreateWindowW(L"edit", L"",
+                WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL | WS_BORDER,
+                body.x, body.y, body.w, Layout::DET_EDIT_H,
+                hWnd, reinterpret_cast<HMENU>(ID_EDIT_DETAILS), g_hInst, nullptr);
+        }
 
-        // Log Group
-        CreateWindowW(L"button", L"Log",
-            WS_CHILD | WS_VISIBLE | BS_GROUPBOX,
-            Layout::LOG_X, Layout::LOG_Y, Layout::LOG_W, Layout::LOG_H,
-            hWnd, reinterpret_cast<HMENU>(ID_GRP_LOG), g_hInst, nullptr);
-        HWND editLog = CreateWindowW(L"edit", L"",
-            WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL | WS_BORDER,
-            Layout::LOG_X + 10, Layout::LOG_Y + 20, Layout::LOG_W - 100, Layout::LOG_H - 30,
-            hWnd, reinterpret_cast<HMENU>(ID_EDIT_LOG), g_hInst, nullptr);
-        CreateWindowW(L"button", L"Clear Log",
-            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-            Layout::LOG_X + Layout::LOG_W - 80, Layout::LOG_Y + 25, 70, 25,
-            hWnd, reinterpret_cast<HMENU>(ID_BTN_CLEARLOG), g_hInst, nullptr);
-        CreateWindowW(L"button", L"Refresh MIDI",
-            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-            Layout::LOG_X + Layout::LOG_W - 80, Layout::LOG_Y + 55, 70, 25,
-            hWnd, reinterpret_cast<HMENU>(ID_BTN_REFRESH_MIDI), g_hInst, nullptr);
-        CreateWindowW(L"button", L"Edit V-Curve",
-            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-            Layout::LOG_X + Layout::LOG_W - 80, Layout::LOG_Y + 85, 70, 25,
-            hWnd, reinterpret_cast<HMENU>(ID_BTN_VLCURVE), g_hInst, nullptr);
-        CreateWindowW(L"button", L"Ref V-List",
-            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-            Layout::LOG_X + Layout::LOG_W - 80, Layout::LOG_Y + 115, 70, 25,
-            hWnd, reinterpret_cast<HMENU>(ID_BTN_REFRESH_VCURVE), g_hInst, nullptr);
+        // =====================================================================
+        // Tracks
+        // =====================================================================
+        AddCard(Layout::TRK_X, Layout::TRK_Y, Layout::TRK_W, Layout::TRK_H, L"Tracks");
+        {
+            CardBody body(Layout::TRK_X, Layout::TRK_Y, Layout::TRK_W);
+            int h = (Layout::TRK_Y + Layout::TRK_H - Layout::CARD_PAD) - body.y;
+            g_trackControl.Create(hWnd, body.x, body.y, body.w, h);
+        }
+
+        // =====================================================================
+        // Log
+        // =====================================================================
+        AddCard(Layout::LOG_X, Layout::LOG_Y, Layout::LOG_W, Layout::LOG_H, L"Log");
+        {
+            CardBody body(Layout::LOG_X, Layout::LOG_Y, Layout::LOG_W);
+            const int sideW = Layout::S(108);
+            int logH = (Layout::LOG_Y + Layout::LOG_H - Layout::CARD_PAD) - body.y;
+
+            CreateWindowW(L"edit", L"",
+                WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL | WS_BORDER,
+                body.x, body.y, body.w - sideW - Layout::BTN_GAP, logH,
+                hWnd, reinterpret_cast<HMENU>(ID_EDIT_LOG), g_hInst, nullptr);
+
+            struct SideBtn { const wchar_t* label; int id; };
+            const SideBtn side[] = {
+                { L"Clear Log",    ID_BTN_CLEARLOG       },
+                { L"Refresh MIDI", ID_BTN_REFRESH_MIDI   },
+                { L"Edit V-Curve", ID_BTN_VLCURVE        },
+                { L"Ref V-List",   ID_BTN_REFRESH_VCURVE },
+            };
+            int sy = body.y;
+            const int sh = Layout::S(26), sgap = Layout::S(6);
+            for (const auto& b : side) {
+                CreateWindowW(L"button", b.label,
+                    WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
+                    body.right() - sideW, sy, sideW, sh,
+                    hWnd, reinterpret_cast<HMENU>(b.id), g_hInst, nullptr);
+                sy += sh + sgap;
+            }
+        }
 
         // Initialize Toggle States
-        std::vector<int> toggles = { ID_BTN_88KEY, ID_BTN_VOLADJ, ID_BTN_VELOCITY, ID_BTN_SUSTAIN, ID_BTN_TRANSPOSEOUT, ID_BTN_MIDI2QWERTY };
-        for (int t : toggles)
-            g_toggleStates[t] = false;
-        if (g_player && g_player->eightyEightKeyModeActive)
-            g_toggleStates[ID_BTN_88KEY] = true;
+        {
+            std::vector<int> toggles = { ID_BTN_88KEY, ID_BTN_VOLADJ, ID_BTN_VELOCITY, ID_BTN_SUSTAIN, ID_BTN_TRANSPOSEOUT, ID_BTN_MIDI2QWERTY };
+            for (int t : toggles)
+                g_toggleStates[t] = false;
+            if (g_player && g_player->eightyEightKeyModeActive)
+                g_toggleStates[ID_BTN_88KEY] = true;
+        }
+
+        // One modern font across every child control.
+        ApplyThemeFonts(hWnd);
 
         // Initial Setup
         ScanMidiFolder();
@@ -1180,6 +1417,22 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
     {
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hWnd, &ps);
+
+        RECT client;
+        GetClientRect(hWnd, &client);
+
+        // Double-buffered so the cards do not flicker when controls repaint.
+        HDC mem = CreateCompatibleDC(hdc);
+        HBITMAP bmp = CreateCompatibleBitmap(hdc, client.right, client.bottom);
+        HBITMAP oldBmp = reinterpret_cast<HBITMAP>(SelectObject(mem, bmp));
+
+        DrawCards(mem, client);
+        BitBlt(hdc, 0, 0, client.right, client.bottom, mem, 0, 0, SRCCOPY);
+
+        SelectObject(mem, oldBmp);
+        DeleteObject(bmp);
+        DeleteDC(mem);
+
         EndPaint(hWnd, &ps);
         return 0;
     }
@@ -1806,23 +2059,23 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                 LOGFONT lf = {};
                 lf.lfHeight = -14;
                 wcscpy_s(lf.lfFaceName, L"Consolas");
-                hMonospaceFont = CreateFontIndirect(&lf);
+                hMonospaceFont = Theme::Mono();
             }
             if (cid == ID_EDIT_LOG) {
                 static HBRUSH hbrLogBg = nullptr;
                 if (!hbrLogBg)
-                    hbrLogBg = CreateSolidBrush(RGB(230, 255, 230));
+                    hbrLogBg = CreateSolidBrush(Theme::LOG_BG);
                 SetBkMode(hdc, OPAQUE);
-                SetBkColor(hdc, RGB(230, 255, 230));
-                SetTextColor(hdc, RGB(40, 80, 40));
+                SetBkColor(hdc, Theme::LOG_BG);
+                SetTextColor(hdc, Theme::LOG_TEXT);
                 SelectObject(hdc, hMonospaceFont);
                 return reinterpret_cast<LRESULT>(hbrLogBg);
             }
             else {
                 static HBRUSH hbrWhite = (HBRUSH)GetStockObject(WHITE_BRUSH);
                 SetBkMode(hdc, OPAQUE);
-                SetBkColor(hdc, RGB(255, 255, 255));
-                SetTextColor(hdc, RGB(0, 0, 0));
+                SetBkColor(hdc, Theme::EDIT_BG);
+                SetTextColor(hdc, Theme::EDIT_TEXT);
                 SelectObject(hdc, hMonospaceFont);
                 return reinterpret_cast<LRESULT>(hbrWhite);
             }
@@ -1969,6 +2222,14 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
 // Main Entry Point
 // -----------------------------------------------------------------------------
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int) {
+    // Opt into DPI awareness before any window exists, then bake the scale
+    // factor into the theme and layout. Without this Windows bitmap-stretches
+    // the whole UI on a >100% display and every glyph goes soft.
+    EnableDpiAwareness();
+    Theme::SetDpi(QuerySystemDpi());
+    Layout::Init();
+    TrackControl::SetDpi();
+
     srand(static_cast<unsigned int>(time(NULL)));
     UniqueHandle singleInstanceMutex(CreateMutexW(nullptr, TRUE, L"Global\\MIDI++_On_Top"));
     g_hSingleInstanceMutex = singleInstanceMutex;
@@ -2010,17 +2271,26 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int) {
     wc.lpfnWndProc = WndProc;
     wc.hInstance = hInstance;
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+    wc.hbrBackground = CreateSolidBrush(Theme::WINDOW_BG);
     wc.lpszClassName = L"MIDI++";
     wc.hIcon = hIcon;
     wc.hIconSm = hIconSmall;
     RegisterClassExW(&wc);
-    g_hMainWnd = CreateWindowExW(WS_EX_APPWINDOW | WS_EX_LAYERED | WS_EX_TOPMOST,
+    // Outer window size is derived from the layout client size, so the frame
+    // never eats into the content and changing Layout is enough to resize.
+    const DWORD kStyle   = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+    const DWORD kExStyle = WS_EX_APPWINDOW | WS_EX_LAYERED | WS_EX_TOPMOST;
+    RECT wr{ 0, 0, Layout::CLIENT_W, Layout::CLIENT_H };
+    AdjustWindowRectEx(&wr, kStyle, FALSE, kExStyle);
+    const int winW = wr.right - wr.left;
+    const int winH = wr.bottom - wr.top;
+
+    g_hMainWnd = CreateWindowExW(kExStyle,
         wc.lpszClassName,
         L"MIDI++ v1.0.4.R5",
-        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
+        kStyle,
         CW_USEDEFAULT, CW_USEDEFAULT,
-        Layout::WIN_W, Layout::WIN_H,
+        winW, winH,
         nullptr,
         nullptr,
         hInstance,
