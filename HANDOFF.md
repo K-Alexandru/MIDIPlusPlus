@@ -1,5 +1,7 @@
 # MIDI++ successor — handoff brief
 
+> New here? Read `CONTINUE-HERE.md` first. This file is the full brief.
+
 Context dump for continuing this work in a fresh session or a different assistant.
 Written 2026-09-04. Updated after the keyboard-timing work built on `269c2f2`.
 Section 16 and `LATENCY.md` contain the current measurement implementation and
@@ -292,6 +294,8 @@ Already answered, do **not** re-ask:
 
 ## 7. Recommended order
 
+See `CONTINUE-HERE.md` for the short version and the build commands.
+
 1. ~~**Play one note into a real game.**~~ Done 2026-09-04: notes confirmed
    reaching the game, so the WinRT port is validated and stays. Legit mode was
    listened to in the same session and judged unconvincing (section 12). Still
@@ -299,11 +303,13 @@ Already answered, do **not** re-ask:
 2. ~~**Extract `IMidiInput`**~~: done 2026-09-04 in `269c2f2` (section 3). WinRT,
    WinMM and Wooting all sit behind it and devices are opened by id.
 3. ~~**Build latency instrumentation.**~~ Implemented and tested in section 16.
-4. **Decide the ALT protocol.** The cheap half is done: both paths now send the
-   same four-event tap (section 4). The remaining question is whether the target
-   accepts velocity without ALT at all, which would take four events down to one
-   on every bucket change. That is a question about the game, not about this
-   code, and it is the last input-path win available before the UI rewrite.
+4. ~~**Decide the ALT protocol.**~~ Closed 2026-09-04, won't fix. The cheap half
+   was done in `08d07b4`: both paths now send the same four-event tap. Removing
+   ALT is not possible. The velocity keys are
+   `1234567890qwertyuiopasdfghjklzxc` and the piano mappings cover the same
+   characters, so a bare velocity key plays a note. ALT is the only thing
+   separating "set velocity" from "play a note", which is presumably why
+   upstream chose it.
 5. **UI rewrite** in ImGui. `skin-system.html` is the spec; zero ImGui code
    exists. Weeks, not hours.
 6. **YouTube→MIDI pipeline.** Lowest coupling, can happen anytime.

@@ -7,3 +7,7 @@
 # x64/Release/ stays tracked; only the intermediates that produce it are gone.
 # They remain in history if an old build ever needs reconstructing.
 /MIDI++/x64/
+
+# 20MB of debug symbols against a 1MB executable, and the largest thing in the
+# repository. The executable is what people download; symbols are rebuildable.
+/x64/Release/MIDI++.pdb
