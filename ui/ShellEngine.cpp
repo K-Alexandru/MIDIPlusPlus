@@ -113,7 +113,81 @@ void ShellEngine::Run(std::stop_token stop) {
         if (!player) {
             player = std::make_unique<VirtualPianoPlayer>(false, config_);
             state.keyMappings = player->full_key_mappings;
+            player->enable_velocity_keypress = state.velocity;
+            player->currentSustainMode = state.sustain ? SustainMode::SPACE_DOWN : SustainMode::IG;
+            player->eightyEightKeyModeActive = true;
         }
+    };
+    const auto applyCurve = [&] {
+        if (!player || state.curves.empty()) return;
+        auto& custom = midi::Config::getInstance().playback.customVelocityCurves;
+        custom.clear();
+        for (size_t i = 5; i < state.curves.size(); ++i)
+            custom.push_back({state.curves[i].name, state.curves[i].thresholds});
+        const auto& edit = state.comparingCurve ? state.previousCurve : state.curve;
+        if (VelocityEdited(edit) || state.comparingCurve) {
+            const auto& preset = state.comparingCurve ? state.previousPreset : state.curves[edit.preset];
+            custom.push_back({"Shell preview", VelocityThresholds(preset, edit)});
+            player->setVelocityCurveIndex(5 + custom.size() - 1);
+        } else player->setVelocityCurveIndex(edit.preset);
+        g_sustainCutoff = state.sustainCutoff;
+    };
+    // Read the real built-ins through the player's public mapping API. This
+    // avoids a second set of preset constants drifting from the injector.
+    try {
+        ensurePlayer();
+        const std::string keys = "1234567890qwertyuiopasdfghjklzxc";
+        for (size_t i = 0; i < 5; ++i) {
+            VelocityPreset preset{player->getVelocityCurveName(static_cast<midi::VelocityCurveType>(i))};
+            player->setVelocityCurveIndex(i);
+            for (int input = 1; input <= 127; ++input) {
+                const size_t output = keys.find(player->getVelocityKey(input));
+                for (size_t bucket = output; bucket < 32; ++bucket) preset.thresholds[bucket] = input;
+            }
+            state.curves.push_back(std::move(preset));
+        }
+        for (const auto& custom : midi::Config::getInstance().playback.customVelocityCurves)
+            state.curves.push_back({custom.name, custom.velocityValues});
+        std::ifstream input(config_);
+        const auto json = nlohmann::json::parse(input);
+        if (json.contains("SHELL_VELOCITY")) {
+            const auto& saved = json.at("SHELL_VELOCITY");
+            state.curve.preset = std::min(saved.value("preset", size_t{1}), state.curves.size() - 1);
+            state.curve.sensitivity = std::clamp(saved.value("sensitivity", 0.f), -50.f, 50.f);
+            state.curve.contrast = std::clamp(saved.value("contrast", 0.f), 0.f, 100.f);
+            if (saved.contains("samples")) {
+                state.curve.samples = saved.at("samples").get<std::array<float, 32>>();
+                float last = 0;
+                for (auto& value : state.curve.samples) {
+                    if (!std::isfinite(value)) throw std::runtime_error("Invalid saved velocity response.");
+                    value = std::clamp(value, last, 1.f); last = value;
+                }
+                state.curve.manual = true;
+            }
+            state.sustainCutoff = std::clamp(saved.value("sustainCutoff", 64), 0, 127);
+        }
+        applyCurve();
+    } catch (const std::exception& error) {
+        state.curve = {};
+        if (state.curves.size() >= 5) applyCurve();
+        state.error = error.what();
+    }
+    Publish(state);
+    const auto saveCurves = [&](const EngineSnapshot& next) {
+        std::ifstream input(config_);
+        auto json = nlohmann::json::parse(input); input.close();
+        json["CUSTOM_VELOCITY_CURVES"] = nlohmann::json::array();
+        for (size_t i = 5; i < next.curves.size(); ++i)
+            json["CUSTOM_VELOCITY_CURVES"].push_back({{"name", next.curves[i].name}, {"values", next.curves[i].thresholds}});
+        auto& saved = json["SHELL_VELOCITY"];
+        saved = {{"preset", next.curve.preset}, {"sensitivity", next.curve.sensitivity},
+                 {"contrast", next.curve.contrast}, {"sustainCutoff", next.sustainCutoff}};
+        if (next.curve.manual) saved["samples"] = next.curve.samples;
+        auto temporary = config_; temporary += L".shell-tmp";
+        { std::ofstream output(temporary); output << json.dump(4) << '\n'; output.flush();
+          if (!output) throw std::runtime_error("Cannot save velocity response."); }
+        if (!MoveFileExW(temporary.c_str(), config_.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+            throw std::runtime_error("Cannot replace the velocity response config.");
     };
     const auto applyTracks = [&] {
         if (!player) return;
@@ -143,7 +217,7 @@ void ShellEngine::Run(std::stop_token stop) {
                     command.action != Action::Stop && command.action != Action::Velocity && command.action != Action::Sustain &&
                     command.action != Action::Remap && command.action != Action::LiveScan &&
                     command.action != Action::LiveOpen && command.action != Action::LiveActive &&
-                    command.action != Action::LiveChannel;
+                    command.action != Action::LiveChannel && command.action < Action::CurveSelect;
                 if (scoreCommand && command.generation != state.generation) continue;
                 state.error.clear();
                 switch (command.action) {
@@ -199,7 +273,7 @@ void ShellEngine::Run(std::stop_token stop) {
                     config.auto_transpose.ENABLED = false;
                     player->legit_mode_active = false;
                     player->enable_velocity_keypress = state.velocity;
-                    player->setVelocityCurveIndex(1); // Agreed default: Linear Fine.
+                    applyCurve();
                     player->currentSustainMode = state.sustain ? SustainMode::SPACE_DOWN : SustainMode::IG;
                     player->process_tracks(file);
                     scoreTimes.clear();
@@ -326,6 +400,102 @@ void ShellEngine::Run(std::stop_token stop) {
                     break;
                 case Action::SoloPiano: SoloPiano(state.rows); applyTracks(); break;
                 case Action::UnmuteAll: UnmuteAll(state.rows); applyTracks(); break;
+                case Action::CurveSelect:
+                case Action::CurveAdjust:
+                case Action::CurveStep:
+                case Action::CurveSteps:
+                case Action::CurveCompare:
+                case Action::CurveNew:
+                case Action::CurveDuplicate:
+                case Action::CurveRename:
+                case Action::SustainCutoff: {
+                    if (state.curves.size() < 5 || !std::isfinite(command.amount)) break;
+                    auto next = state;
+                    const auto remember = [&] {
+                        next.previousCurve = state.comparingCurve ? state.previousCurve : state.curve;
+                        next.previousPreset = state.comparingCurve ? state.previousPreset : state.curves[state.curve.preset];
+                        next.hasPreviousCurve = true; next.comparingCurve = false;
+                    };
+                    if (command.action == Action::CurveCompare) {
+                        if (!next.hasPreviousCurve) break;
+                        next.comparingCurve = !next.comparingCurve;
+                    } else if (command.action == Action::SustainCutoff) {
+                        next.sustainCutoff = static_cast<int>(std::clamp(command.amount, 0.0, 127.0));
+                    } else if (command.action == Action::CurveSelect) {
+                        if (command.track >= next.curves.size()) break;
+                        remember(); next.curve = {}; next.curve.preset = command.track;
+                    } else if (command.action == Action::CurveAdjust) {
+                        remember(); next.curve.manual = false;
+                        if (command.key == "sensitivity") next.curve.sensitivity = static_cast<float>(std::clamp(command.amount, -50.0, 50.0));
+                        else if (command.key == "contrast") next.curve.contrast = static_cast<float>(std::clamp(command.amount, 0.0, 100.0));
+                        else break;
+                    } else if (command.action == Action::CurveSteps) {
+                        remember(); next.curve.manual = true;
+                        float previous = 0;
+                        for (int i = 0; i < 32; ++i) {
+                            if (!std::isfinite(command.samples[i])) throw std::runtime_error("Invalid velocity sample.");
+                            next.curve.samples[i] = std::clamp(command.samples[i], previous, 1.f);
+                            previous = next.curve.samples[i];
+                        }
+                    } else if (command.action == Action::CurveStep) {
+                        if (command.track >= 32) break;
+                        remember();
+                        if (!next.curve.manual) for (int i = 0; i < 32; ++i)
+                            next.curve.samples[i] = VelocityShape(next.curves[next.curve.preset], next.curve, i / 31.f);
+                        next.curve.manual = true;
+                        next.curve.samples[command.track] = std::clamp(static_cast<float>(command.amount),
+                            command.track ? next.curve.samples[command.track - 1] : 0.f,
+                            command.track < 31 ? next.curve.samples[command.track + 1] : 1.f);
+                    } else {
+                        auto name = command.key;
+                        const auto first = name.find_first_not_of(" \t\r\n"), last = name.find_last_not_of(" \t\r\n");
+                        if (first == std::string::npos) throw std::runtime_error("Enter a curve name.");
+                        name = name.substr(first, last - first + 1);
+                        if (name.size() > 120 || name.find_first_of("\r\n\t") != std::string::npos)
+                            throw std::runtime_error("Use a curve name of at most 120 bytes on one line.");
+                        const bool rename = command.action == Action::CurveRename && next.curve.preset >= 5;
+                        for (size_t i = 0; i < next.curves.size(); ++i)
+                            if ((!rename || i != next.curve.preset) && next.curves[i].name == name)
+                                throw std::runtime_error("A curve already has that name.");
+                        remember();
+                        const auto values = command.action == Action::CurveNew ? next.curves[1].thresholds :
+                            VelocityThresholds(next.curves[next.curve.preset], next.curve);
+                        size_t index = next.curve.preset;
+                        if (rename) next.curves[index] = {name, values};
+                        else { index = next.curves.size(); next.curves.push_back({name, values}); }
+                        next.curve = {}; next.curve.preset = index;
+                    }
+                    // Saving cannot race dispatch, and a save failure leaves the
+                    // active curve untouched. Only final slider edits are queued.
+                    if (command.action != Action::CurveCompare) saveCurves(next);
+                    const bool resume = state.playing;
+                    const auto device = state.liveDevice;
+                    const bool active = state.liveActive;
+                    if (live && !device.empty()) {
+                        live->SetActive(false);
+                        live->CloseDevice(); // Close the port before rebuilding its lookup.
+                    }
+                    stopPlayback();
+                    if (live && !device.empty()) {
+                        // Live note ownership is internal to MIDI2Key. Release its
+                        // mapped keys before replacing that object and its caches.
+                        live.reset();
+                    }
+                    next.position = state.position; next.playing = false;
+                    state = std::move(next); ++state.curveRevision;
+                    applyCurve();
+                    if (!device.empty()) {
+                        live = std::make_unique<MIDI2Key>(player.get());
+                        live->SetMidiChannel(state.liveChannel);
+                        live->OpenDevice(device);
+                        state.liveDevice = live->GetSelectedDevice();
+                        state.liveActive = active && !state.liveDevice.empty();
+                        live->SetActive(state.liveActive);
+                        if (state.liveDevice.empty()) state.error = "Velocity saved; MIDI input could not reopen.";
+                    }
+                    if (resume && state.position < state.duration) startPlayback();
+                    break;
+                }
                 case Action::Velocity:
                     state.velocity = command.value;
                     if (player) player->enable_velocity_keypress = command.value;

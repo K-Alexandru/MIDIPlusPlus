@@ -1,5 +1,6 @@
 #pragma once
 #include "TrackModel.hpp"
+#include "VelocityModel.hpp"
 #include <condition_variable>
 #include <deque>
 #include <filesystem>
@@ -34,13 +35,26 @@ struct EngineSnapshot {
     int transpose = 0;
     std::map<std::string, std::string> keyMappings;
     uint64_t mappingRevision = 0;
+    std::vector<VelocityPreset> curves;
+    VelocityEdit curve;
+    VelocityEdit previousCurve;
+    VelocityPreset previousPreset;
+    bool comparingCurve = false;
+    bool hasPreviousCurve = false;
+    uint64_t curveRevision = 0;
+    int sustainCutoff = 64;
+    std::string ActiveVelocityName() const {
+        return comparingCurve ? previousPreset.name + (VelocityEdited(previousCurve) ? " (edited)" : "") : VelocityName(curves, curve);
+    }
 };
 
 class ShellEngine {
 public:
     enum class Action { Scan, Load, Play, Stop, Mute, Solo, SoloPiano, UnmuteAll, Velocity, Sustain,
                         Pause, TogglePlayPause, Restart, Back10, Forward10, Seek, Speed, Transpose, Remap,
-                        LiveScan, LiveOpen, LiveActive, LiveChannel };
+                        LiveScan, LiveOpen, LiveActive, LiveChannel,
+                        CurveSelect, CurveAdjust, CurveStep, CurveCompare, CurveNew,
+                        CurveDuplicate, CurveRename, SustainCutoff, CurveSteps };
     struct Command {
         Action action;
         std::filesystem::path path;
@@ -50,6 +64,7 @@ public:
         double amount = 0;
         std::string key;
         std::wstring device;
+        std::array<float, 32> samples{};
     };
     explicit ShellEngine(std::filesystem::path config);
     ~ShellEngine();

@@ -45,6 +45,7 @@
     <ClInclude Include="Panels.hpp" />
     <ClInclude Include="TrackModel.hpp" />
     <ClInclude Include="ShellEngine.hpp" />
+    <ClInclude Include="VelocityModel.hpp" />
     <ClInclude Include="..\MIDI++\Skin.hpp" />
   </ItemGroup>
   <ItemGroup><ResourceCompile Include="Shell.rc" /></ItemGroup>

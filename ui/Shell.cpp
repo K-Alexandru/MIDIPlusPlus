@@ -203,7 +203,9 @@ static LRESULT WINAPI WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     }
     case WM_GETMINMAXINFO: {
         auto* info = reinterpret_cast<MINMAXINFO*>(lp);
-        RECT rect{0, 0, static_cast<LONG>(900.f * g_dpi), static_cast<LONG>(580.f * g_dpi)};
+        const bool mini = g_panels && g_panels->miniMode;
+        const ImVec2 minimum = mini ? g_panels->DesiredSize() : ImVec2(900, 580);
+        RECT rect{0, 0, static_cast<LONG>(minimum.x * g_dpi), static_cast<LONG>(minimum.y * g_dpi)};
         AdjustWindowRectExForDpi(&rect, WS_OVERLAPPEDWINDOW, FALSE, 0,
                                 static_cast<UINT>(96.f * g_dpi));
         info->ptMinTrackSize = {rect.right - rect.left, rect.bottom - rect.top};
@@ -274,6 +276,8 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     auto skins = skin::All();
     int appliedSkin = -1;
     float appliedDpi = 0.f;
+    bool appliedMini = false, appliedExpanded = false, appliedMiniAutoplay = false;
+    RECT fullRect{}; GetWindowRect(hwnd, &fullRect);
     if (panels.preferences.folder.empty()) {
         auto folder = directory / L"midi";
         if (!std::filesystem::is_directory(folder)) folder = directory.parent_path().parent_path() / L"x64" / L"Release" / L"midi";
@@ -297,18 +301,35 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
         if (!running) break;
         if (IsIconic(hwnd)) { WaitMessage(); continue; }
         const int active = panels.preferences.skin;
-        if (appliedSkin != active || appliedDpi != g_dpi) {
-            if (appliedSkin >= 0 && appliedSkin / 2 != active / 2) {
-                RECT client{};
-                GetClientRect(hwnd, &client);
-                const LONG previousHeight = static_cast<LONG>((appliedSkin < 2 ? 635.f : 728.f) * g_dpi);
-                if (std::abs(client.bottom - previousHeight) <= 1) {
-                    RECT rect{0, 0, client.right, static_cast<LONG>((active < 2 ? 635.f : 728.f) * g_dpi)};
-                    AdjustWindowRectExForDpi(&rect, WS_OVERLAPPEDWINDOW, FALSE, 0, static_cast<UINT>(96.f * g_dpi));
-                    SetWindowPos(hwnd, nullptr, 0, 0, rect.right - rect.left, rect.bottom - rect.top,
-                                 SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
-                }
+        const bool modeChanged = appliedMini != panels.miniMode;
+        const bool sizeChanged = modeChanged || appliedExpanded != panels.velocityExpanded ||
+            (panels.miniMode && appliedMiniAutoplay != panels.miniAutoplay) ||
+            (appliedSkin >= 0 && appliedSkin / 2 != active / 2);
+        if (sizeChanged) {
+            RECT window{}, client{}; GetWindowRect(hwnd, &window); GetClientRect(hwnd, &client);
+            if (modeChanged && panels.miniMode) fullRect = window;
+            RECT target{};
+            const auto desired = panels.DesiredSize();
+            if (modeChanged && !panels.miniMode) target = fullRect;
+            else {
+                RECT dimensions{0, 0, static_cast<LONG>((panels.miniMode ? desired.x * g_dpi : client.right)),
+                    static_cast<LONG>(desired.y * g_dpi)};
+                AdjustWindowRectExForDpi(&dimensions, WS_OVERLAPPEDWINDOW, FALSE, 0, static_cast<UINT>(96.f * g_dpi));
+                target = {window.left, window.top, window.left + dimensions.right - dimensions.left,
+                    window.top + dimensions.bottom - dimensions.top};
             }
+            MONITORINFO monitor{sizeof(monitor)};
+            GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &monitor);
+            const LONG width = std::min(target.right - target.left, monitor.rcWork.right - monitor.rcWork.left);
+            const LONG height = std::min(target.bottom - target.top, monitor.rcWork.bottom - monitor.rcWork.top);
+            target.left = std::clamp(target.left, monitor.rcWork.left, monitor.rcWork.right - width);
+            target.top = std::clamp(target.top, monitor.rcWork.top, monitor.rcWork.bottom - height);
+            SetWindowPos(hwnd, nullptr, target.left, target.top, width, height, SWP_NOZORDER | SWP_NOACTIVATE);
+            appliedMini = panels.miniMode;
+            appliedExpanded = panels.velocityExpanded;
+            appliedMiniAutoplay = panels.miniAutoplay;
+        }
+        if (appliedSkin != active || appliedDpi != g_dpi) {
             skin::ApplyStyle(skins[active], g_dpi);
             ImGui::GetIO().FontDefault = fonts.Get(skins[active]);
             appliedSkin = active;
