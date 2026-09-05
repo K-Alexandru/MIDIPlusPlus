@@ -43,105 +43,34 @@ MIDIConnect::MIDIConnect()
     // The mapping tables are plain INPUT arrays, so wVk, time and dwExtraInfo
     // are indeterminate until something writes them. Only wScan, dwFlags and
     // type are filled in below, and the whole struct is what gets sent.
-    std::memset(m_noteMapping.data(), 0, sizeof(m_noteMapping));
-    std::memset(m_sustainMapping.data(), 0, sizeof(m_sustainMapping));
+    // Plain INPUT arrays: wVk, time and dwExtraInfo stay zero until something
+    // writes them, and the whole struct is what gets sent.
+    constexpr DWORD SC_FLAG = KEYEVENTF_SCANCODE;
+    constexpr DWORD KU_FLAG = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP;
+    m_prefix = { MakeKeyboardInput(0x37, SC_FLAG),   // Numpad *
+                 MakeKeyboardInput(0x37, KU_FLAG) };
 
-    // Precompute note mappings - hot path optimization
-    for (int note = 0; note < 128; ++note) {
-        for (int vel = 0; vel < 128; ++vel) {
-            INPUT* mapping = m_noteMapping[note][vel].data();
-            constexpr DWORD SC_FLAG = KEYEVENTF_SCANCODE;
-            constexpr DWORD KU_FLAG = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP;
-
-            mapping[0].type = INPUT_KEYBOARD;
-            mapping[0].ki.wScan = 0x37;  // Numpad *
-            mapping[0].ki.dwFlags = SC_FLAG;
-            mapping[1].type = INPUT_KEYBOARD;
-            mapping[1].ki.wScan = 0x37;
-            mapping[1].ki.dwFlags = KU_FLAG;
-
-            auto noteOct = NUMPAD_SCANCODES[div12[note]];
-            auto noteVal = NUMPAD_SCANCODES[mod12[note]];
-
-            mapping[2].type = INPUT_KEYBOARD;
-            mapping[2].ki.wScan = noteOct.down;
-            mapping[2].ki.dwFlags = SC_FLAG;
-            mapping[3].type = INPUT_KEYBOARD;
-            mapping[3].ki.wScan = noteOct.up;
-            mapping[3].ki.dwFlags = KU_FLAG;
-            mapping[4].type = INPUT_KEYBOARD;
-            mapping[4].ki.wScan = noteVal.down;
-            mapping[4].ki.dwFlags = SC_FLAG;
-            mapping[5].type = INPUT_KEYBOARD;
-            mapping[5].ki.wScan = noteVal.up;
-            mapping[5].ki.dwFlags = KU_FLAG;
-
-            auto velOct = NUMPAD_SCANCODES[div12[vel]];
-            auto velVal = NUMPAD_SCANCODES[mod12[vel]];
-
-            mapping[6].type = INPUT_KEYBOARD;
-            mapping[6].ki.wScan = velOct.down;
-            mapping[6].ki.dwFlags = SC_FLAG;
-            mapping[7].type = INPUT_KEYBOARD;
-            mapping[7].ki.wScan = velOct.up;
-            mapping[7].ki.dwFlags = KU_FLAG;
-            mapping[8].type = INPUT_KEYBOARD;
-            mapping[8].ki.wScan = velVal.down;
-            mapping[8].ki.dwFlags = SC_FLAG;
-            mapping[9].type = INPUT_KEYBOARD;
-            mapping[9].ki.wScan = velVal.up;
-            mapping[9].ki.dwFlags = KU_FLAG;
-        }
-    }
-
-    // Precompute sustain mappings
-    constexpr BYTE SUSTAIN_NOTE = 143;
-    auto sOct = NUMPAD_SCANCODES[SUSTAIN_NOTE / 12];
-    auto sVal = NUMPAD_SCANCODES[SUSTAIN_NOTE % 12];
-
-    for (int val = 0; val < 128; ++val) {
-        INPUT* mapping = m_sustainMapping[val].data();
-        constexpr DWORD SC_FLAG = KEYEVENTF_SCANCODE;
-        constexpr DWORD KU_FLAG = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP;
-
-        mapping[0].type = INPUT_KEYBOARD;
-        mapping[0].ki.wScan = 0x37;
-        mapping[0].ki.dwFlags = SC_FLAG;
-        mapping[1].type = INPUT_KEYBOARD;
-        mapping[1].ki.wScan = 0x37;
-        mapping[1].ki.dwFlags = KU_FLAG;
-
-        mapping[2].type = INPUT_KEYBOARD;
-        mapping[2].ki.wScan = sOct.down;
-        mapping[2].ki.dwFlags = SC_FLAG;
-        mapping[3].type = INPUT_KEYBOARD;
-        mapping[3].ki.wScan = sOct.up;
-        mapping[3].ki.dwFlags = KU_FLAG;
-        mapping[4].type = INPUT_KEYBOARD;
-        mapping[4].ki.wScan = sVal.down;
-        mapping[4].ki.dwFlags = SC_FLAG;
-        mapping[5].type = INPUT_KEYBOARD;
-        mapping[5].ki.wScan = sVal.up;
-        mapping[5].ki.dwFlags = KU_FLAG;
-
-        auto valOct = NUMPAD_SCANCODES[div12[val]];
-        auto valVal = NUMPAD_SCANCODES[mod12[val]];
-
-        mapping[6].type = INPUT_KEYBOARD;
-        mapping[6].ki.wScan = valOct.down;
-        mapping[6].ki.dwFlags = SC_FLAG;
-        mapping[7].type = INPUT_KEYBOARD;
-        mapping[7].ki.wScan = valOct.up;
-        mapping[7].ki.dwFlags = KU_FLAG;
-        mapping[8].type = INPUT_KEYBOARD;
-        mapping[8].ki.wScan = valVal.down;
-        mapping[8].ki.dwFlags = SC_FLAG;
-        mapping[9].type = INPUT_KEYBOARD;
-        mapping[9].ki.wScan = valVal.up;
-        mapping[9].ki.dwFlags = KU_FLAG;
-    }
+    // div12 and mod12 were exactly n/12 and n%12, and the note quad and the
+    // value quad were built by the same formula, so one table serves both.
+    const auto quad = [](int index) {
+        const auto octave = NUMPAD_SCANCODES[index / 12];
+        const auto value = NUMPAD_SCANCODES[index % 12];
+        return Quad{ MakeKeyboardInput(octave.down, KEYEVENTF_SCANCODE),
+                     MakeKeyboardInput(octave.up, KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP),
+                     MakeKeyboardInput(value.down, KEYEVENTF_SCANCODE),
+                     MakeKeyboardInput(value.up, KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP) };
+    };
+    for (int index = 0; index < 128; ++index) m_keys[index] = quad(index);
+    m_sustainKeys = quad(SUSTAIN_NOTE);
 }
 
+
+size_t MIDIConnect::Compose(INPUT* out, const Quad& selector, const Quad& value) const {
+    std::memcpy(out, m_prefix.data(), sizeof(m_prefix));
+    std::memcpy(out + PREFIX_INPUTS, selector.data(), sizeof(Quad));
+    std::memcpy(out + PREFIX_INPUTS + QUAD_INPUTS, value.data(), sizeof(Quad));
+    return MESSAGE_INPUTS;
+}
 MIDIConnect::~MIDIConnect() {
     CloseDevice();
     RestoreSystemDefaults();
@@ -299,35 +228,16 @@ void MIDIConnect::HandleMessage(uint64_t timestampQpc, const uint8_t* data, size
 
     switch (cmd) {
     case 0x90: // Note On
-        if (data2 > 0) {
-            const auto& mapping = m_noteMapping[data1][data2];
-            for (int i = 0; i < 10 && inputCount < MAX_BATCH_INPUTS; i++) {
-                batched[inputCount++] = mapping[i];
-            }
-        }
-        else {
-            const auto& mapping = m_noteMapping[data1][0];
-            for (int i = 0; i < 10 && inputCount < MAX_BATCH_INPUTS; i++) {
-                batched[inputCount++] = mapping[i];
-            }
-        }
+        // The two old branches indexed value 0 and data2, and data2 is 0 in the
+        // branch that used 0, so they were the same lookup.
+        inputCount = Compose(batched, m_keys[data1], m_keys[data2]);
         break;
-
-    case 0x80: { // Note Off
-        const auto& mapping = m_noteMapping[data1][0];
-        for (int i = 0; i < 10 && inputCount < MAX_BATCH_INPUTS; i++) {
-            batched[inputCount++] = mapping[i];
-        }
+    case 0x80: // Note Off. Release velocity is deliberately ignored, as before.
+        inputCount = Compose(batched, m_keys[data1], m_keys[0]);
         break;
-    }
-
     case 0xB0: // Control Change
-        if (data1 == 64) { // Sustain pedal
-            const auto& mapping = m_sustainMapping[data2];
-            for (int i = 0; i < 10 && inputCount < MAX_BATCH_INPUTS; i++) {
-                batched[inputCount++] = mapping[i];
-            }
-        }
+        if (data1 == 64) // Sustain pedal
+            inputCount = Compose(batched, m_sustainKeys, m_keys[data2]);
         break;
     }
 

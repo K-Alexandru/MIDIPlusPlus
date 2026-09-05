@@ -47,8 +47,22 @@ private:
     };
 
     static constexpr size_t MAX_BATCH_INPUTS = 32;
-    alignas(CACHE_LINE_SIZE) std::array<std::array<std::array<INPUT, 10>, 128>, 128> m_noteMapping;
-    alignas(CACHE_LINE_SIZE) std::array<std::array<INPUT, 10>, 128> m_sustainMapping;
+    // The old layout was m_noteMapping[128][128][10] plus m_sustainMapping[128][10]:
+    // 6.5MB of INPUT built by a 16384-iteration constructor, guaranteeing cache
+    // misses on the injection path. Every entry was the same two-input prefix,
+    // a quad selected by note, then a quad selected by value, and both quads
+    // came from the same formula, so the table was one 128-entry table crossed
+    // with itself. Keeping the factor is about 20KB and stays in cache.
+    static constexpr size_t PREFIX_INPUTS = 2;
+    static constexpr size_t QUAD_INPUTS = 4;
+    static constexpr size_t MESSAGE_INPUTS = PREFIX_INPUTS + 2 * QUAD_INPUTS;
+    static constexpr int SUSTAIN_NOTE = 143;
+    static_assert(MESSAGE_INPUTS <= MAX_BATCH_INPUTS, "a composed message must fit the batch");
+    using Quad = std::array<INPUT, QUAD_INPUTS>;
+    alignas(CACHE_LINE_SIZE) std::array<INPUT, PREFIX_INPUTS> m_prefix;
+    alignas(CACHE_LINE_SIZE) std::array<Quad, 128> m_keys;
+    alignas(CACHE_LINE_SIZE) Quad m_sustainKeys;
+    size_t Compose(INPUT* out, const Quad& selector, const Quad& value) const;
 
     std::unique_ptr<IMidiInput> m_input;
     std::wstring m_selectedDevice;
