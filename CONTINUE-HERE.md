@@ -98,6 +98,14 @@ Order to work in from here:
 2. **Fonts.** Load Segoe UI for Classic and IBM Plex Sans for Modern at the
    sizes in `Skin::type`. The default bitmap font makes everything look wrong
    and hides real spacing problems, so do this before judging any layout.
+   **Attempted and reverted 2026-09-04, so read this first:** the obvious
+   `io.Fonts->AddFontFromFileTTF(...)` after backend init, plus `PushFont` and
+   `PopFont` around the frame, compiled cleanly and then rendered a completely
+   blank window. The vendored ImGui is 1.93 WIP, whose font system was rewritten
+   and whose `PushFont` now takes a size argument, so the single-argument form
+   is not the call it used to be. Either pin an older ImGui or read the 1.92+
+   font migration notes before trying again. IBM Plex Sans is not a Windows font
+   and was not installed on the dev machine, so it needs shipping or a fallback.
 3. **DPI.** The shipped app is per-monitor DPI aware; the shell is not yet.
 4. **Feature panels, one at a time against the mockup, starting with Tracks.**
    Tracks first because it is the panel the owner said he ignored, and the one
