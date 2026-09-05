@@ -27,8 +27,9 @@ on, so the port stays. Everything below it is settled:
   checkbox. See the verdict in `LEGIT-MODE.md`.
 - Autoplay and live input now send the identical four-event ALT velocity tap.
 
-**The UI is the blocker.** It is the original Win32 + GDI+ window. The agreed
-replacement is Dear ImGui, and no ImGui code exists yet.
+**The UI is the blocker.** The shipped app is still the original Win32 + GDI+
+window. The Dear ImGui replacement now has a working shell (see below), but no
+feature panel has been ported and the two do not share code yet.
 
 ## Build and run
 
@@ -46,9 +47,17 @@ Tests need a loopMIDI port. `run-latency-tests.ps1 -ListPorts` names them.
 & .\tests\run-latency-tests.ps1 -Legit                 # no hardware needed
 ```
 
-## The next job: the ImGui shell
+The ImGui shell is a separate project and a separate executable:
 
-This is weeks of work, and it is the only large thing left.
+```powershell
+& 'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe' 'ui\MIDIShell.vcxproj' /p:Configuration=Release /p:Platform=x64 /m
+```
+
+Output is `build\shell\MIDIShell.exe`.
+
+## The next job: finish the ImGui UI
+
+The shell is built. Porting the panels onto it is the remaining large job.
 
 `skin-system.html` is the spec. It is an operable mockup, not a picture: open it
 and press things. Its measurements are real and were taken from the rendered
@@ -62,7 +71,19 @@ page, so build against them rather than guessing.
   carries only what changes while you play.
 - The velocity editor starts collapsed for the same reason.
 
-**`MIDI++/Skin.hpp` already exists and is the starting point.** It is the four
+**The shell exists and builds.** `ui\MIDIShell.vcxproj` produces
+`build\shell\MIDIShell.exe`: a DX11 + Win32 ImGui window that applies any of the
+four skins, draws the primary strip, the left file list and the right column,
+and carries a skin picker so the four can be compared the way the mockup
+compares them. Dear ImGui (docking branch) is vendored under `third_party/`.
+It is a **separate executable on purpose**: the working app is never broken by
+UI work in progress, and nothing in it links against `PlaybackCore` yet.
+
+What it does not have: real fonts (it is still on ImGui's default bitmap font,
+so Segoe UI and IBM Plex Sans are not loaded), DPI awareness, and any feature
+panel at all. Those are the next three jobs, in that order.
+
+**`MIDI++/Skin.hpp` is the data behind it.** It is the four
 skins as runtime data, extracted from the mockup, with no ImGui, Win32 or GDI+
 dependency, so it compiles anywhere and can be unit tested. It carries the five
 surface tiers, the shadow definitions, the border alphas, the concentric radii,
@@ -70,17 +91,17 @@ the 4px spacing scale, control heights and the type scale. What it does **not**
 carry is the drawing: the panel and field helpers that turn those numbers into a
 draw list are the first thing to write.
 
-Order I would work in:
+Order to work in from here:
 
-1. Vendor Dear ImGui plus the DX11 and Win32 backends. None of it is in the tree.
-2. A window that opens, clears, and applies `skin::Classic()` to `ImGuiStyle`.
-3. `RaisedPanel()` and `RecessedField()` helpers using `Skin`. The ambient shadow
-   becomes two or three stacked translucent rounded rects, the contact shadow a
-   one-pixel darker line under the surface, the top highlight a one-pixel lighter
-   line inside it. Get these right before anything else: every panel uses them.
-4. The layout shell only: primary strip, left file list, right column. No
-   feature panels yet.
-5. Then port panels one at a time against the mockup, starting with Tracks.
+1. ~~Vendor ImGui, open a window, apply a skin, write the raised and recessed
+   helpers, lay out the shell.~~ Done.
+2. **Fonts.** Load Segoe UI for Classic and IBM Plex Sans for Modern at the
+   sizes in `Skin::type`. The default bitmap font makes everything look wrong
+   and hides real spacing problems, so do this before judging any layout.
+3. **DPI.** The shipped app is per-monitor DPI aware; the shell is not yet.
+4. **Feature panels, one at a time against the mockup, starting with Tracks.**
+   Tracks first because it is the panel the owner said he ignored, and the one
+   Solo Piano exists to fix.
 
 Hard constraint from `HANDOFF.md` section 4: **injection must never share a
 thread with the message loop.** Upstream admits window dragging conflicts with
