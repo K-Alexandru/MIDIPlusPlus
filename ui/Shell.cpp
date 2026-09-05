@@ -21,6 +21,11 @@
 #include <d3d11.h>
 #include <tchar.h>
 #include <shellapi.h>
+#include "json.hpp"
+#include <algorithm>
+#include <cctype>
+#include <fstream>
+#include <unordered_map>
 
 static ID3D11Device*           g_device = nullptr;
 static ID3D11DeviceContext*    g_context = nullptr;
@@ -29,6 +34,85 @@ static ID3D11RenderTargetView* g_target = nullptr;
 static float g_dpi = 1.f;
 static shell::ShellEngine* g_engine = nullptr;
 static shell::Panels* g_panels = nullptr;
+
+// Global hotkeys.
+//
+// The legacy app kept the game focused and drove playback from the four
+// configured keys. The shell disabled that listener and re-registered only F4,
+// so the Playback card grew a three-second countdown to let you alt-tab.
+// Registering the configured keys removes the reason for one.
+//
+// WM_HOTKEY arrives on the message loop thread, so these handlers only enqueue
+// an engine command. Nothing here may touch the player or inject a keystroke:
+// HANDOFF.md section 4 forbids sharing a thread between injection and the
+// message loop, and that is the bug this rewrite exists to avoid.
+namespace {
+enum Hotkey { HotkeyPlayPause = 1, HotkeyRewind, HotkeySkip, HotkeyStop };
+struct Registered { bool playPause = false, rewind = false, skip = false, stop = false; };
+
+// Config names are the upstream "VK_F1" spelling. Unknown names register
+// nothing rather than guessing at a keycode.
+int NameToVK(std::string name) {
+    if (name.rfind("VK_", 0) == 0) name.erase(0, 3);
+    if (name.empty()) return 0;
+    std::transform(name.begin(), name.end(), name.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+    if (name.size() == 1 && (std::isalnum(static_cast<unsigned char>(name[0])) != 0))
+        return static_cast<unsigned char>(name[0]);
+    if (name[0] == 'F' && name.size() <= 3) {
+        const int number = std::atoi(name.c_str() + 1);
+        if (number >= 1 && number <= 24) return VK_F1 + number - 1;
+    }
+    static const std::unordered_map<std::string, int> named{
+        {"SPACE", VK_SPACE}, {"TAB", VK_TAB},     {"PAUSE", VK_PAUSE},
+        {"LEFT", VK_LEFT},   {"RIGHT", VK_RIGHT}, {"UP", VK_UP},
+        {"DOWN", VK_DOWN},   {"HOME", VK_HOME},   {"END", VK_END},
+        {"INSERT", VK_INSERT}, {"DELETE", VK_DELETE},
+        {"PRIOR", VK_PRIOR}, {"NEXT", VK_NEXT},
+    };
+    const auto found = named.find(name);
+    return found == named.end() ? 0 : found->second;
+}
+
+// A key another application already owns simply fails to register. That is
+// reported through the returned flags, never treated as fatal.
+Registered RegisterHotkeys(HWND hwnd, const std::filesystem::path& config) {
+    std::string playPause = "VK_F1", rewind = "VK_F2", skip = "VK_F3", stop = "VK_F4";
+    try {
+        std::ifstream file(config);
+        if (file) {
+            const auto json = nlohmann::json::parse(file, nullptr, true, true);
+            const auto keys = json.find("HOTKEY_SETTINGS");
+            if (keys != json.end() && keys->is_object()) {
+                playPause = keys->value("PLAY_PAUSE_KEY", playPause);
+                rewind    = keys->value("REWIND_KEY", rewind);
+                skip      = keys->value("SKIP_KEY", skip);
+                stop      = keys->value("EMERGENCY_EXIT_KEY", stop);
+            }
+        }
+    } catch (const std::exception&) {
+        // A missing or malformed config still gets the documented defaults.
+    }
+    const auto add = [hwnd](int id, const std::string& name) {
+        const int vk = NameToVK(name);
+        return vk != 0 && RegisterHotKey(hwnd, id, MOD_NOREPEAT, static_cast<UINT>(vk)) != FALSE;
+    };
+    Registered done;
+    done.playPause = add(HotkeyPlayPause, playPause);
+    done.rewind    = add(HotkeyRewind, rewind);
+    done.skip      = add(HotkeySkip, skip);
+    done.stop      = add(HotkeyStop, stop);
+    return done;
+}
+
+void UnregisterHotkeys(HWND hwnd, const Registered& done) {
+    if (done.playPause) UnregisterHotKey(hwnd, HotkeyPlayPause);
+    if (done.rewind)    UnregisterHotKey(hwnd, HotkeyRewind);
+    if (done.skip)      UnregisterHotKey(hwnd, HotkeySkip);
+    if (done.stop)      UnregisterHotKey(hwnd, HotkeyStop);
+}
+}
+
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM, LPARAM);
 
@@ -82,11 +166,26 @@ static void CleanupDevice() {
 static LRESULT WINAPI WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     if (ImGui_ImplWin32_WndProcHandler(hwnd, msg, wp, lp)) return true;
     switch (msg) {
-    case WM_HOTKEY:
-        if (wp == 1 && g_engine && g_panels) {
+    case WM_HOTKEY: {
+        if (!g_engine) return 0;
+        // Only enqueue. The engine worker owns the player.
+        const uint64_t generation = g_engine->Snapshot()->generation;
+        switch (wp) {
+        case HotkeyPlayPause:
+            g_engine->Send({shell::ShellEngine::Action::TogglePlayPause, {}, generation});
+            break;
+        case HotkeyRewind:
+            g_engine->Send({shell::ShellEngine::Action::Back10, {}, generation});
+            break;
+        case HotkeySkip:
+            g_engine->Send({shell::ShellEngine::Action::Forward10, {}, generation});
+            break;
+        case HotkeyStop:
             g_engine->Send({shell::ShellEngine::Action::Stop});
+            break;
         }
         return 0;
+    }
     case WM_DROPFILES: {
         const auto drop = reinterpret_cast<HDROP>(wp);
         wchar_t path[32768]{};
@@ -158,7 +257,8 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     ::ShowWindow(hwnd, SW_SHOWDEFAULT);
     ::UpdateWindow(hwnd);
     DragAcceptFiles(hwnd, TRUE);
-    panels.stopHotkeyAvailable = RegisterHotKey(hwnd, 1, MOD_NOREPEAT, VK_F4) != FALSE;
+    const Registered hotkeys = RegisterHotkeys(hwnd, directory / L"config.json");
+    panels.stopHotkeyAvailable = hotkeys.stop;
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -251,7 +351,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     ImGui_ImplDX11_Shutdown();
     ImGui_ImplWin32_Shutdown();
     ImGui::DestroyContext();
-    if (panels.stopHotkeyAvailable) UnregisterHotKey(hwnd, 1);
+    UnregisterHotkeys(hwnd, hotkeys);
     panels.SavePreferences(preferencesPath);
     g_engine = nullptr;
     g_panels = nullptr;
