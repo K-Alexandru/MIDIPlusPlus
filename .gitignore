@@ -1,3 +1,9 @@
 # Local verification builds. Existing tracked release artifacts are preserved.
 /build/
 
+# Intermediate build output. Untracked 2026-09-04: 29 files of .obj, .tlog,
+# .iobj, .recipe and compiler .pdb that every build rewrote, so the tree was
+# dirty after any compile and diffs were unreviewable. The shipped binary at
+# x64/Release/ stays tracked; only the intermediates that produce it are gone.
+# They remain in history if an old build ever needs reconstructing.
+/MIDI++/x64/

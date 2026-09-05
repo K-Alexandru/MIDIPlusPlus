@@ -157,12 +157,16 @@ concurrent callbacks cannot collide and nothing has to be dropped.
 
 ### Still present
 
-- **ALT+key velocity preamble.** Live input adds four velocity events when a
-  bucket changes; autoplay adds six. Both already skip unchanged buckets.
-  A plain note-on therefore uses 1 event with velocity off, 5 on a changed live
-  bucket, or 7 on a changed autoplay bucket. Modifier mappings and volume
-  adjustment can add more. These counts are verified; a dominant latency effect
-  or a specific ALT cause for upstream #44 is not. That issue has only a title.
+- **ALT+key velocity preamble.** Partly reduced 2026-09-04: autoplay used to
+  spend six events on a changed bucket against live input's four, because it
+  tapped ALT through two separate `KeyPress` calls, releasing and re-pressing
+  ALT inside its own tap. Both paths now send the same single four-event tap, so
+  a plain note-on costs 1 event with velocity off and 5 on a changed bucket
+  either way, 1 on a repeated bucket. Modifier mappings and volume adjustment can
+  still add more. **The ALT protocol itself is untouched** and is still four
+  events where one would do; removing it needs the target game's protocol
+  checked first. These counts are verified; a dominant latency effect, or a
+  specific ALT cause for upstream #44, is not. That issue has only a title.
 - **UI thread vs injection.** Upstream's R5 notes admit: *"Windows limitation
   causes UI window dragging (WndProc messages) to conflict with NtUserSendInput
   syscall"*. Unfixed. Means the UI architecture is itself a latency factor.
@@ -179,8 +183,12 @@ concurrent callbacks cannot collide and nothing has to be dropped.
 
 ### Repo hygiene
 
-31 build artifacts are tracked in git (`.obj`, `.iobj`, `.pdb`, `.exe`,
-`.tlog`), making `.git` 29MB. Any build dirties the tree. Needs a `.gitignore`.
+Fixed 2026-09-04. 31 build artifacts were tracked (`.obj`, `.iobj`, `.pdb`,
+`.exe`, `.tlog`), so any compile dirtied the tree and buried real diffs. The 29
+intermediates under `MIDI++/x64/` are now untracked and ignored; they stay in
+history if an old build ever needs reconstructing. The shipped `x64/Release/`
+binary and its `.pdb` are still tracked deliberately, since that is what people
+download. `/build/` is ignored for local verification builds.
 
 ---
 ## 5. Decisions made
@@ -252,14 +260,22 @@ Already answered, do **not** re-ask:
 
 ## 7. Recommended order
 
-1. **Test the port with real MIDI.** Cheapest decision available; either it works
-   or it gets reverted. The device index bug is fixed, so two inputs at once is
-   now itself worth testing.
+1. **Play one note into a real game.** Still the cheapest decision available and
+   still the one blocking everything else: it either validates the WinRT port or
+   reverts it. Needs the machine, a piano and the game, so it needs you. The
+   device index bug is fixed, so two inputs at once is worth testing at the same
+   time, and legit mode wants an ear check while you are there.
 2. ~~**Extract `IMidiInput`**~~: done 2026-09-04 in `269c2f2` (section 3). WinRT,
    WinMM and Wooting all sit behind it and devices are opened by id.
 3. ~~**Build latency instrumentation.**~~ Implemented and tested in section 16.
-4. **UI rewrite** in ImGui.
-5. **YouTube→MIDI pipeline.** Lowest coupling, can happen anytime.
+4. **Decide the ALT protocol.** The cheap half is done — both paths now send the
+   same four-event tap (section 4). The remaining question is whether the target
+   accepts velocity without ALT at all, which is four events down to one on every
+   bucket change. That is a question about the game, not about this code, and it
+   is the last input-path win available before the UI rewrite.
+5. **UI rewrite** in ImGui. `skin-system.html` is the spec; zero ImGui code
+   exists. Weeks, not hours.
+6. **YouTube→MIDI pipeline.** Lowest coupling, can happen anytime.
 
 ### Latency instrumentation: implemented with corrected boundaries
 
@@ -856,11 +872,14 @@ hook observations. The fixture swallows its own tagged output after observing
 it, so no test notes type into the focused app. A loopback readiness handshake
 handles route reconnection while switching APIs.
 
-Actual plain note-on event counts: 1 without a velocity change; 5 for changed
-live velocity; 7 for changed autoplay velocity. Repeated velocity buckets use 1
-in both paths. Autoplay's velocity helper uses six events versus live input's
-four, which is a concrete next optimization to investigate. Removing ALT still
-requires checking the target's protocol.
+Actual plain note-on event counts: 1 without a velocity change; 5 for a changed
+velocity bucket in either path; 1 for a repeated bucket in either path.
+Autoplay used to cost 7 for a changed bucket because it tapped ALT through two
+three-event `KeyPress` calls, releasing and re-pressing ALT inside its own tap.
+It now sends the same single four-event tap MIDI2Key does, so the two paths
+agree and autoplay sends two fewer events in one fewer call. Removing ALT
+altogether still requires checking the target's protocol; this change does not
+touch it.
 
 The queue stress test covers 120000 concurrent attempts and overflow accounting.
 Tests also cover hook-before-return timing, out-of-order joins, missing hooks,

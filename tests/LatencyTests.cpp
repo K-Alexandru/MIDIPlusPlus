@@ -519,9 +519,12 @@ void loopbackTests(const std::wstring& portName) {
     SetEvent(player.command_event);
     player.playback_thread->join();
     const auto& velocitySamples = autoplayVelocity.samples(Source::Autoplay);
-    require(velocitySamples[0].submission.requested == 7 && velocitySamples[2].submission.requested == 1 &&
-        velocitySamples[4].submission.requested == 7, "autoplay uses six velocity events per changed bucket");
-    require(takeCaptured().size() == 18, "autoplay velocity event total");
+    // Autoplay now sends the same four-event ALT tap in one call that MIDI2Key
+    // does, so a changed bucket is 5 requested events (4 velocity + 1 press),
+    // not the 7 it used to be from two three-event KeyPress calls.
+    require(velocitySamples[0].submission.requested == 5 && velocitySamples[2].submission.requested == 1 &&
+        velocitySamples[4].submission.requested == 5, "autoplay uses four velocity events per changed bucket");
+    require(takeCaptured().size() == 14, "autoplay velocity event total");
     reportSamples("autoplay-velocity", autoplayVelocity, Source::Autoplay);
 
     // MIDIConnect has a different ten-event receiver protocol, tracked separately.

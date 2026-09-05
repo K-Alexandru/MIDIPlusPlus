@@ -225,6 +225,7 @@ public:
     void setVelocityCurveIndex(size_t index);
     std::string getVelocityCurveName(midi::VelocityCurveType curveType);
     std::string getVelocityKey(int targetVelocity);
+    void send_velocity_key(char velocityKey) noexcept;
 
     // Sustain settings
     SustainMode currentSustainMode{ SustainMode::IG };

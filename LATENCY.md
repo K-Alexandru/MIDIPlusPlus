@@ -122,9 +122,11 @@ Verified locally on 2026-09-04:
 - loopMIDI through WinRT and WinMM delivers a triad, note-on/off, zero-velocity
   note-off, a non-default sustain cutoff, and changed/repeated velocity buckets.
 - Autoplay and MIDIConnect use distinct measurement populations. A plain live
-  note uses 1 event; a changed live velocity bucket uses 5. The repeated bucket
-  uses 1. A changed autoplay bucket uses 7 because its velocity helper emits six
-  events, while an unchanged bucket uses 1. MIDIConnect uses 10 events per message.
+  note uses 1 event; a changed velocity bucket uses 5 in both the live and the
+  autoplay path, and a repeated bucket uses 1 in both. Autoplay used to cost 7
+  because it tapped ALT through two three-event calls; it now sends the same
+  four-event tap in one call that MIDI2Key does. MIDIConnect uses 10 events per
+  message.
 - The timing window displays real captured results, changes source, closes and
   reopens; its screenshot was inspected for clipping.
 

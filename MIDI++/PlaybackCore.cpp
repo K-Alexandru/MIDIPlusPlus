@@ -872,6 +872,27 @@ void VirtualPianoPlayer::restart_song() {
     }
 }
 
+// One ALT+key tap in a single injection call, matching what MIDI2Key already
+// sends for the same purpose. The previous form went through KeyPress twice,
+// which produced ALT down / key down / ALT up followed by ALT down / key up /
+// ALT up: six events in two calls, with ALT released and re-pressed in the
+// middle of its own tap. The net signal to the receiver is identical and the
+// velocity protocol is unchanged; there are simply two fewer events and one
+// fewer call. getVelocityKey() only ever returns a character from
+// "1234567890qwertyuiopasdfghjklzxc", so no shift handling is needed here.
+void VirtualPianoPlayer::send_velocity_key(char velocityKey) noexcept {
+    constexpr WORD ALT_SCAN = 0x38;
+    const WORD scan = SCAN_TABLE_AUTO[static_cast<unsigned char>(velocityKey)];
+    if (scan == 0) return;
+    INPUT events[4] = {};
+    for (auto& event : events) event.type = INPUT_KEYBOARD;
+    events[0].ki.wScan = ALT_SCAN; events[0].ki.dwFlags = KEYEVENTF_SCANCODE;
+    events[1].ki.wScan = scan;     events[1].ki.dwFlags = KEYEVENTF_SCANCODE;
+    events[2].ki.wScan = scan;     events[2].ki.dwFlags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP;
+    events[3].ki.wScan = ALT_SCAN; events[3].ki.dwFlags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP;
+    input_latency::send(4, events, sizeof(INPUT));
+}
+
 void VirtualPianoPlayer::KeyPress(std::string_view key, bool press) {
     std::string keyStr(key);
     auto it = g_keyCache.find(keyStr);
@@ -1812,8 +1833,7 @@ void VirtualPianoPlayer::execute_note_event(const NoteEvent& event) noexcept {
             {
                 std::string velocityKey = "alt+" + getVelocityKey(event.velocity);
                 if (velocityKey != lastPressedKey) {
-                    KeyPress(velocityKey, true);
-                    KeyPress(velocityKey, false);
+                    send_velocity_key(velocityKey.back());
                     lastPressedKey = velocityKey;
                 }
             }
