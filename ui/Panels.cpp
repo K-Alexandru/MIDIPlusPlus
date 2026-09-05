@@ -21,6 +21,7 @@ void DrawIcon(ImDrawList* dl, Icon icon, ImVec2 min, float side, ImU32 ink, floa
     const auto p = [&](float x, float y) { return ImVec2(min.x + side * x / 24.f, min.y + side * y / 24.f); };
     const auto line = [&](float x, float y, float xx, float yy) { dl->AddLine(p(x, y), p(xx, yy), ink, 1.5f * dpi); };
     const auto rect = [&](float x, float y, float xx, float yy) { dl->AddRect(p(x, y), p(xx, yy), ink, 1.5f * dpi, 0, 1.5f * dpi); };
+    const auto fill = [&](float x, float y, float xx, float yy) { dl->AddRectFilled(p(x, y), p(xx, yy), ink, .5f * dpi); };
     switch (icon) {
     case Icon::Folder: rect(3, 7, 21, 20); line(3, 7, 3, 4); line(3, 4, 10, 4); line(10, 4, 13, 7); break;
     case Icon::Open: rect(5, 3, 19, 21); line(9, 12, 15, 12); line(12, 9, 15, 12); line(12, 15, 15, 12); break;
@@ -28,10 +29,16 @@ void DrawIcon(ImDrawList* dl, Icon icon, ImVec2 min, float side, ImU32 ink, floa
         dl->PathArcTo(p(12, 12), side * .34f, .5f, 5.9f, 18); dl->PathStroke(ink, 0, 1.5f * dpi);
         line(20, 5, 20, 10); line(15, 9, 20, 10); break;
     case Icon::Settings:
-        dl->AddCircle(p(12, 12), side * .26f, ink, 16, 1.5f * dpi);
-        dl->AddCircle(p(12, 12), side * .1f, ink, 12, 1.5f * dpi);
-        for (int i = 0; i < 8; ++i) { const float a = i * 3.14159265f / 4.f;
-            line(12 + 7 * std::cos(a), 12 + 7 * std::sin(a), 12 + 10 * std::cos(a), 12 + 10 * std::sin(a)); } break;
+        // One closed outline stepping between two radii: eight teeth, then the
+        // bore. The old drawing was a circle with spokes crossing it, which
+        // reads as a sun at strip size rather than a gear.
+        for (int i = 0; i < 32; ++i) {
+            const float a = i * 3.14159265f / 16.f;
+            const float radius = i % 4 < 2 ? 9.f : 7.f;
+            dl->PathLineTo(p(12 + radius * std::cos(a), 12 + radius * std::sin(a)));
+        }
+        dl->PathStroke(ink, ImDrawFlags_Closed, 1.5f * dpi);
+        dl->AddCircle(p(12, 12), side * .13f, ink, 16, 1.5f * dpi); break;
     case Icon::Sun:
         dl->AddCircle(p(12, 12), side * .22f, ink, 16, 1.5f * dpi);
         for (int i = 0; i < 8; ++i) { const float a = i * 3.14159265f / 4.f;
@@ -49,16 +56,16 @@ void DrawIcon(ImDrawList* dl, Icon icon, ImVec2 min, float side, ImU32 ink, floa
     case Icon::Left: line(15, 5, 8, 12); line(8, 12, 15, 19); break;
     case Icon::Right: line(9, 5, 16, 12); line(16, 12, 9, 19); break;
     case Icon::Down: line(5, 9, 12, 16); line(12, 16, 19, 9); break;
-    case Icon::Mini: rect(3, 5, 21, 19); rect(12, 12, 19, 17); break;
+    case Icon::Mini: rect(3, 5, 21, 19); fill(12, 11, 18, 16); break;
     case Icon::Expand: line(3, 10, 3, 3); line(3, 3, 10, 3); line(14, 21, 21, 21); line(21, 21, 21, 14); break;
     case Icon::Copy: rect(7, 7, 21, 21); line(3, 17, 3, 3); line(3, 3, 17, 3); break;
     case Icon::Rename: line(4, 17, 17, 4); line(17, 4, 21, 8); line(21, 8, 8, 21); line(8, 21, 3, 21); line(3, 21, 4, 17); break;
     case Icon::Check: line(4, 12, 9, 17); line(9, 17, 20, 6); break;
     case Icon::Close: line(6, 6, 18, 18); line(6, 18, 18, 6); break;
     case Icon::Keyboard:
-        rect(2, 5, 22, 19);
-        for (int y : {9, 12}) for (int x : {6, 10, 14, 18}) line(static_cast<float>(x), static_cast<float>(y), x + 1.f, static_cast<float>(y));
-        line(7, 16, 17, 16); break;
+        rect(3, 6, 21, 18);
+        for (float x : {6.f, 9.5f, 13.f, 16.5f}) fill(x, 9, x + 2, 10.5f);
+        fill(8, 13, 16, 14.5f); break;
     case Icon::Speaker:
     case Icon::Muted:
         line(3, 9, 7, 9); line(7, 9, 12, 5); line(12, 5, 12, 19);
@@ -69,27 +76,25 @@ void DrawIcon(ImDrawList* dl, Icon icon, ImVec2 min, float side, ImU32 ink, floa
         dl->PathArcTo(p(12, 12), side * .34f, 3.14159265f, 6.2831853f, 16); dl->PathStroke(ink, 0, 1.5f * dpi);
         rect(3, 12, 7, 20); rect(17, 12, 21, 20); break;
     case Icon::Piano:
-        rect(2, 4, 22, 20); line(7, 5, 7, 19); line(12, 5, 12, 19); line(17, 5, 17, 19);
-        dl->AddRectFilled(p(5, 4), p(9, 12), ink); dl->AddRectFilled(p(15, 4), p(19, 12), ink); break;
+        rect(3.5f, 5, 20.5f, 19);
+        line(8.5f, 5, 8.5f, 13); line(12, 5, 12, 13); line(15.5f, 5, 15.5f, 13); break;
     }
 }
 
 bool IconButton(const char* id, Icon icon, const char* tip, const skin::Skin& s, float dpi, bool active = false) {
     const float height = s.metric.controlHeight;
     const ImVec2 min = ImGui::GetCursorScreenPos();
-    const bool muted = icon == Icon::Muted;
-    if (active) ImGui::PushStyleColor(ImGuiCol_Button, Colour(muted ? s.accent.accentSoft : s.accent.okSoft));
+    if (active) ImGui::PushStyleColor(ImGuiCol_Button, Colour(s.accent.accentSoft));
     const bool clicked = ImGui::Button(id, ImVec2(height, height));
     if (active) ImGui::PopStyleColor();
     DrawIcon(ImGui::GetWindowDrawList(), icon, ImVec2(min.x + (height - 16.f * dpi) / 2,
              min.y + (height - 16.f * dpi) / 2), 16.f * dpi,
-             Colour(active ? (muted ? s.accent.accent : s.accent.okInk) : s.ink.secondary), dpi);
-    if (active) { // Checked shape, in addition to semantic colour.
-        auto* dl = ImGui::GetWindowDrawList();
-        dl->AddLine(ImVec2(min.x + height - 8 * dpi, min.y + height - 5 * dpi),
-                    ImVec2(min.x + height - 6 * dpi, min.y + height - 3 * dpi), Colour(s.ink.primary), dpi);
-        dl->AddLine(ImVec2(min.x + height - 6 * dpi, min.y + height - 3 * dpi),
-                    ImVec2(min.x + height - 2 * dpi, min.y + height - 8 * dpi), Colour(s.ink.primary), dpi);
+             Colour(active ? s.accent.accent : s.ink.secondary), dpi);
+    if (active) { // Shape as well as colour, per the house rules.
+        const float inset = 6 * dpi;
+        ImGui::GetWindowDrawList()->AddLine(ImVec2(min.x + inset, min.y + height - 4 * dpi),
+                                           ImVec2(min.x + height - inset, min.y + height - 4 * dpi),
+                                           Colour(s.accent.accent), 2 * dpi);
     }
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("%s", tip);
     return clicked;
