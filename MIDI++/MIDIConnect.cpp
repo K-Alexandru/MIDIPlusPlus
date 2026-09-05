@@ -255,16 +255,9 @@ void MIDIConnect::SetActive(bool active) {
     m_isActive.store(active, std::memory_order_release);
 
     if (active && !wasActive) {
-        if (SyscallNumber == 0) {
-            try {
-                SyscallNumber = GetNtUserSendInputSyscallNumber();
-                InitializeNtUserSendInputCall();
-            }
-            catch (const std::exception& e) {
-                m_isActive.store(false, std::memory_order_release);
-                return;
-            }
-        }
+        // Activating no longer depends on the syscall path being available;
+        // SendInput carries the input when it is not.
+        EnsureInputInjection();
     }
 }
 

@@ -4,12 +4,22 @@
 #include <iostream>
 
 extern "C" DWORD SyscallNumber = 0;
-static UINT __fastcall gay(ULONG cInputs, LPINPUT pInputs, int cbSize)
+
+// Fallback path. The direct syscall exists to skip a little of SendInput's
+// prologue, not because SendInput is unusable, so when the syscall cannot be
+// built this keeps every keystroke working at a slightly higher cost.
+//
+// The default this replaced returned 69 without injecting anything. Only the
+// traced path in InputLatency noticed; every untraced caller saw a plausible
+// count and carried on while nothing reached the game.
+static UINT __fastcall SendInputFallback(ULONG cInputs, LPINPUT pInputs, int cbSize)
 {
-    return 69; 
+    return ::SendInput(static_cast<UINT>(cInputs), pInputs, cbSize);
 }
 
-extern "C" UINT(__fastcall* NtUserSendInputCall)(ULONG cInputs, LPINPUT pInputs, int cbSize) = gay;
+extern "C" UINT(__fastcall* NtUserSendInputCall)(ULONG cInputs, LPINPUT pInputs, int cbSize) = SendInputFallback;
+
+static bool g_usingSyscall = false;
 
 extern "C" unsigned long __cdecl GetNtUserSendInputSyscallNumber(void)
 {
@@ -61,6 +71,10 @@ extern "C" unsigned long __cdecl GetNtUserSendInputSyscallNumber(void)
 // because why read from memory and do syscall when you can just do syscall lol, god forgive me for what im doing
 extern "C" void InitializeNtUserSendInputCall(void)
 {
+    // A zero number would assemble a stub that syscalls into whatever sits at
+    // 0, so refuse it and keep the fallback rather than install something that
+    // fails on every note.
+    if (SyscallNumber == 0) return;
     void* pMemory = VirtualAlloc(NULL, 16, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
     if (!pMemory) return;
     BYTE* pCode = (BYTE*)pMemory;
@@ -70,6 +84,34 @@ extern "C" void InitializeNtUserSendInputCall(void)
     pCode[8] = 0x0F; pCode[9] = 0x05;
     pCode[10] = 0xC3;
     DWORD oldProtect;
-    VirtualProtect(pMemory, 16, PAGE_EXECUTE_READ, &oldProtect);
+    if (!VirtualProtect(pMemory, 16, PAGE_EXECUTE_READ, &oldProtect)) {
+        VirtualFree(pMemory, 0, MEM_RELEASE);
+        return;
+    }
     NtUserSendInputCall = (UINT(__fastcall*)(ULONG, LPINPUT, int))pMemory;
+    g_usingSyscall = true;
+}
+
+// One entry point that always leaves a working injection path. Callers used to
+// pair the two calls above themselves: MIDIConnect wrapped them in try/catch
+// and refused to activate on failure, while PlaybackCore did not, so the same
+// broken Windows threw out of the player constructor in one path and was
+// handled in the other.
+extern "C" int EnsureInputInjection(void)
+{
+    if (g_usingSyscall) return 1;
+    try {
+        SyscallNumber = GetNtUserSendInputSyscallNumber();
+        InitializeNtUserSendInputCall();
+    }
+    catch (const std::exception& error) {
+        std::cerr << "[INPUT] Direct syscall unavailable, using SendInput: "
+                  << error.what() << "\n";
+    }
+    return g_usingSyscall ? 1 : 0;
+}
+
+extern "C" int UsingSyscallInjection(void)
+{
+    return g_usingSyscall ? 1 : 0;
 }

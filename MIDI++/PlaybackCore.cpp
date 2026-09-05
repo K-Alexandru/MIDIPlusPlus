@@ -509,8 +509,8 @@ VirtualPianoPlayer::VirtualPianoPlayer(bool listenForHotkeys,
     cyclesToNs = 1.0e9 / freq;
     time_factor = cyclesToNs * current_speed;
 
-    SyscallNumber = GetNtUserSendInputSyscallNumber();
-    InitializeNtUserSendInputCall();
+    // Never throws: falls back to SendInput when the syscall cannot be built.
+    EnsureInputInjection();
     initializeKeyCache();
     CloseSplashScreen();
 }

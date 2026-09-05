@@ -164,6 +164,27 @@ UINT __fastcall fakeInjection(ULONG count, LPINPUT inputs, int) {
     return fakeResult;
 }
 
+// The inherited default returned 69 without injecting, so a build where the
+// syscall could not be assembled silently no-opped every keystroke and only the
+// traced path noticed. Whichever path is chosen, it must be a real one.
+void injectionPathTests() {
+    INPUT none[1]{};
+    const auto beforeInit = NtUserSendInputCall;
+    require(beforeInit != nullptr, "an injection path exists before initialization");
+    require(beforeInit(0, none, sizeof(INPUT)) == 0, "empty injection reports nothing sent");
+
+    require(EnsureInputInjection() == UsingSyscallInjection(), "reported path matches the active one");
+    require(NtUserSendInputCall != nullptr, "an injection path exists after initialization");
+    require(NtUserSendInputCall(0, none, sizeof(INPUT)) == 0, "empty injection still reports nothing sent");
+
+    // Repeat calls must not swap an established path for a second stub.
+    const auto established = NtUserSendInputCall;
+    require(EnsureInputInjection() == UsingSyscallInjection(), "repeat initialization agrees with itself");
+    require(NtUserSendInputCall == established, "repeat initialization keeps the established path");
+
+    std::cout << "PASS injection path never installs the no-op stub and falls back to SendInput\n";
+}
+
 void wrapperTests() {
     TestSink sink;
     require(start(), "measurement hook start");
@@ -560,6 +581,7 @@ void loopbackTests(const std::wstring& portName) {
 
 int wmain(int argc, wchar_t** argv) {
     try {
+        injectionPathTests();
         ringTests();
         collectorTests();
         if (argc == 2 && std::wstring(argv[1]) == L"--ui-smoke") { uiTests(); return 0; }

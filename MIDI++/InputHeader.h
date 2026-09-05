@@ -19,6 +19,15 @@ extern "C" {
 	// Initialize the direct syscall - call after setting SyscallNumber
 	void InitializeNtUserSendInputCall(void);
 
+	// Establishes an injection path and never throws. Prefers the direct
+	// syscall and falls back to SendInput. Returns 1 when the syscall path is
+	// active. Safe to call more than once.
+	int __cdecl EnsureInputInjection(void);
+
+	// 1 when the direct syscall is in use, 0 when injection goes through
+	// SendInput. For reporting only: both paths inject.
+	int __cdecl UsingSyscallInjection(void);
+
 #ifdef __cplusplus
 }
 #endif
