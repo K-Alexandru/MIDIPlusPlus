@@ -84,7 +84,6 @@ static LRESULT WINAPI WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
     case WM_HOTKEY:
         if (wp == 1 && g_engine && g_panels) {
-            g_panels->CancelCountdown();
             g_engine->Send({shell::ShellEngine::Action::Stop});
         }
         return 0;
@@ -168,6 +167,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     ImGui::GetIO().IniFilename = nullptr;
     ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+    ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
     ImGui_ImplWin32_Init(hwnd);
     ImGui_ImplDX11_Init(g_device, g_context);
 
@@ -239,6 +239,8 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
         g_context->OMSetRenderTargets(1, &g_target, nullptr);
         g_context->ClearRenderTargetView(g_target, clear);
         ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+        ImGui::UpdatePlatformWindows();
+        ImGui::RenderPlatformWindowsDefault();
         g_swapChain->Present(1, 0);
         // Playback never depends on frame rate. Cap idle redraw cost beside a game
         // and wake immediately for window input instead of spinning when unfocused.

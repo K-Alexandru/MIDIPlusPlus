@@ -6,6 +6,7 @@
 #include <memory>
 #include <mutex>
 #include <thread>
+#include <map>
 
 namespace shell {
 struct MidiEntry { std::filesystem::path path; std::string name; uintmax_t bytes = 0; };
@@ -22,17 +23,24 @@ struct EngineSnapshot {
     bool sustain = true;
     double position = 0;
     double duration = 0;
+    double speed = 1.0;
+    int transpose = 0;
+    std::map<std::string, std::string> keyMappings;
+    uint64_t mappingRevision = 0;
 };
 
 class ShellEngine {
 public:
-    enum class Action { Scan, Load, Play, Stop, Mute, Solo, SoloPiano, UnmuteAll, Velocity, Sustain };
+    enum class Action { Scan, Load, Play, Stop, Mute, Solo, SoloPiano, UnmuteAll, Velocity, Sustain,
+                        Pause, TogglePlayPause, Restart, Back10, Forward10, Seek, Speed, Transpose, Remap };
     struct Command {
         Action action;
         std::filesystem::path path;
         uint64_t generation = 0;
         size_t track = 0;
         bool value = false;
+        double amount = 0;
+        std::string key;
     };
     explicit ShellEngine(std::filesystem::path config);
     ~ShellEngine();
@@ -50,4 +58,5 @@ private:
 };
 
 std::string Utf8(const std::filesystem::path& path);
+std::string NoteName(int note);
 }
