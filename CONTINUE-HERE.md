@@ -1,8 +1,8 @@
 # Start here
 
 Entry point for whoever picks this up next, assistant or human. Written
-2026-09-04 at `input-path-r5`. Updated 2026-09-05 after the first functional
-ImGui panels and the personal GitHub fork were added.
+2026-09-04 at `input-path-r5`. Updated 2026-09-05 after the Playback card and
+separate key mapping window were committed and pushed as `738052a`.
 
 Read this first, then `HANDOFF.md` for the full brief. `LATENCY.md` and
 `LEGIT-MODE.md` cover the two subsystems built in this session.
@@ -29,10 +29,11 @@ on, so the port stays. Everything below it is settled:
 - Autoplay and live input now send the identical four-event ALT velocity tap.
 
 **The UI migration is in progress.** The separate ImGui executable now has real
-fonts, DPI scaling, a MIDI library, Tracks and basic autoplay. It shares
+fonts, DPI scaling, a MIDI library, Tracks, playback controls and key mapping. It shares
 `MidiParser` and `PlaybackCore` with the original app through `ShellEngine`.
-Live input, the velocity editor, key mapping, mini mode and full playback
-controls have not been ported. The existing release executable is preserved.
+Live input, the velocity editor and mini mode have not been ported in this
+continuation. Live input and configured global hotkeys are owned by a concurrent
+agent. The existing release executable is preserved.
 
 ## Build and run
 
@@ -113,17 +114,74 @@ Completed 2026-09-05:
   clipped lists, drag/drop and Unicode paths. Parsing is on a worker.
   Paths with CJK characters load correctly, but the selected Latin fonts do not
   cover those glyphs; filename display still needs a CJK fallback font.
-- **Basic autoplay:** Play in 3s gives time to focus the game; Stop and F4
-  (when registration succeeds) stop playback. Velocity and sustain are wired.
+- **Autoplay foundation:** Velocity and sustain are wired.
   The shell uses Linear Fine, 88 keys, and no heuristic drum removal so the
   visible track state controls playback. Sustain mode is changed while stopped.
-  Play starts from the beginning. Pause, seek, speed and transpose are next.
+  The Playback follow-up below replaces the first transport implementation.
 - **Settings:** skin family, light/dark, auto Solo Piano on load, and credits.
   Skin and folder preferences are saved separately from the legacy config.
 - **Engine corrections:** valid drive-rooted filenames are accepted by the
   parser without allowing traversal or alternate streams. Autoplay tracks own
   their pressed notes/pedal, so muting cannot discard their eventual release
   or let a muted part release another part's note at the same pitch.
+
+Completed 2026-09-05, Playback and key mapping follow-up (`738052a`):
+
+- **Playback:** one icon-and-label Play/Pause button, Restart, back/forward 10
+  seconds, draggable seek, elapsed/total time, speed and transpose. The countdown
+  and its state are deleted, along with all explanatory copy in the card.
+  Play resumes the retained position, or starts at zero after reaching the end.
+  Restart and seek preserve the current playing/paused state; reaching the end
+  stops. Seek previews while dragging and commits on release. Speed spans
+  0.25x to 2.00x in 0.05 steps; transpose spans -12 to +12 semitones.
+- **Engine commands:** `Pause`, `TogglePlayPause`, `Restart`, `Back10`,
+  `Forward10`, `Seek`, `Speed`, `Transpose` and `Remap` extend the existing queue.
+  Numeric commands use `Command::amount`. Score commands require the current
+  snapshot generation, including commands sent by the global-hotkey host.
+  `Stop` remains generation-independent and resets the position to zero.
+  Timing and mapping changes first join dispatch on the worker and release keys.
+  Event timestamps are rescaled from original score times so the inherited
+  scheduler's wall-time waits also work above 1x. Injection, cleanup and player
+  destruction remain off the message-loop thread.
+- **Key mapping:** a separate native ImGui platform window, 840 logical pixels
+  wide, opened from the keyboard icon. It defaults open and persists visibility
+  in `shell-settings.json`. Its piano uses ivory/ebony in every skin, starts at
+  C2-C6, pages by octaves within A0-C8, and can show all 88 keys. Black keys win
+  hit testing over the whites beneath. Clicking a key pauses autoplay and arms
+  assignment; Escape or leaving the window cancels capture. Letters, numbers,
+  shifted numbers and Ctrl combinations are supported by the existing injector.
+  Unsupported characters report an error without changing the saved binding.
+- **Mapping persistence:** the worker saves the selected `KEY_MAPPINGS.FULL`
+  binding to the shell's config through a temporary-file replacement, preserving
+  other config fields. The snapshot publishes the saved map and revision. These
+  bindings are applied to autoplay. Transpose selects the shifted pitch's binding;
+  pitches shifted outside A0-C8 have no output. Live-input map refresh belongs to
+  the concurrent live-input work and was not implemented or verified here.
+- **Rendered spec:** opened `skin-system.html` in Edge through Playwright and
+  exercised Play/Pause, Restart, +/-10, seek, speed, transpose, paging, Full 88,
+  remapping and window visibility. Measured 28/32px controls, a 6px seek track,
+  a centered 56px speed value, a 160px transpose track, and key-window sizes of
+  840 x 246.94px Classic and 840 x 268.39px Modern. The two ported panels convert
+  CSS em sizing to the fonts' ascent/descent metrics locally. Other panels were
+  not restyled. The mockup's inert previous/next-file buttons were not added.
+
+Verified for this follow-up: the required Release x64 shell build and
+`tests/run-shell-tests.ps1 -Render` pass. All four skins' PNGs were inspected
+against the mockup at 100/150/200%, including the return to 100%. Additional
+temporary harnesses under ignored `build/port-qa/` captured pause/resume,
+fractional and bounded seek, restart, +/-10, running speed/seek, 2x dispatch
+timing, transposed/remapped output, mapping persistence, invalid keys and stale
+commands. Every captured injection ran off the calling thread. An ImGui input
+harness exercised mouse seek, black-key remapping, paging, Full 88, Escape and
+close/reopen across all 12 skin/DPI combinations. The native host created a
+separate 840px Key Mapping window, saved its closed state and restored that
+state on a second launch. The harnesses, logs and comparison sheets are local
+verification artifacts, not changes to the concurrently owned `tests/` tree.
+
+Still unverified: delivery from this shell into a game, physical mixed-DPI
+monitor moves, and integration with the concurrent live-input/global-hotkey
+work. No files under `MIDI++/` or `tests/`, hotkey registration code, or
+`ui/Hotkeys.*` / `ui/LiveInput.*` were edited in this follow-up.
 
 `ShellEngine` owns the player and command queue. Construction, loading,
 play/stop, key cleanup and destruction run on its worker, and scheduling keeps
@@ -136,9 +194,10 @@ to `build/legacy-check/`. New-shell delivery into a game has not been tested.
 The native file picker opens; completing its modal dialog remains unverified
 because the desktop automation tool could not target its controls reliably.
 
-Next: extend the Playback card, then add the collapsed velocity panel and its
-editor against the mockup. Keep Tracks visible. The velocity and key mapping
-design decisions in `HANDOFF.md` still apply. Do not restore inert device
+Next: add the collapsed velocity panel and its editor against the mockup, then
+mini mode. Keep Tracks visible. Coordinate the new queue commands and saved
+mapping snapshot with the agent handling live input and global hotkeys. The
+velocity design decisions in `HANDOFF.md` still apply. Do not restore inert device
 controls or the old mock Casio device label before wiring live input.
 
 Hard constraint from `HANDOFF.md` section 4: **injection must never share a
