@@ -77,7 +77,8 @@ namespace {
 } 
 bool hasPathTraversal(const std::string& path) {
     std::string normalizedPath = path;
-    std::transform(normalizedPath.begin(), normalizedPath.end(), normalizedPath.begin(), ::tolower);
+    std::transform(normalizedPath.begin(), normalizedPath.end(), normalizedPath.begin(),
+        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     size_t i = 0;
     while (i < normalizedPath.size()) {
         while (i < normalizedPath.size() && (normalizedPath[i] == '/' || normalizedPath[i] == '\\'))
@@ -112,7 +113,16 @@ bool hasPathTraversal(const std::string& path) {
     if (filename.find(':') != std::string::npos)
         return true;
 
-    const char invalidChars[] = { '<', '>', ':', '"', '|', '?', '*' };
+    // Accept a rooted Windows drive prefix, but reject other colons including
+    // alternate data streams and drive-relative paths.
+    const size_t colon = normalizedPath.find(':');
+    if (colon != std::string::npos &&
+        (colon != 1 || normalizedPath.size() < 3 ||
+         normalizedPath[0] < 'a' || normalizedPath[0] > 'z' ||
+         (normalizedPath[2] != '/' && normalizedPath[2] != '\\') ||
+         normalizedPath.find(':', 2) != std::string::npos))
+        return true;
+    const char invalidChars[] = { '<', '>', '"', '|', '?', '*' };
     for (char c : invalidChars) {
         if (normalizedPath.find(c) != std::string::npos) // check normalizedPath
             return true;

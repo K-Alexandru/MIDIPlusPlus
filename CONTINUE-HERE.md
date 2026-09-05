@@ -1,7 +1,8 @@
 # Start here
 
 Entry point for whoever picks this up next, assistant or human. Written
-2026-09-04 at `input-path-r5`.
+2026-09-04 at `input-path-r5`. Updated 2026-09-05 after the first functional
+ImGui panels and the personal GitHub fork were added.
 
 Read this first, then `HANDOFF.md` for the full brief. `LATENCY.md` and
 `LEGIT-MODE.md` cover the two subsystems built in this session.
@@ -27,9 +28,11 @@ on, so the port stays. Everything below it is settled:
   checkbox. See the verdict in `LEGIT-MODE.md`.
 - Autoplay and live input now send the identical four-event ALT velocity tap.
 
-**The UI is the blocker.** The shipped app is still the original Win32 + GDI+
-window. The Dear ImGui replacement now has a working shell (see below), but no
-feature panel has been ported and the two do not share code yet.
+**The UI migration is in progress.** The separate ImGui executable now has real
+fonts, DPI scaling, a MIDI library, Tracks and basic autoplay. It shares
+`MidiParser` and `PlaybackCore` with the original app through `ShellEngine`.
+Live input, the velocity editor, key mapping, mini mode and full playback
+controls have not been ported. The existing release executable is preserved.
 
 ## Build and run
 
@@ -55,6 +58,21 @@ The ImGui shell is a separate project and a separate executable:
 
 Output is `build\shell\MIDIShell.exe`.
 
+It resolves config and preferences beside the executable, so any working
+directory works. The build copies the default config only when none exists.
+Fonts are embedded except for the system's Segoe UI. Font and software licenses
+are copied beside the executable. Open a file, choose a folder, drop a MIDI, or
+pass its path on the command line. Folder scans are not recursive.
+
+```powershell
+& .\tests\run-shell-tests.ps1 -Render
+```
+
+This checks synthetic MIDI parsing, track controls, actual engine dispatch with
+an in-process injection recorder, and the real DX11 renderer. PNGs are written
+to `build\render-tests\`. It requires no MIDI hardware and sends no keystrokes
+to other applications.
+
 ## The next job: finish the ImGui UI
 
 The shell is built. Porting the panels onto it is the remaining large job.
@@ -71,45 +89,57 @@ page, so build against them rather than guessing.
   carries only what changes while you play.
 - The velocity editor starts collapsed for the same reason.
 
-**The shell exists and builds.** `ui\MIDIShell.vcxproj` produces
-`build\shell\MIDIShell.exe`: a DX11 + Win32 ImGui window that applies any of the
-four skins, draws the primary strip, the left file list and the right column,
-and carries a skin picker so the four can be compared the way the mockup
-compares them. Dear ImGui (docking branch) is vendored under `third_party/`.
-It is a **separate executable on purpose**: the working app is never broken by
-UI work in progress, and nothing in it links against `PlaybackCore` yet.
+Completed 2026-09-05:
 
-What it does not have: real fonts (it is still on ImGui's default bitmap font,
-so Segoe UI and IBM Plex Sans are not loaded), DPI awareness, and any feature
-panel at all. Those are the next three jobs, in that order.
+- **Fonts:** `ui/Fonts.cpp` loads Segoe UI regular/semibold through an absolute
+  Windows font path. IBM Plex Sans regular/medium/semibold is embedded as
+  resources under its OFL license. `PushFont(font, designSize)` and the existing
+  DX11 backend's dynamic textures work with the vendored ImGui 1.93 WIP.
+  No downgrade or font installation is needed. The earlier blank-window
+  attempt was not reproduced. Another useful trap: moving the cursor after
+  the final item in a child can assert in ImGui; draw-list text avoids that.
+- **DPI:** PerMonitorV2 manifest, initial client sizing, `WM_DPICHANGED`, and
+  a single scale for custom geometry. Style resets from pristine metrics on
+  every DPI/skin change; `FontScaleDpi` scales logical font sizes once.
+  Native Classic/Modern switching was exercised. All four skins rendered at
+  100/150/200% and back to 100% through DX11/WARP. Moving a window between
+  physical monitors with different scaling remains unverified.
+- **Tracks:** real file parsing, original track indices, names, instruments,
+  channel numbers, note counts, piano icons, mute/solo, Solo Piano, Unmute All
+  and a computed silent-track count. Note-free conductor tracks are hidden.
+  Program changes are followed by channel across the file. Mixed-instrument
+  tracks are identified conservatively; Solo Piano mutes the whole track.
+- **File library:** file picker, folder picker, refresh, cached search,
+  clipped lists, drag/drop and Unicode paths. Parsing is on a worker.
+  Paths with CJK characters load correctly, but the selected Latin fonts do not
+  cover those glyphs; filename display still needs a CJK fallback font.
+- **Basic autoplay:** Play in 3s gives time to focus the game; Stop and F4
+  (when registration succeeds) stop playback. Velocity and sustain are wired.
+  The shell uses Linear Fine, 88 keys, and no heuristic drum removal so the
+  visible track state controls playback. Sustain mode is changed while stopped.
+  Play starts from the beginning. Pause, seek, speed and transpose are next.
+- **Settings:** skin family, light/dark, auto Solo Piano on load, and credits.
+  Skin and folder preferences are saved separately from the legacy config.
+- **Engine corrections:** valid drive-rooted filenames are accepted by the
+  parser without allowing traversal or alternate streams. Autoplay tracks own
+  their pressed notes/pedal, so muting cannot discard their eventual release
+  or let a muted part release another part's note at the same pitch.
 
-**`MIDI++/Skin.hpp` is the data behind it.** It is the four
-skins as runtime data, extracted from the mockup, with no ImGui, Win32 or GDI+
-dependency, so it compiles anywhere and can be unit tested. It carries the five
-surface tiers, the shadow definitions, the border alphas, the concentric radii,
-the 4px spacing scale, control heights and the type scale. What it does **not**
-carry is the drawing: the panel and field helpers that turn those numbers into a
-draw list are the first thing to write.
+`ShellEngine` owns the player and command queue. Construction, loading,
+play/stop, key cleanup and destruction run on its worker, and scheduling keeps
+the inherited playback threads. The legacy hotkey listener is disabled only in
+this host. The original app keeps its default constructor behavior.
 
-Order to work in from here:
+Verified: shell tests, the existing legit-mode suite, rendered DPI/skin cases,
+native file loading, mute/solo and appearance switching, and the original solution build
+to `build/legacy-check/`. New-shell delivery into a game has not been tested.
+The native file picker opens; completing its modal dialog remains unverified
+because the desktop automation tool could not target its controls reliably.
 
-1. ~~Vendor ImGui, open a window, apply a skin, write the raised and recessed
-   helpers, lay out the shell.~~ Done.
-2. **Fonts.** Load Segoe UI for Classic and IBM Plex Sans for Modern at the
-   sizes in `Skin::type`. The default bitmap font makes everything look wrong
-   and hides real spacing problems, so do this before judging any layout.
-   **Attempted and reverted 2026-09-04, so read this first:** the obvious
-   `io.Fonts->AddFontFromFileTTF(...)` after backend init, plus `PushFont` and
-   `PopFont` around the frame, compiled cleanly and then rendered a completely
-   blank window. The vendored ImGui is 1.93 WIP, whose font system was rewritten
-   and whose `PushFont` now takes a size argument, so the single-argument form
-   is not the call it used to be. Either pin an older ImGui or read the 1.92+
-   font migration notes before trying again. IBM Plex Sans is not a Windows font
-   and was not installed on the dev machine, so it needs shipping or a fallback.
-3. **DPI.** The shipped app is per-monitor DPI aware; the shell is not yet.
-4. **Feature panels, one at a time against the mockup, starting with Tracks.**
-   Tracks first because it is the panel the owner said he ignored, and the one
-   Solo Piano exists to fix.
+Next: extend the Playback card, then add the collapsed velocity panel and its
+editor against the mockup. Keep Tracks visible. The velocity and key mapping
+design decisions in `HANDOFF.md` still apply. Do not restore inert device
+controls or the old mock Casio device label before wiring live input.
 
 Hard constraint from `HANDOFF.md` section 4: **injection must never share a
 thread with the message loop.** Upstream admits window dragging conflicts with
@@ -158,7 +188,12 @@ From `HANDOFF.md` section 15, and they are not stylistic preferences:
 
 ## Repository note
 
-The only git remote is **upstream** (`Zephkek/MIDIPlusPlus`), not a fork. Ten
-commits of work sit on the local `input-path-r5` branch and exist nowhere else.
-`main` is still back at `e37ba7e`. Adding a personal remote and pushing is the
-single highest-value five minutes available, and nobody has done it yet.
+`origin` is now [K-Alexandru/MIDIPlusPlus](https://github.com/K-Alexandru/MIDIPlusPlus).
+`upstream` is `Zephkek/MIDIPlusPlus`. `input-path-r5` tracks the branch on the
+personal fork. The pre-handoff `d60a33a` commits were pushed first, and this
+continuation is committed and pushed on the same branch. `main` stays at
+`e37ba7e`. The owner explicitly authorized automatic pushes.
+
+The untracked `x64/Release/midi/` folder contains the owner's local music. Do
+not add it to commits. All generated test binaries, fixtures and PNGs are in
+the ignored `build/` directory.

@@ -37,8 +37,26 @@ void StackedShadow(ImDrawList* dl, ImVec2 min, ImVec2 max, float rounding,
 
 } // namespace
 
-void ApplyStyle(const Skin& s) {
+Skin ScaleGeometry(const Skin& source, float dpi) {
+    Skin s = source;
+    s.radius = {s.radius.window * dpi, s.radius.card * dpi,
+                s.radius.control * dpi, s.radius.element * dpi};
+    s.spacing = {s.spacing.s1 * dpi, s.spacing.s2 * dpi, s.spacing.s3 * dpi,
+                 s.spacing.s4 * dpi, s.spacing.s6 * dpi,
+                 s.spacing.windowPad * dpi, s.spacing.panelPad * dpi};
+    s.metric = {s.metric.controlHeight * dpi, s.metric.innerHeight * dpi};
+    for (Shadow* shadow : {&s.contact, &s.ambient, &s.inner}) {
+        shadow->offsetY *= dpi;
+        shadow->blur *= dpi;
+    }
+    return s;
+}
+
+void ApplyStyle(const Skin& s, float dpi) {
     ImGuiStyle& st = ImGui::GetStyle();
+    st = ImGuiStyle(); // Always rescale pristine metrics, including on skin changes.
+    st.FontSizeBase = s.type.body;
+    st.FontScaleDpi = dpi;
 
     // Concentric radii. An element nested inside a container is drawn at the
     // container's radius minus its inset, which is what keeps a rounded box
@@ -89,11 +107,14 @@ void ApplyStyle(const Skin& s) {
     c[ImGuiCol_HeaderActive]    = ToVec4(s.accent.accentSoft);
 
     // Accent is selection, focus and fills. Not decoration.
-    c[ImGuiCol_CheckMark]       = ToVec4(s.accent.accent);
+    c[ImGuiCol_CheckMark]       = ToVec4(s.accent.okInk);
+    c[ImGuiCol_CheckboxSelectedBg] = ToVec4(s.accent.okSoft);
     c[ImGuiCol_SliderGrab]      = ToVec4(s.surface.elevated);
     c[ImGuiCol_SliderGrabActive]= ToVec4(s.surface.elevated);
     c[ImGuiCol_NavCursor]       = ToVec4(s.accent.accent);
     c[ImGuiCol_PlotLines]       = ToVec4(s.accent.accent);
+    c[ImGuiCol_PlotHistogram]   = ToVec4(s.accent.accent);
+    c[ImGuiCol_TextSelectedBg]  = ToVec4(s.accent.accentSoft);
 
     c[ImGuiCol_TitleBg]         = ToVec4(s.surface.structure);
     c[ImGuiCol_TitleBgActive]   = ToVec4(s.surface.structure);
@@ -106,6 +127,9 @@ void ApplyStyle(const Skin& s) {
     c[ImGuiCol_TableRowBgAlt]   = ToVec4(s.surface.card);
     c[ImGuiCol_ScrollbarBg]     = ToVec4(s.surface.recessed);
     c[ImGuiCol_ScrollbarGrab]   = ToVec4(s.surface.elevated);
+    c[ImGuiCol_ScrollbarGrabHovered] = ToVec4(s.surface.elevatedHot);
+    c[ImGuiCol_ScrollbarGrabActive] = ToVec4(s.ink.tertiary);
+    st.ScaleAllSizes(dpi);
 }
 
 void RaisedRect(ImDrawList* dl, ImVec2 min, ImVec2 max, float rounding,

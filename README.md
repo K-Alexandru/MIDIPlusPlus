@@ -15,6 +15,16 @@
 
 
 ## Key Features
+For work on this fork, start with [CONTINUE-HERE.md](CONTINUE-HERE.md).
+The separate ImGui application builds from `ui/MIDIShell.vcxproj` into
+`build/shell/MIDIShell.exe`. It currently supports a MIDI library, track
+mute/solo, Solo Piano, basic autoplay, four skins, real fonts and DPI scaling.
+The full UI migration is still in progress. Verification instructions and
+the precise testing boundaries are in the handoff.
+
+The following feature list is inherited from upstream; its latency claims
+have not been established by this fork's measurements. See [LATENCY.md](LATENCY.md).
+
 * **Zero Latency:** Precise MIDI-to-QWERTY conversion with less than 0.5ms latency.
 * **Custom Velocity Mapping:** 32-step velocity mapping system for fine control.
 * **Advanced Track Management:** Real-time mute and solo capabilities.
@@ -99,6 +109,16 @@ Speed   - Adjust playback speed
 ```
 
 ## Acknowledgements
+This fork is based on [Zephkek/MIDIPlusPlus](https://github.com/Zephkek/MIDIPlusPlus)
+under GPLv3. Its changes include the input abstraction, timing instrumentation,
+dispatch-time legit mode, and the separate ImGui interface. It uses
+[RtMidi](https://www.music.mcgill.ca/~gary/rtmidi/) (MIT),
+[Dear ImGui](https://github.com/ocornut/imgui) (MIT), and
+[IBM Plex Sans](third_party/fonts/ibm-plex-sans/README.md) (SIL OFL 1.1).
+Segoe UI is supplied by Windows and is not redistributed. Prior art:
+[shizuhaki/miditoqwerty](https://github.com/shizuhaki/miditoqwerty) and
+[ArijanJ/miditoqwerty](https://github.com/ArijanJ/miditoqwerty).
+
 Special thanks to **Gene** and the MIDI++ community for invaluable feedback and support.
 
 ## License

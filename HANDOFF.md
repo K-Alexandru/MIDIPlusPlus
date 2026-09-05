@@ -1,6 +1,13 @@
-# MIDI++ successor — handoff brief
+# MIDI++ successor: handoff brief
 
 > New here? Read `CONTINUE-HERE.md` first. This file is the full brief.
+
+**2026-09-05 update:** `CONTINUE-HERE.md` supersedes the implementation-status
+claims below. The ImGui shell now has embedded/system fonts, DPI support,
+file loading, Tracks with Solo Piano, and basic autoplay through a worker-owned
+`PlaybackCore`. The personal fork is `K-Alexandru/MIDIPlusPlus`. The feature
+design decisions in this brief still apply; statements below saying there is
+no ImGui code or no personal remote describe the earlier state.
 
 Context dump for continuing this work in a fresh session or a different assistant.
 Written 2026-09-04. Updated after the keyboard-timing work built on `269c2f2`.

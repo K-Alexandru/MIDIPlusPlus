@@ -16,7 +16,11 @@ namespace skin {
 
 // Maps a Skin onto ImGuiStyle: colours, radii and the 4px spacing scale.
 // Call once per skin change, not per frame.
-void ApplyStyle(const Skin& s);
+void ApplyStyle(const Skin& s, float dpi = 1.f);
+
+// Copy design metrics for draw-list geometry. Typography remains in design
+// pixels and is scaled by ImGuiStyle::FontScaleDpi, never twice.
+Skin ScaleGeometry(const Skin& s, float dpi);
 
 // A raised surface: ambient shadow, contact shadow, fill, hairline border and
 // a one-pixel lighter line inside the top edge. This is the card, the control

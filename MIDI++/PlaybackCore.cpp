@@ -1,4 +1,4 @@
-﻿#include "PlaybackSystem.hpp"
+#include "PlaybackSystem.hpp"
 #include "InputHeader.h"
 #include "timer.h"  // <-- The improved "rdtsc_timer.h" you created
 #include <cmath>
@@ -406,20 +406,21 @@ bool IsWin7OrWin8_Real() {
 }
 //----------------------------------------------------------------
 // VirtualPianoPlayer Implementation.
-VirtualPianoPlayer::VirtualPianoPlayer() noexcept(false)
+VirtualPianoPlayer::VirtualPianoPlayer(bool listenForHotkeys,
+                                     const std::filesystem::path& configPath) noexcept(false)
     : processing_pool(std::thread::hardware_concurrency())
 {
     ShowSplashScreen((HINSTANCE)GetModuleHandle(nullptr));
 
     try {
-        midi::Config::getInstance().loadFromFile("config.json");
+        midi::Config::getInstance().loadFromFile(configPath);
     }
     catch (const midi::ConfigException& e) {
         std::cerr << "Configuration error: " << e.what()
             << "\nLoading default settings...\n";
         midi::Config::getInstance().setDefaults();
         try {
-            midi::Config::getInstance().saveToFile("config.json");
+            midi::Config::getInstance().saveToFile(configPath);
         }
         catch (const midi::ConfigException& e2) {
             std::cerr << "Failed to save default config: " << e2.what() << "\n";
@@ -483,7 +484,8 @@ VirtualPianoPlayer::VirtualPianoPlayer() noexcept(false)
     }
 
     // 8) Start hotkey listener thread
-    hotkey_thread = std::make_unique<std::jthread>(&VirtualPianoPlayer::hotkey_listener, this);
+    if (listenForHotkeys)
+        hotkey_thread = std::make_unique<std::jthread>(&VirtualPianoPlayer::hotkey_listener, this);
 
     // 9) Initialize RDTSC-based timer. Read the settings here rather than at
     //    static-init time, which is the only point at which config.json has
@@ -811,6 +813,9 @@ void VirtualPianoPlayer::toggleSustainMode() {
 }
 
 void VirtualPianoPlayer::release_all_keys() {
+    std::lock_guard lock(dispatch_mutex);
+    track_note_owners.clear();
+    sustain_owners.clear();
     if (isSustainPressed) {
         releaseKey(sustain_key_code);
         isSustainPressed = false;
@@ -1715,7 +1720,7 @@ void VirtualPianoPlayer::slow_down() {
 void VirtualPianoPlayer::adjust_playback_speed(double factor) {
     uint64_t now_tsc = __rdtsc();
     if (!playback_started.load(std::memory_order_relaxed)) {
-        // If playback hasn’t started, initialize TSC but don’t adjust time yet
+        // If playback hasn't started, initialize TSC but don't adjust time yet
         playback_start_time = now_tsc;
         last_resume_tsc     = now_tsc;
     }
@@ -1821,8 +1826,16 @@ void VirtualPianoPlayer::initializeKeyCache() {
 }
 
 void VirtualPianoPlayer::execute_note_event(const NoteEvent& event) noexcept {
-    if (!isTrackEnabled(event.trackIndex))
-        return;
+    std::lock_guard lock(dispatch_mutex);
+    if (!isTrackEnabled(event.trackIndex)) {
+        // A track may be muted/unsoloed after pressing a key. Its release must
+        // still run, including the reversed pedal release in SPACE_UP mode.
+        const bool releases = event.isSustain
+            ? (currentSustainMode == SustainMode::SPACE_UP
+                ? event.action == EventType::Press : event.action == EventType::Release)
+            : event.action == EventType::Release;
+        if (!releases) return;
+    }
 
     input_latency::Trace trace(input_latency::Source::Autoplay,
         event.isSustain ? input_latency::Kind::Sustain :
@@ -1830,6 +1843,7 @@ void VirtualPianoPlayer::execute_note_event(const NoteEvent& event) noexcept {
 
     if (!event.isSustain) {
         if (event.action == EventType::Press) {
+            ++track_note_owners[std::string(event.note)][event.trackIndex];
             if (enable_volume_adjustment.load(std::memory_order_relaxed)) {
                 AdjustVolumeBasedOnVelocity(event.velocity);
             }
@@ -1845,11 +1859,26 @@ void VirtualPianoPlayer::execute_note_event(const NoteEvent& event) noexcept {
             press_key(event.note);
         }
         else {
-            release_key(event.note);
+            const auto note = track_note_owners.find(std::string(event.note));
+            if (note == track_note_owners.end()) return;
+            const auto owner = note->second.find(event.trackIndex);
+            if (owner == note->second.end()) return;
+            if (--owner->second == 0) note->second.erase(owner);
+            if (note->second.empty()) {
+                track_note_owners.erase(note);
+                release_key(event.note);
+            }
         }
     }
     else {
         // handle sustain pedal event
+        if (currentSustainMode == SustainMode::IG) return;
+        const bool press = currentSustainMode == SustainMode::SPACE_UP
+            ? event.action == EventType::Release : event.action == EventType::Press;
+        if (press) sustain_owners.insert(event.trackIndex);
+        else {
+            if (!sustain_owners.erase(event.trackIndex) || !sustain_owners.empty()) return;
+        }
         handle_sustain_event(event);
     }
 }

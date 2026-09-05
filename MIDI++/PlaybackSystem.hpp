@@ -1,4 +1,4 @@
-﻿#ifndef PLAYBACK_SYSTEM_HPP
+#ifndef PLAYBACK_SYSTEM_HPP
 #define PLAYBACK_SYSTEM_HPP
 
 #ifndef NOMINMAX
@@ -162,7 +162,8 @@ struct RawNoteEvent {
 // =====================================================
 class VirtualPianoPlayer {
 public:
-    VirtualPianoPlayer() noexcept(false);
+    VirtualPianoPlayer(bool listenForHotkeys = true,
+                       const std::filesystem::path& configPath = "config.json") noexcept(false);
     ~VirtualPianoPlayer();
 
     // Track controls
@@ -281,6 +282,11 @@ private:
     std::mutex buffer_mutex;
     PlaybackControl playback_control;
     UINT m_timerResolutionSet{ 0 };
+    // Dispatch ownership prevents an inaudible track's note-off from releasing
+    // another track's note, while allowing releases after a live mute change.
+    std::mutex dispatch_mutex;
+    std::unordered_map<std::string, std::unordered_map<int, size_t>> track_note_owners;
+    std::set<int> sustain_owners;
     double inv_cpu_freq;  // Optional for optimization
     double time_factor;
     // Static waitable timer shared by all instances.
