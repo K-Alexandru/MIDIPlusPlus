@@ -125,7 +125,7 @@ Trace::~Trace() {
 UINT send(UINT count, const INPUT* inputs, int cbSize) noexcept {
     auto* trace = currentTrace;
     if (!trace || !trace->submission_.id)
-        return NtUserSendInputCall(count, const_cast<INPUT*>(inputs), cbSize);
+        return InjectInput(count, const_cast<INPUT*>(inputs), cbSize);
 
     auto& s = trace->submission_;
     INPUT tagged[64];
@@ -145,7 +145,7 @@ UINT send(UINT count, const INPUT* inputs, int cbSize) noexcept {
     ++s.calls;
     SetLastError(ERROR_SUCCESS);
     const auto before = nowQpc();
-    const UINT returned = NtUserSendInputCall(count,
+    const UINT returned = InjectInput(count,
         canTag ? tagged : const_cast<INPUT*>(inputs), cbSize);
     const auto after = nowQpc();
     const DWORD error = GetLastError();

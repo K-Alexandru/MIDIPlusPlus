@@ -42,7 +42,7 @@
 #include "Transpose.h"
 #include "json.hpp"
 #include "midi_parser.h"
-#include "InputHeader.h"   // For NtUserSendInputCall and GetNtUserSendInputSyscallNumber
+#include "InputHeader.h"   // For InjectInput
 #include "thread_pool.h"   // dp::thread_pool
 #include "timer.h"
 

@@ -510,7 +510,6 @@ VirtualPianoPlayer::VirtualPianoPlayer(bool listenForHotkeys,
     time_factor = cyclesToNs * current_speed;
 
     // Never throws: falls back to SendInput when the syscall cannot be built.
-    EnsureInputInjection();
     initializeKeyCache();
     CloseSplashScreen();
 }

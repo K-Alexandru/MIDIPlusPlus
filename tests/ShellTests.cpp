@@ -70,7 +70,7 @@ void ModelTests(const std::filesystem::path& fixture) {
 
 void ReleaseTests(const std::filesystem::path& config) {
     VirtualPianoPlayer player(false, config);
-    NtUserSendInputCall = Capture; // Captures all keystrokes; nothing reaches Windows.
+    InjectInput = Capture; // Captures all keystrokes; nothing reaches Windows.
     player.enable_velocity_keypress = false;
     player.legit_mode_active = false;
     player.trackMuted.push_back(std::make_shared<std::atomic<bool>>(false));
@@ -153,7 +153,7 @@ void ControllerTests(const std::filesystem::path& config, const std::filesystem:
     if (!state->error.empty()) throw std::runtime_error(state->error);
     Require(shell::SilentTracks(state->rows) == 3, "auto Solo Piano on load");
     const auto generation = state->generation;
-    NtUserSendInputCall = Capture;
+    InjectInput = Capture;
     engine.Send({shell::ShellEngine::Action::Velocity, {}, 0, 0, false});
     Await([&] { return !engine.Snapshot()->velocity; }, "velocity command not consumed");
     TakeCaptured();

@@ -186,7 +186,6 @@ void MIDIConnect::SetActive(bool active) {
     if (active && !wasActive) {
         // Activating no longer depends on the syscall path being available;
         // SendInput carries the input when it is not.
-        EnsureInputInjection();
     }
 }
 

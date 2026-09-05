@@ -136,3 +136,36 @@ that upstream issue #44 proves a specific ALT failure is too strong: the
 [issue](https://github.com/Zephkek/MIDIPlusPlus/issues/44) has a shortcut-related
 title and no description. The ALT path is a candidate cause to reproduce, not
 a confirmed diagnosis from that issue.
+
+## The direct syscall thunk, measured and removed
+
+`InputInjector.cpp` used to build a thunk at run time: it read
+`NtUserSendInput`'s syscall number out of win32u's prologue, wrote a syscall
+stub into an RWX page, and called that instead of `SendInput`. HANDOFF.md
+section 4 recorded that its speed benefit had never been measured.
+
+Measured 2026-09-05 on this machine, comparing the thunk against `SendInput`
+directly, alternating rounds so scheduling and clock drift landed on both.
+
+On the four-input ALT velocity tap the note path actually sends, with a
+low-level hook installed to swallow the test input, the median call cost was
+about 118us for both. The difference across four runs was +1534, -659, +58 and
+-18 ns. **It changes sign between runs**, so it is noise, not a saving.
+
+With `cInputs` set to zero, which still pays the user-to-kernel transition and
+the argument validation but skips the hook round trip that dominates the figures
+above, the thunk cost 399.0, 417.0, 418.5 and 424.5 ns against `SendInput`'s
+400.5, 418.0, 420.5 and 424.5. That is 0 to 2 ns out of roughly 410, and it is
+the most favourable framing available to the thunk, because it removes all the
+delivery work the two paths share.
+
+Against a real injection near 118us, 2 ns is 0.0017%.
+
+The thunk was removed. What it cost was not theoretical: any setup failure left
+a default that returned 69 and injected nothing, so keystrokes silently stopped
+reaching the game and only the traced path in `InputLatency` noticed, and the
+process carried a page of hand-written syscall bytes for no gain. Injection now
+goes through `SendInput` behind the `InjectInput` pointer, which stays so the
+tests can substitute an in-process recorder.
+
+Do not reintroduce it without a measurement that beats this one.

@@ -167,30 +167,23 @@ UINT __fastcall fakeInjection(ULONG count, LPINPUT inputs, int) {
 // The inherited default returned 69 without injecting, so a build where the
 // syscall could not be assembled silently no-opped every keystroke and only the
 // traced path noticed. Whichever path is chosen, it must be a real one.
+// The removed syscall thunk defaulted to a stub that returned 69 and injected
+// nothing, so any setup failure silently stopped every keystroke and only the
+// traced path noticed. Injection must always route somewhere real.
 void injectionPathTests() {
     INPUT none[1]{};
-    const auto beforeInit = NtUserSendInputCall;
-    require(beforeInit != nullptr, "an injection path exists before initialization");
-    require(beforeInit(0, none, sizeof(INPUT)) == 0, "empty injection reports nothing sent");
-
-    require(EnsureInputInjection() == UsingSyscallInjection(), "reported path matches the active one");
-    require(NtUserSendInputCall != nullptr, "an injection path exists after initialization");
-    require(NtUserSendInputCall(0, none, sizeof(INPUT)) == 0, "empty injection still reports nothing sent");
-
-    // Repeat calls must not swap an established path for a second stub.
-    const auto established = NtUserSendInputCall;
-    require(EnsureInputInjection() == UsingSyscallInjection(), "repeat initialization agrees with itself");
-    require(NtUserSendInputCall == established, "repeat initialization keeps the established path");
-
-    std::cout << "PASS injection path never installs the no-op stub and falls back to SendInput\n";
+    require(InjectInput != nullptr, "an injection path exists");
+    require(InjectInput(0, none, sizeof(INPUT)) == 0, "empty injection reports nothing sent");
+    require(InjectInput(0, none, sizeof(INPUT)) != 69, "injection is not the removed no-op stub");
+    std::cout << "PASS injection routes through SendInput with no stub to initialize\n";
 }
 
 void wrapperTests() {
     TestSink sink;
     require(start(), "measurement hook start");
-    const auto original = NtUserSendInputCall;
-    struct Restore { decltype(NtUserSendInputCall) original; ~Restore() { NtUserSendInputCall = original; } } restore{original};
-    NtUserSendInputCall = fakeInjection;
+    const auto original = InjectInput;
+    struct Restore { decltype(InjectInput) original; ~Restore() { InjectInput = original; } } restore{original};
+    InjectInput = fakeInjection;
     INPUT inputs[2]{};
     for (auto& input : inputs) { input.type = INPUT_KEYBOARD; input.ki.wScan = 0x14; input.ki.dwFlags = KEYEVENTF_SCANCODE; }
     Collector collector;
@@ -236,8 +229,6 @@ void saveWindow(HWND window) {
 }
 
 void uiTests() {
-    SyscallNumber = GetNtUserSendInputSyscallNumber();
-    InitializeNtUserSendInputCall();
     TestSink sink;
     ShowInputLatencyWindow(nullptr);
     HWND window = FindWindowW(L"MIDI++ Input Timing", nullptr);
