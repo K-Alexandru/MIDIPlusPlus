@@ -1,8 +1,8 @@
 # Start here
 
 Entry point for whoever picks this up next, assistant or human. Written
-2026-09-04 at `input-path-r5`. Updated 2026-09-05 after the Playback card and
-separate key mapping window were committed and pushed as `738052a`.
+2026-09-04 at `input-path-r5`. Updated 2026-09-05 after the velocity editor,
+mini mode, input settings and CJK font fallback were pushed as `4d11a3f`.
 
 Read this first, then `HANDOFF.md` for the full brief. `LATENCY.md` and
 `LEGIT-MODE.md` cover the two subsystems built in this session.
@@ -31,9 +31,12 @@ on, so the port stays. Everything below it is settled:
 **The UI migration is in progress.** The separate ImGui executable now has real
 fonts, DPI scaling, a MIDI library, Tracks, playback controls and key mapping. It shares
 `MidiParser` and `PlaybackCore` with the original app through `ShellEngine`.
-Live input, the velocity editor and mini mode have not been ported in this
-continuation. Live input and configured global hotkeys are owned by a concurrent
-agent. The existing release executable is preserved.
+Configured global hotkeys and live input were merged from
+`claude/global-hotkeys` through `cf9957b`. The velocity editor, mini mode,
+input settings and status bar now use the real shell state. Incoming velocity
+telemetry is still missing from the engine surface, so the curve graph currently
+provides a pointer preview, without a live dot or a playing histogram. The
+existing release executable is preserved.
 
 ## Build and run
 
@@ -61,7 +64,7 @@ Output is `build\shell\MIDIShell.exe`.
 
 It resolves config and preferences beside the executable, so any working
 directory works. The build copies the default config only when none exists.
-Fonts are embedded except for the system's Segoe UI. Font and software licenses
+Fonts are embedded except for the system's Segoe UI and CJK fallback fonts. Font and software licenses
 are copied beside the executable. Open a file, choose a folder, drop a MIDI, or
 pass its path on the command line. Folder scans are not recursive.
 
@@ -74,9 +77,10 @@ an in-process injection recorder, and the real DX11 renderer. PNGs are written
 to `build\render-tests\`. It requires no MIDI hardware and sends no keystrokes
 to other applications.
 
-## The next job: finish the ImGui UI
+## ImGui UI progress
 
-The shell is built. Porting the panels onto it is the remaining large job.
+The shell and the main panels are built. The dated entries below record each
+port; the latest entry supersedes earlier implementation-status statements.
 
 `skin-system.html` is the spec. It is an operable mockup, not a picture: open it
 and press things. Its measurements are real and were taken from the rendered
@@ -183,6 +187,91 @@ monitor moves, and integration with the concurrent live-input/global-hotkey
 work. No files under `MIDI++/` or `tests/`, hotkey registration code, or
 `ui/Hotkeys.*` / `ui/LiveInput.*` were edited in this follow-up.
 
+Completed 2026-09-05, velocity, mini and settings follow-up (`4d11a3f`):
+
+- **Merge:** fast-forwarded `claude/global-hotkeys` to `cf9957b` before the
+  implementation. Its configured hotkey block and live-input switch cases are
+  unchanged by this port. No files under `MIDI++/` or `tests/` were edited.
+- **Velocity:** collapsed by default, with the active curve dropdown and
+  sustain cutoff in its header. Expanded view has preset thumbnails, a smooth
+  response, dashed linear reference, the actual quantized output, Sensitivity,
+  Contrast, A/B, an Advanced 32-sample editor, and inline new/duplicate/rename.
+  Slider drags preview locally and commit on release. Tracks remains visible;
+  the editor scrolls when the available height cannot fit it. The host requests
+  1090 x 635/728 collapsed and 1090 x 1009/1115 expanded, bounded by the monitor
+  work area. Advanced and naming consume more editor space without hiding Tracks.
+- **Curve semantics:** the engine's 32 config values are input thresholds for
+  output keys, not 32 output heights. `ui/VelocityModel.hpp` converts smooth
+  output samples back to those thresholds. Built-in shapes come from the real
+  player's `getVelocityKey()` results; unedited presets preserve all 127 input
+  mappings exactly. The graph labels output as a game step rather than claiming
+  to know a game's acoustic response. Only configured custom presets are shown;
+  no Pro values were invented for configs that do not contain them.
+- **Curve persistence:** custom names and threshold arrays stay under
+  `CUSTOM_VELOCITY_CURVES`. `SHELL_VELOCITY` saves the selected preset, macros,
+  optional manual samples, and sustain cutoff. Temporary-file replacement
+  preserves other config fields. Linear Fine is the first-run default, and
+  loading another score retains the selected response. A/B keeps an independent
+  previous preset and edit, including across renames; audition state is temporary.
+  A save failure leaves the applied response unchanged and reports an error.
+- **Worker boundary:** curve application pauses and joins autoplay, updates the
+  mapping, and resumes its retained position when appropriate. If a live port is
+  open, committing an edit closes and reopens it to rebuild MIDI2Key's cached
+  velocity lookup, releasing its mapped keys before replacing its state. This
+  is a brief reconnect per committed edit, not a seamless live lookup swap.
+  Construction, curve application, key release and destruction stay on the
+  worker. The inherited live-input implementation itself remains unchanged.
+- **Mini:** a 480px window with Live/Autoplay selection and a full-window icon.
+  Live has curve selection and transpose. Autoplay has library selection, a
+  file picker, Solo Piano, seek, Play/Pause, Restart and +/-10 seconds. Theme,
+  Midi2Key, velocity, sustain and current status remain accessible. Key mapping
+  is hidden in mini and retains its visibility preference for the full window.
+  This port retains the snapshot's 88-key layout and two-state sustain control.
+- **Settings:** device selection, rescan, activation and channel use the existing
+  `LiveScan`, `LiveOpen`, `LiveActive` and `LiveChannel` commands. Every open
+  carries the supplied opaque device id. Backend rows select available inputs
+  from that same snapshot; the scan still prefers WinRT and exposes WinMM only
+  as its fallback. It does not provide an independent forced-backend enumeration.
+  Opt-in keyboard timing uses the existing collector and hook, with median,
+  p95/p99, preparation/call timings and observation/failure counts. Closing
+  Settings stops measurement. The caption states its callback-to-hook boundary,
+  after transport and before the game; no end-to-end or transport-cost claim.
+- **Status:** active curve, backend, playback/live state, silent-track count,
+  and errors are computed from the snapshot. The stop-hotkey registration flag
+  now reports when unavailable. **Fonts:** Windows CJK sources merge into all
+  Classic/Modern font weights. Shared source bytes and ImGui's dynamic glyph
+  loading preserve DPI changes and the existing Latin faces without installing
+  or redistributing system fonts.
+
+Verified: the required Release x64 shell build and
+`tests/run-shell-tests.ps1 -Render` pass. Additional local harnesses in ignored
+`build/shell-panels-qa/` verify all five built-ins over 127 velocities, macros,
+A/B, advanced edits, duplication, renaming, config retention and failed writes.
+Captured autoplay ALT taps match the editor's predicted output, with injection
+and cleanup off the calling thread. ImGui input exercises macro clicks, A/B,
+Advanced steps, inline naming and mini switches for every skin at 100/150/200%
+and back to 100%. DX11 captures cover collapsed, expanded, advanced, constrained
+height, both mini modes and Settings. CJK glyph lookup and rendered Chinese,
+Japanese and Korean filenames pass. Local PNGs and logs are in that directory;
+the required renderer's PNGs remain in `build/render-tests/`.
+
+Remaining limits for this follow-up:
+
+- **Live velocity dot and histogram:** `EngineSnapshot` and MIDI2Key expose no
+  incoming note velocity stream. The graph is explicitly a pointer preview.
+  Implementing actual session data needs an observer in the owned input path.
+- **Transport comparison and buffers:** no Kernel Streaming backend exists,
+  and the timing collector starts after transport. Settings states that Kernel
+  Streaming is unavailable and supplies no fictitious buffer controls or figures.
+- **Browser comparison:** automatic browser approval review rejected the local
+  `file:` URL. This run read the HTML/CSS and the handoff measurements, and
+  inspected native PNGs, but did not interact with the mockup in a browser or
+  complete the requested direct rendered-page comparison.
+- **Hardware/native host:** live curve reconnection under physical playing,
+  game delivery, native full/mini resizing, and physical mixed-DPI monitor moves
+  remain unverified. The render and interaction harnesses use ImGui IO and DX11,
+  not native window automation.
+
 `ShellEngine` owns the player and command queue. Construction, loading,
 play/stop, key cleanup and destruction run on its worker, and scheduling keeps
 the inherited playback threads. The legacy hotkey listener is disabled only in
@@ -194,11 +283,11 @@ to `build/legacy-check/`. New-shell delivery into a game has not been tested.
 The native file picker opens; completing its modal dialog remains unverified
 because the desktop automation tool could not target its controls reliably.
 
-Next: add the collapsed velocity panel and its editor against the mockup, then
-mini mode. Keep Tracks visible. Coordinate the new queue commands and saved
-mapping snapshot with the agent handling live input and global hotkeys. The
-velocity design decisions in `HANDOFF.md` still apply. Do not restore inert device
-controls or the old mock Casio device label before wiring live input.
+Next: expose incoming velocities for the graph through the input-path owner,
+then validate live curve reconnection and native window resizing. Complete the
+browser comparison when the mockup is available through an allowed browser URL.
+The velocity design decisions in `HANDOFF.md` still apply. Keep Tracks visible
+and retain the real device ids and measurement boundaries.
 
 Hard constraint from `HANDOFF.md` section 4: **injection must never share a
 thread with the message loop.** Upstream admits window dragging conflicts with
