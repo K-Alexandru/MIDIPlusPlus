@@ -10,6 +10,7 @@
 
 namespace shell {
 struct MidiEntry { std::filesystem::path path; std::string name; uintmax_t bytes = 0; };
+struct LiveDevice { std::wstring id; std::string name; };
 struct EngineSnapshot {
     std::shared_ptr<const std::vector<MidiEntry>> files = std::make_shared<const std::vector<MidiEntry>>();
     std::vector<TrackRow> rows;
@@ -23,6 +24,12 @@ struct EngineSnapshot {
     bool sustain = true;
     double position = 0;
     double duration = 0;
+    // Live MIDI input. Devices are opaque backend-specific ids, never indices:
+    // see the note at the top of MIDI++/MidiInput.hpp.
+    std::vector<LiveDevice> devices;
+    std::wstring liveDevice;
+    bool liveActive = false;
+    int liveChannel = -1;  // -1 listens on every channel
     double speed = 1.0;
     int transpose = 0;
     std::map<std::string, std::string> keyMappings;
@@ -32,7 +39,8 @@ struct EngineSnapshot {
 class ShellEngine {
 public:
     enum class Action { Scan, Load, Play, Stop, Mute, Solo, SoloPiano, UnmuteAll, Velocity, Sustain,
-                        Pause, TogglePlayPause, Restart, Back10, Forward10, Seek, Speed, Transpose, Remap };
+                        Pause, TogglePlayPause, Restart, Back10, Forward10, Seek, Speed, Transpose, Remap,
+                        LiveScan, LiveOpen, LiveActive, LiveChannel };
     struct Command {
         Action action;
         std::filesystem::path path;
@@ -41,6 +49,7 @@ public:
         bool value = false;
         double amount = 0;
         std::string key;
+        std::wstring device;
     };
     explicit ShellEngine(std::filesystem::path config);
     ~ShellEngine();

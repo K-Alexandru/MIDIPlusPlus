@@ -20,6 +20,10 @@
     <ClCompile Include="..\MIDI++\TranspositionCore.cpp" />
     <ClCompile Include="..\MIDI++\InputInjector.cpp" />
     <ClCompile Include="..\MIDI++\InputLatency.cpp" />
+    <ClCompile Include="..\MIDI++\MidiInput.cpp" />
+    <ClCompile Include="..\MIDI++\MIDI2Key.cpp" />
+    <ClCompile Include="..\MIDI++\WootingAnalog.cpp" />
+    <ClCompile Include="..\MIDI++\RtMidi.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

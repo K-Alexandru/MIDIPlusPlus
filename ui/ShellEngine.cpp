@@ -1,5 +1,6 @@
 #include "ShellEngine.hpp"
 #include "PlaybackSystem.hpp"
+#include "MIDI2Key.hpp"
 #include <fstream>
 #include <cmath>
 #include <intrin.h>
@@ -49,6 +50,10 @@ void ShellEngine::Run(std::stop_token stop) {
     using namespace std::chrono_literals;
     EngineSnapshot state;
     std::unique_ptr<VirtualPianoPlayer> player;
+    // Destroyed before the player it points at, since it is declared after it.
+    std::unique_ptr<MIDI2Key> live;
+    uint64_t liveMappings = 0;
+    int liveTranspose = 0;
     std::vector<std::chrono::nanoseconds> scoreTimes;
     try {
         std::ifstream stream(config_);
@@ -102,6 +107,14 @@ void ShellEngine::Run(std::stop_token stop) {
             player->pressed_keys.try_emplace(NoteName(note), false);
         }
     };
+    // Live input needs a player without a file loaded: the mappings and velocity
+    // settings come from the config, not from the score.
+    const auto ensurePlayer = [&] {
+        if (!player) {
+            player = std::make_unique<VirtualPianoPlayer>(false, config_);
+            state.keyMappings = player->full_key_mappings;
+        }
+    };
     const auto applyTracks = [&] {
         if (!player) return;
         for (const auto& row : state.rows) {
@@ -128,7 +141,9 @@ void ShellEngine::Run(std::stop_token stop) {
             if (hasCommand) {
                 const bool scoreCommand = command.action != Action::Scan && command.action != Action::Load &&
                     command.action != Action::Stop && command.action != Action::Velocity && command.action != Action::Sustain &&
-                    command.action != Action::Remap;
+                    command.action != Action::Remap && command.action != Action::LiveScan &&
+                    command.action != Action::LiveOpen && command.action != Action::LiveActive &&
+                    command.action != Action::LiveChannel;
                 if (scoreCommand && command.generation != state.generation) continue;
                 state.error.clear();
                 switch (command.action) {
@@ -263,6 +278,39 @@ void ShellEngine::Run(std::stop_token stop) {
                     applyMappings();
                     break;
                 }
+                case Action::LiveScan: {
+                    state.devices.clear();
+                    for (const auto& device : EnumerateMidiInputs())
+                        state.devices.push_back({device.id, Utf8(std::filesystem::path(device.name))});
+                    break;
+                }
+                case Action::LiveOpen:
+                    if (command.device.empty()) {
+                        if (live) { live->SetActive(false); live->CloseDevice(); }
+                        state.liveDevice.clear();
+                        state.liveActive = false;
+                        break;
+                    }
+                    ensurePlayer();
+                    if (!live) live = std::make_unique<MIDI2Key>(player.get());
+                    live->SetMidiChannel(state.liveChannel);
+                    live->OpenDevice(command.device);
+                    state.liveDevice = live->GetSelectedDevice();
+                    if (state.liveDevice.empty()) throw std::runtime_error("Cannot open that MIDI input.");
+                    live->SetActive(true);
+                    state.liveActive = true;
+                    liveMappings = state.mappingRevision;
+                    liveTranspose = state.transpose;
+                    break;
+                case Action::LiveActive:
+                    if (!live || state.liveDevice.empty()) break;
+                    live->SetActive(command.value);
+                    state.liveActive = command.value;
+                    break;
+                case Action::LiveChannel:
+                    state.liveChannel = std::clamp(static_cast<int>(command.amount), -1, 15);
+                    if (live) live->SetMidiChannel(state.liveChannel);
+                    break;
                 case Action::Stop:
                     stopPlayback();
                     state.position = 0;
@@ -292,6 +340,15 @@ void ShellEngine::Run(std::stop_token stop) {
                     break;
                 }
                 state.busy = false;
+                // Transpose and remap rewrite full_key_mappings, and live input
+                // precomputes from it on SetActive. Re-arm so it keeps playing
+                // the current mapping rather than the one it opened with.
+                if (live && state.liveActive &&
+                    (state.mappingRevision != liveMappings || state.transpose != liveTranspose)) {
+                    liveMappings = state.mappingRevision;
+                    liveTranspose = state.transpose;
+                    live->SetActive(true);
+                }
             }
             if (state.playing) {
                 state.position = std::clamp(player->get_adjusted_time().count() / 1e9 * state.speed, 0.0, state.duration);
