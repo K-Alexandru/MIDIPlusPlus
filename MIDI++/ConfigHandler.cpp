@@ -398,8 +398,8 @@ namespace midi {
 
         // Autoplayer timing accuracy settings
         autoplayer_timing = {
-            20,     // MAX_PASSES 
-            1.0     // MEASURE_SEC
+            5,      // MAX_PASSES
+            0.1     // MEASURE_SEC
         };
 
         // MIDI settings

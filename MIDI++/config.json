@@ -1,4 +1,8 @@
 {
+    "AUTOPLAYER_TIMING_ACCURACY": {
+        "MAX_PASSES": 5,
+        "MEASURE_SEC": 0.1
+    },
     "AUTO_TRANSPOSE": {
         "ENABLED": false,
         "TRANSPOSE_DOWN_KEY": "VK_DOWN",

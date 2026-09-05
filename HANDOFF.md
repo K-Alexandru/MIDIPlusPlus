@@ -181,6 +181,36 @@ concurrent callbacks cannot collide and nothing has to be dropped.
   pointer is a stub returning `69`, so any init failure silently no-ops every
   keystroke. Recommend reverting to `SendInput`.
 
+### Twenty-second startup: fixed 2026-09-04
+
+The splash screen was not decorative slowness. `rdtsc_timer_init()` calibrated
+the TSC against QPC with `MAX_PASSES` 20 passes of `MEASURE_SEC` 1.0 second
+each, every pass a busy-wait pinned to core 0. Twenty seconds of spinning to
+measure a constant, before the window appeared.
+
+Worse, it could not be configured away. `timer.h` captured both settings into
+namespace-scope statics:
+
+```cpp
+static int    MAX_PASSES  = midi::Config::getInstance().autoplayer_timing.MAX_PASSES;
+static double MEASURE_SEC = midi::Config::getInstance().autoplayer_timing.MEASURE_SEC;
+```
+
+Those initialise during static initialisation, long before the constructor calls
+`loadFromFile("config.json")`, so they always saw the struct defaults on a
+default-constructed singleton. `AUTOPLAYER_TIMING_ACCURACY` in `config.json` had
+no effect whatsoever.
+
+`rdtsc_timer_init(passes, measureSec)` now takes both as arguments, read at the
+call site after the config is loaded, and the defaults are 5 passes of 0.1s.
+Each pass is timed against QPC, which resolves the ratio far more finely than
+the scheduling noise the median of several passes exists to reject.
+
+Measured: test-suite wall time 23.6s to 4.1s. Scheduling accuracy is unchanged.
+The legit-mode fixture measures an 800ms score at 797ms with the old 20-second
+calibration and 796-797ms across three runs with the new one.
+
+
 ### Repo hygiene
 
 Fixed 2026-09-04. 31 build artifacts were tracked (`.obj`, `.iobj`, `.pdb`,

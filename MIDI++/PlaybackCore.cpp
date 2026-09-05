@@ -485,8 +485,13 @@ VirtualPianoPlayer::VirtualPianoPlayer() noexcept(false)
     // 8) Start hotkey listener thread
     hotkey_thread = std::make_unique<std::jthread>(&VirtualPianoPlayer::hotkey_listener, this);
 
-    // 9) Initialize RDTSC-based timer
-    rdtsc_timer_init();
+    // 9) Initialize RDTSC-based timer. Read the settings here rather than at
+    //    static-init time, which is the only point at which config.json has
+    //    actually been loaded.
+    {
+        const auto& timing = midi::Config::getInstance().autoplayer_timing;
+        rdtsc_timer_init(timing.MAX_PASSES, timing.MEASURE_SEC);
+    }
     if (rdtsc_timer_status() != RDTSC_TIMER_READY) {
         CloseSplashScreen();
         throw std::runtime_error("High-res TSC timer not available or calibration failed.");

@@ -48,9 +48,14 @@ namespace midi {
         void validate() const;
     };
 
+    // TSC frequency calibration at startup. This used to be 20 passes of a full
+    // second each: 20 seconds of busy-waiting behind the splash screen before the
+    // window appeared, to measure a constant. Each pass is timed against QPC, so
+    // 100ms already resolves the ratio far better than the scheduler noise the
+    // median of several passes exists to reject.
     struct AutoplayerTimingAccuracy {
-        int MAX_PASSES = 20;
-        double MEASURE_SEC = 1.0;
+        int MAX_PASSES = 5;
+        double MEASURE_SEC = 0.1;
 
         void validate() const;
     };

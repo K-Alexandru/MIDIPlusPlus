@@ -19,8 +19,11 @@ enum {
 static double    __cpu_freq = 0.0;  // Estimated CPU frequency in Hz
 static unsigned  __timer_status = RDTSC_TIMER_ERR_CPU_FREQ;
 
-static int    MAX_PASSES = midi::Config::getInstance().autoplayer_timing.MAX_PASSES;    
-static double MEASURE_SEC = midi::Config::getInstance().autoplayer_timing.MEASURE_SEC;  
+// These used to be namespace-scope statics initialised from the config
+// singleton. That runs during static initialisation, before anything has read
+// config.json, so they always captured the struct defaults and the
+// AUTOPLAYER_TIMING_ACCURACY settings had no effect at all. The values are now
+// passed in by the caller, which reads them after the config is loaded.
 static constexpr double MIN_ACCEPTABLE_FREQ_HZ = 1e5; // Must be above 100 kHz
 static DWORD_PTR __pin_thread_to_core(int coreIndex = 0)
 {
@@ -90,8 +93,7 @@ static double __measure_tsc_freq_once(double measureTimeSec, int coreIndex)
 /**
  * Calibrate TSC frequency by running multiple passes and picking the median.
  */
-static double __timer_calculate_cpu_freq(int passes = MAX_PASSES,
-    double measureTimeSec = MEASURE_SEC)
+static double __timer_calculate_cpu_freq(int passes, double measureTimeSec)
 {
     if (passes <= 0) passes = 1;
 
@@ -121,9 +123,9 @@ static double __timer_calculate_cpu_freq(int passes = MAX_PASSES,
 /**
  * Initialize the TSC-based timer.
  */
-static void rdtsc_timer_init()
+static void rdtsc_timer_init(int passes, double measureTimeSec)
 {
-    double freq = __timer_calculate_cpu_freq(MAX_PASSES, MEASURE_SEC);
+    double freq = __timer_calculate_cpu_freq(passes, measureTimeSec);
     if (freq >= MIN_ACCEPTABLE_FREQ_HZ) {
         __cpu_freq = freq;
         __timer_status = RDTSC_TIMER_READY;
