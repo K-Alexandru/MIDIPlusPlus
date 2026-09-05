@@ -154,7 +154,9 @@ namespace Layout {
         // Card heights expressed as the content they hold.
         PBASIC_H = HEADER_H + CARD_PAD + ROW_H + ROW_GAP + ROW_H + CARD_PAD;
         PADV_H   = PBASIC_H;
-        CFG_H    = HEADER_H + CARD_PAD + ROW_H + CARD_PAD;
+        // Two rows: the original controls, plus a row for behaviour toggles that
+        // belong in settings rather than on the strip.
+        CFG_H    = HEADER_H + CARD_PAD + ROW_H + ROW_GAP + ROW_H + CARD_PAD;
         DET_H    = HEADER_H + CARD_PAD + DET_EDIT_H + CARD_PAD;
 
         // Right column stack.
@@ -319,7 +321,6 @@ enum ControlID {
     ID_BTN_SUSTAIN,
     ID_BTN_TRANSPOSE,
     ID_BTN_TRANSPOSEOUT,
-    ID_BTN_LEGIT,
     ID_CB_VELOCITY_CURVE,
     ID_SLIDER_SUSTAIN_CUTOFF,
     ID_STATIC_SUSTAIN_LABEL,
@@ -328,6 +329,7 @@ enum ControlID {
     ID_GRP_CONFIG,
     ID_CHK_TOP,
     ID_CHK_RANDOM_SONG,   
+    ID_CHK_LEGIT,
     ID_SLIDER_OPACITY, 
 
     // Details
@@ -366,7 +368,6 @@ static bool IsToggleButtonID(int id) {
     case ID_BTN_VELOCITY:
     case ID_BTN_SUSTAIN:
     case ID_BTN_TRANSPOSEOUT:
-    case ID_BTN_LEGIT:
     case ID_BTN_MIDI2QWERTY:
     case ID_BTN_MIDICONNECT:
         return true;
@@ -1224,7 +1225,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
         {
             CardBody body(Layout::PADV_X, Layout::PADV_Y, Layout::PADV_W);
 
-            RowSplit t(body, 0, 7);
+            RowSplit t(body, 0, 6);
             struct AdvBtn { const wchar_t* label; int id; };
             const AdvBtn adv[] = {
                 { L"88-Key",    ID_BTN_88KEY        },
@@ -1233,7 +1234,6 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                 { L"Sustain",   ID_BTN_SUSTAIN      },
                 { L"Transpose", ID_BTN_TRANSPOSE    },
                 { L"OutRange",  ID_BTN_TRANSPOSEOUT },
-                { L"Legit",     ID_BTN_LEGIT        },
             };
             for (const auto& b : adv) {
                 RECT rc = t.next();
@@ -1335,6 +1335,19 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                 WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
                 body.right() - navW, body.rowY(0), navW, Layout::ROW_H,
                 hWnd, reinterpret_cast<HMENU>(ID_BTN_NEXT_SONG), g_hInst, nullptr);
+
+            // Row 1: behaviour toggles. Legit mode lives here rather than in the
+            // Advanced strip because it is set once, if ever, and because it
+            // deliberately drops notes: it should not sit beside the controls
+            // you reach for while judging a mapping or a curve.
+            RowCursor r1 = body.row(1);
+            RECT rcLegit = r1.take(Layout::S(120));
+            HWND hChkLegit = CreateWindowW(L"button", L"Legit Mode",
+                WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
+                rcLegit.left, rcLegit.top, RW(rcLegit), RH(rcLegit),
+                hWnd, reinterpret_cast<HMENU>(ID_CHK_LEGIT), g_hInst, nullptr);
+            SendMessage(hChkLegit, BM_SETCHECK,
+                midi::Config::getInstance().legit_mode.ENABLED ? BST_CHECKED : BST_UNCHECKED, 0);
         }
 
         // =====================================================================
@@ -1398,12 +1411,11 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
 
         // Initialize Toggle States
         {
-            std::vector<int> toggles = { ID_BTN_88KEY, ID_BTN_VOLADJ, ID_BTN_VELOCITY, ID_BTN_SUSTAIN, ID_BTN_TRANSPOSEOUT, ID_BTN_LEGIT, ID_BTN_MIDI2QWERTY };
+            std::vector<int> toggles = { ID_BTN_88KEY, ID_BTN_VOLADJ, ID_BTN_VELOCITY, ID_BTN_SUSTAIN, ID_BTN_TRANSPOSEOUT, ID_BTN_MIDI2QWERTY };
             for (int t : toggles)
                 g_toggleStates[t] = false;
             if (g_player && g_player->eightyEightKeyModeActive)
                 g_toggleStates[ID_BTN_88KEY] = true;
-            g_toggleStates[ID_BTN_LEGIT] = midi::Config::getInstance().legit_mode.ENABLED;
         }
 
         // One modern font across every child control.
@@ -1551,6 +1563,25 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                 try {
                     midi::Config::getInstance().saveToFile("config.json");
                     std::cout << "[Config] Saved Always on Top state: " << (top ? "ENABLED" : "DISABLED") << "\n";
+                }
+                catch (const std::exception& ex) {
+                    std::cerr << "[Config] Failed to save config: " << ex.what() << "\n";
+                }
+            }
+            break;
+
+        case ID_CHK_LEGIT:
+            if (code == BN_CLICKED) {
+                HWND hChk = reinterpret_cast<HWND>(lParam);
+                bool on = (SendMessage(hChk, BM_GETCHECK, 0, 0) == BST_CHECKED);
+                // The player owns the live flag; the config value is what the
+                // next launch starts from, so both move together.
+                if (g_player && g_player->legit_mode_active.load(std::memory_order_relaxed) != on) {
+                    g_player->toggle_legit_mode();
+                }
+                midi::Config::getInstance().legit_mode.ENABLED = on;
+                try {
+                    midi::Config::getInstance().saveToFile("config.json");
                 }
                 catch (const std::exception& ex) {
                     std::cerr << "[Config] Failed to save config: " << ex.what() << "\n";
@@ -2036,9 +2067,6 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                     break;
                 case ID_BTN_TRANSPOSEOUT:
                     g_player->toggle_out_of_range_transpose();
-                    break;
-                case ID_BTN_LEGIT:
-                    g_player->toggle_legit_mode();
                     break;
                 }
             }

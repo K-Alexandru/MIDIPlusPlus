@@ -1,8 +1,9 @@
 # Legit mode
 
-Makes autoplay sound played rather than typed. Off by default. The **Legit**
-button in the Advanced card toggles it, and it takes effect on the next note —
-no reload, no restart.
+Makes autoplay sound played rather than typed. Off by default, and **it does not
+currently work well enough to use** (see the verdict at the end). The **Legit
+Mode** checkbox in the Config card toggles it, and it takes effect on the next
+note: no reload, no restart.
 
 Three effects, all applied when events fire:
 
@@ -103,6 +104,15 @@ Covered:
   measured span between first and last note was **797 ms**. Accumulating the
   pauses the way the parse-time version did would have given about 1040 ms.
 
-Not verified: how it sounds. The tests prove the mechanism does not corrupt the
-score, drop releases or drift; whether the defaults actually read as human
-playing is a judgement to make by ear in a game.
+**Verdict after listening, 2026-09-04: it does not convince.** The tests prove
+the mechanism does not corrupt the score, drop releases or drift. They cannot
+prove it sounds human, and it does not. It is kept and demoted to a checkbox in
+the Config card rather than a button in the Advanced strip.
+
+What is probably wrong is the model rather than the code. Three uniform draws
+with no memory produce noise, and human timing is neither uniform nor
+independent: microtiming shows
+[long-range 1/f correlation](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4174744/),
+and expressive deviation follows musical structure, landing on phrase boundaries
+and beat positions rather than at random. A future pass should start there, not
+by widening the spread.

@@ -129,10 +129,12 @@ Builds clean. Verified on this machine with a standalone probe that links
 - The Wooting SDK bound at runtime, reported a connected device, and its poll
   thread ran and stopped cleanly.
 
-**Updated verification:** loopMIDI through both WinRT and WinMM has now passed
-real note on/off, chords, sustain cutoff and velocity checks through MIDI2Key
-and the Windows keyboard hook. Physical piano, Wooting playing and target-game
-response remain unverified. See section 16.
+**Updated verification:** loopMIDI through both WinRT and WinMM has passed real
+note on/off, chords, sustain cutoff and velocity checks through MIDI2Key and the
+Windows keyboard hook. **Notes confirmed playing in a real game, 2026-09-04, by
+the author.** That settles the open question the whole port was blocked on: the
+WinRT path stays, it is not reverted. Wooting playing, two physical devices at
+once, and any measured game-side latency remain unverified.
 
 ---
 
@@ -290,22 +292,24 @@ Already answered, do **not** re-ask:
 
 ## 7. Recommended order
 
-1. **Play one note into a real game.** Still the cheapest decision available and
-   still the one blocking everything else: it either validates the WinRT port or
-   reverts it. Needs the machine, a piano and the game, so it needs you. The
-   device index bug is fixed, so two inputs at once is worth testing at the same
-   time, and legit mode wants an ear check while you are there.
+1. ~~**Play one note into a real game.**~~ Done 2026-09-04: notes confirmed
+   reaching the game, so the WinRT port is validated and stays. Legit mode was
+   listened to in the same session and judged unconvincing (section 12). Still
+   open from this item: Wooting playing, and two physical devices at once.
 2. ~~**Extract `IMidiInput`**~~: done 2026-09-04 in `269c2f2` (section 3). WinRT,
    WinMM and Wooting all sit behind it and devices are opened by id.
 3. ~~**Build latency instrumentation.**~~ Implemented and tested in section 16.
-4. **Decide the ALT protocol.** The cheap half is done — both paths now send the
+4. **Decide the ALT protocol.** The cheap half is done: both paths now send the
    same four-event tap (section 4). The remaining question is whether the target
-   accepts velocity without ALT at all, which is four events down to one on every
-   bucket change. That is a question about the game, not about this code, and it
-   is the last input-path win available before the UI rewrite.
+   accepts velocity without ALT at all, which would take four events down to one
+   on every bucket change. That is a question about the game, not about this
+   code, and it is the last input-path win available before the UI rewrite.
 5. **UI rewrite** in ImGui. `skin-system.html` is the spec; zero ImGui code
    exists. Weeks, not hours.
 6. **YouTube→MIDI pipeline.** Lowest coupling, can happen anytime.
+7. **Legit mode, second attempt.** Only worth it if humanised autoplay actually
+   matters to you. Section 12 has why the first attempt fails and where a second
+   should start.
 
 ### Latency instrumentation: implemented with corrected boundaries
 
@@ -573,9 +577,9 @@ reasoning, the settings and the test results; the short version:
   `LEGIT_MODE_SETTINGS` block that was already sitting unread in `config.json`.
   Every field is optional on load, because configs in the wild have arbitrary
   subsets of those keys after upstream dropped the reader.
-- **Legit** is a seventh toggle in the Advanced card, so it can be switched
-  mid-song. `toggle_legit_mode()` owns the flag once the app is running; the
-  config value only seeds it at construction.
+- **Legit Mode** is a checkbox in the Config card, so it can be switched
+  mid-song. `toggle_legit_mode()` owns the live flag; the checkbox also writes
+  `LEGIT_MODE_SETTINGS.ENABLED` so the two agree across launches.
 - Effects are applied in the batch handler in `PlaybackCore.cpp`. The parsed
   score is never modified, so seek, the position readout and the reported
   duration stay exact, and each playthrough differs.
@@ -597,9 +601,20 @@ multiplier on the inter-event gap. 50 ms is the top of the
 [30-50 ms asynchrony range](https://transactions.ismir.net/articles/10.5334/tismir.317)
 measured in human piano performance.
 
-Not verified: how it sounds. The tests prove the mechanism does not corrupt the
-score, strand a key or drift. Whether the defaults read as human playing is an
-ear judgement in a game, and so is whether 50 ms is the right ceiling.
+**Verdict after listening, 2026-09-04: it does not convince.** The mechanism is
+sound and the tests hold, but the output still does not read as human playing.
+The author's assessment is that this is why upstream removed it. Kept, because
+the plumbing is the expensive part and the tuning is cheap once someone knows
+what to tune, but demoted: it is a checkbox in the **Config** card, not a button
+in the Advanced strip. It should not sit beside the controls you reach for while
+judging a mapping or a curve, given it drops notes on purpose.
+
+What is likely wrong is the model, not the code. Three uniform draws with no
+memory produce noise, and human timing is neither uniform nor independent:
+[microtiming has long-range 1/f correlation](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4174744/),
+and expressive deviation tracks musical structure, arriving on phrase
+boundaries and beat positions rather than at random. A future pass should
+probably start from those two facts rather than from a wider spread.
 
 ---
 
@@ -923,9 +938,8 @@ that does not imply the priority setup is repaired. Process-wide priority tuning
 and some UI-thread cleanup injection still exist in the source, despite earlier
 claims that those paths were entirely thread-local.
 
-No physical piano or Wooting playing, target-game behavior, sound latency, or
-two-physical-device selection has been verified. No latency improvement is
-claimed from these functional tests. `LATENCY.md` has the design, limitations,
-commands and raw-output locations. The next useful work is a game-level note
-test and a measured, protocol-preserving velocity change; the UI rewrite remains
-a separate stage.
+Notes are confirmed reaching a real game (section 3). Wooting playing, sound
+latency and two-physical-device selection are still unverified, and no latency
+improvement is claimed from these functional tests. `LATENCY.md` has the design,
+limitations, commands and raw-output locations. The UI rewrite remains a
+separate stage.
