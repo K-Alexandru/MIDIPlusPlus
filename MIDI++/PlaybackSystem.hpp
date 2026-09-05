@@ -181,6 +181,7 @@ public:
     void toggle_velocity_keypress();
     void toggle_volume_adjustment();
     void toggleSustainMode();
+    void toggle_legit_mode();
     int  toggle_transpose_adjustment();
     // Other operations
     void release_all_keys();
@@ -229,6 +230,20 @@ public:
     SustainMode currentSustainMode{ SustainMode::IG };
     std::atomic<bool> enable_volume_adjustment{ false };
     std::atomic<bool> enable_velocity_keypress{ false };
+
+    // Legit mode. Read on the playback thread, written from the UI thread, so the
+    // enable flag is atomic; the generator state below it is only ever touched by
+    // the dispatch path, which is one batch at a time.
+    std::atomic<bool> legit_mode_active{ false };
+    uint64_t legit_rng_state{ 0x9E3779B97F4A7C15ull };
+    // Non-zero forces a fixed seed instead of the per-song one, so a reported run
+    // can be reproduced exactly. Tests use it; nothing in the app sets it.
+    std::atomic<uint64_t> legit_seed_override{ 0 };
+    void   legit_reseed() noexcept;
+    double legit_unit() noexcept;               // uniform [0,1)
+    std::chrono::nanoseconds legit_press_offset() noexcept;
+    std::chrono::nanoseconds legit_batch_hesitation() noexcept;
+    bool   legit_should_skip() noexcept;
 
     // Key mapping
     std::map<std::string, std::string> limited_key_mappings;

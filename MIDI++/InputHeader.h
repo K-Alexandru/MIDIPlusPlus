@@ -2,6 +2,7 @@
 #include <windows.h>
 
 #ifdef __cplusplus
+#include "InputLatency.hpp"
 extern "C" {
 #endif
 

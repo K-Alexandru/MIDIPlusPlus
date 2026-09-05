@@ -2,6 +2,7 @@
 
 #include "MIDI2Key.hpp"
 #include "InputHeader.h"
+#include "InputLatency.hpp"
 
 #pragma comment(lib, "avrt.lib")
 
@@ -385,10 +386,10 @@ bool MIDI2Key::IsActive() const {
 }
 
 void MIDI2Key::SetActive(bool active) {
-    m_isActive.store(active, std::memory_order_release);
     if (active && m_player) {
         precomputeAllMappings(*m_player);
     }
+    m_isActive.store(active, std::memory_order_release);
 }
 
 const std::wstring& MIDI2Key::GetSelectedDevice() const {
@@ -399,13 +400,20 @@ int MIDI2Key::GetSelectedChannel() const {
     return m_selectedChannel;
 }
 
-void MIDI2Key::ProcessMidiMessage(uint64_t /*timestampQpc*/, const uint8_t* bytes, size_t length) {
+void MIDI2Key::ProcessMidiMessage(uint64_t timestampQpc, const uint8_t* bytes, size_t length) {
     if (!m_isActive.load(std::memory_order_acquire)) return;
     if (!bytes || length < 3) return;
+    if (bytes[1] > 127 || bytes[2] > 127) return;
     uint8_t status = bytes[0];
     uint8_t cmd = status & 0xF0;
     uint8_t channel = status & 0x0F;
     if (m_selectedChannel >= 0 && channel != (uint8_t)m_selectedChannel) return;
+    if (cmd != 0x90 && cmd != 0x80 && !(cmd == 0xB0 && bytes[1] == 64)) return;
+
+    input_latency::Trace trace(input_latency::Source::LiveKeys,
+        cmd == 0xB0 ? input_latency::Kind::Sustain :
+        cmd == 0x90 && bytes[2] > 0 ? input_latency::Kind::NoteOn : input_latency::Kind::NoteOff,
+        timestampQpc);
 
     VirtualPianoPlayer& p = *m_player;
 
@@ -422,7 +430,7 @@ void MIDI2Key::ProcessMidiMessage(uint64_t /*timestampQpc*/, const uint8_t* byte
                 m_velocityInputs[1] = makeKeybdInput(sc, KEYEVENTF_SCANCODE);                  // Key down
                 m_velocityInputs[2] = makeKeybdInput(sc, KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP); // Key up
                 m_velocityInputs[3] = makeKeybdInput(0x38, KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP); // Alt up
-                NtUserSendInputCall(4, m_velocityInputs, sizeof(INPUT));
+                input_latency::send(4, m_velocityInputs, sizeof(INPUT));
             }
         }
         if (p.enable_volume_adjustment.load(std::memory_order_relaxed)) {
@@ -440,7 +448,7 @@ void MIDI2Key::ProcessMidiMessage(uint64_t /*timestampQpc*/, const uint8_t* byte
                     inputs[i * 2] = makeKeybdInput(sc, KEYEVENTF_SCANCODE | KEYEVENTF_EXTENDEDKEY);
                     inputs[i * 2 + 1] = makeKeybdInput(sc, KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP | KEYEVENTF_EXTENDEDKEY);
                 }
-                NtUserSendInputCall(steps * 2, inputs, sizeof(INPUT));
+                input_latency::send(steps * 2, inputs, sizeof(INPUT));
                 p.current_volume.store(target_vol, std::memory_order_relaxed);
             }
         }
@@ -458,13 +466,13 @@ void MIDI2Key::ProcessMidiMessage(uint64_t /*timestampQpc*/, const uint8_t* byte
                 if (ownerPtr && ownerPtr != evPtr) {
                     short oldCount = scancodeCount[sc].exchange(0, std::memory_order_relaxed);
                     if (oldCount > 0) {
-                        NtUserSendInputCall((UINT)ownerPtr->releaseCount, ownerPtr->release.data(), sizeof(INPUT));
+                        input_latency::send((UINT)ownerPtr->releaseCount, ownerPtr->release.data(), sizeof(INPUT));
                     }
                     scancodeOwner[sc] = nullptr;
                 }
                 short cnt = scancodeCount[sc].load(std::memory_order_relaxed);
                 if (cnt == 0) {
-                    NtUserSendInputCall((UINT)evPtr->pressCount, evPtr->press.data(), sizeof(INPUT));
+                    input_latency::send((UINT)evPtr->pressCount, evPtr->press.data(), sizeof(INPUT));
                     scancodeOwner[sc] = evPtr;
                     scancodeCount[sc].store(1, std::memory_order_relaxed);
                 }
@@ -487,7 +495,7 @@ void MIDI2Key::ProcessMidiMessage(uint64_t /*timestampQpc*/, const uint8_t* byte
                 if (ownerPtr == evPtr) {
                     short c = scancodeCount[sc].fetch_sub(1, std::memory_order_relaxed);
                     if (c == 1) {
-                        NtUserSendInputCall((UINT)evPtr->releaseCount, evPtr->release.data(), sizeof(INPUT));
+                        input_latency::send((UINT)evPtr->releaseCount, evPtr->release.data(), sizeof(INPUT));
                         scancodeOwner[sc] = nullptr;
                     }
                 }
@@ -501,7 +509,7 @@ void MIDI2Key::ProcessMidiMessage(uint64_t /*timestampQpc*/, const uint8_t* byte
         if (shouldPress != p.isSustainPressed) {
             constexpr WORD spaceScan = 0x39;
             m_sustainInput[0] = makeKeybdInput(spaceScan, shouldPress ? 0 : KEYEVENTF_KEYUP);
-            NtUserSendInputCall(1, m_sustainInput, sizeof(INPUT));
+            input_latency::send(1, m_sustainInput, sizeof(INPUT));
             p.isSustainPressed = shouldPress;
         }
     }

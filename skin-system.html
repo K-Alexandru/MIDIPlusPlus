@@ -1,0 +1,1718 @@
+<title>MIDI DEMO Skin System</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+:root{
+  --ink:#191b1e; --ink-2:#585f68; --ink-3:#8a929c;
+  --ground:#f7f7f5; --panel:#ffffff; --rule:#e0e1dd; --rule-2:#cbcdc6;
+  --mark:#2f6f6a; --mark-soft:#e6efee; --flag:#a8452f;
+  --sans:"IBM Plex Sans",-apple-system,"Segoe UI",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --ink:#e8e8e4; --ink-2:#a0a6ac; --ink-3:#767c84;
+  --ground:#141517; --panel:#1c1e21; --rule:#2c2f33; --rule-2:#3d4147;
+  --mark:#63b3aa; --mark-soft:#1d2b2a; --flag:#e08a6f;
+}}
+:root[data-theme="dark"]{
+  --ink:#e8e8e4; --ink-2:#a0a6ac; --ink-3:#767c84;
+  --ground:#141517; --panel:#1c1e21; --rule:#2c2f33; --rule-2:#3d4147;
+  --mark:#63b3aa; --mark-soft:#1d2b2a; --flag:#e08a6f;
+}
+*{box-sizing:border-box;}
+[hidden]{display:none!important;}
+/* Autoplay-only stack. A class, not an inline style, so the hidden attribute
+   wins on its own rather than needing !important to beat inline. */
+.auto-stack{display:flex;flex-direction:column;gap:var(--sp-3);}
+/* Restored: a botched edit had eaten this rule's opening line, leaving an
+   orphan declaration that the parser discarded. Without it the page inherited
+   the artifact shell's fixed light body colours, so dark mode put theme-dark
+   cards on a permanently light page. */
+body{background:var(--ground);color:var(--ink);font-family:var(--sans);
+  font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased;}
+.wrap{max-width:1220px;margin:0 auto;padding:44px 28px 80px;}
+.eyebrow{font-family:var(--mono);font-size:11px;font-weight:500;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--mark);margin:0 0 14px;}
+h1{font-size:clamp(30px,4.4vw,44px);line-height:1.06;font-weight:600;letter-spacing:-.022em;
+  margin:0 0 16px;text-wrap:balance;max-width:16ch;}
+.standfirst{font-size:17px;color:var(--ink-2);max-width:64ch;margin:0 0 30px;}
+.standfirst b{color:var(--ink);font-weight:600;}
+.correction{border-left:2px solid var(--flag);padding:14px 18px;margin:0 0 38px;
+  max-width:74ch;font-size:14px;color:var(--ink-2);background:var(--panel);}
+.correction b{color:var(--ink);}
+.correction code{font-family:var(--mono);font-size:12.5px;}
+h2{font-size:13px;font-family:var(--mono);font-weight:600;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--ink-3);margin:0 0 18px;padding-bottom:9px;
+  border-bottom:1px solid var(--rule);}
+section{margin:0 0 48px;}
+.controls{display:flex;flex-wrap:wrap;gap:26px;align-items:flex-end;margin:0 0 20px;}
+.ctrl-group{display:flex;flex-direction:column;gap:7px;}
+.ctrl-label{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--ink-3);}
+.seg{display:flex;border:1px solid var(--rule-2);}
+.seg button{font-family:var(--sans);font-size:13px;font-weight:500;padding:8px 15px;border:0;
+  border-right:1px solid var(--rule-2);background:var(--panel);color:var(--ink-2);
+  cursor:pointer;transition:background .12s,color .12s;}
+.seg button:last-child{border-right:0;}
+.seg button:hover{background:var(--mark-soft);color:var(--ink);}
+.seg button[aria-pressed="true"]{background:var(--mark);color:#fff;}
+.seg button:focus-visible{outline:2px solid var(--mark);outline-offset:2px;z-index:1;}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .seg button[aria-pressed="true"]{color:#0f1413;}}
+:root[data-theme="dark"] .seg button[aria-pressed="true"]{color:#0f1413;}
+.meta-line{font-family:var(--mono);font-size:12px;color:var(--ink-3);margin:0 0 18px;}
+.meta-line strong{color:var(--ink-2);font-weight:500;}
+.desk{background:repeating-linear-gradient(45deg,transparent,transparent 9px,
+      rgba(128,128,128,.055) 9px,rgba(128,128,128,.055) 18px),var(--rule);
+  padding:clamp(14px,3vw,38px);display:flex;flex-direction:column;align-items:center;gap:clamp(12px,2.4vw,26px);overflow:hidden;}
+
+/* ================= WINDOW =================
+   Depth comes from a four-tier surface system (canvas, structure, card,
+   elevated) plus a recessed tier for anything you type into, read from or
+   fill up. Borders are semi-transparent hairlines, never solid greys, and
+   every raised surface carries a contact shadow, an ambient shadow and a
+   one-pixel top highlight. Spacing is a strict 4px scale; a desktop tool is
+   denser than a marketing page, so container padding starts at 12px rather
+   than 24px, but no value off the scale is used anywhere. Radii are
+   concentric: an element inset by 4px inside a 12px container is drawn at 8px. */
+.win{
+  /* surfaces */
+  --s0:#e8ebef;              /* window canvas */
+  --s1:#f3f5f7;              /* structure: strip, status bar */
+  --s2:#ffffff;              /* card */
+  --s3:#ffffff;              /* elevated control */
+  --s3-hov:#f7f9fb;
+  --sunk:#e9ecf1;            /* recessed: fields, lists, tracks */
+  --bd:rgba(17,22,31,.09); --bd-2:rgba(17,22,31,.16);
+  --hl:inset 0 1px 0 rgba(255,255,255,.85);
+  --sh-1:0 1px 1px rgba(17,22,31,.05),0 2px 4px rgba(17,22,31,.04);
+  --sh-2:0 1px 2px rgba(17,22,31,.08),0 8px 18px rgba(17,22,31,.06);
+  --sh-win:0 1px 2px rgba(17,22,31,.10),0 20px 48px rgba(17,22,31,.20);
+  --sh-in:inset 0 1px 2px rgba(17,22,31,.09);
+  /* ink */
+  --t1:#1b1e24; --t2:#5b636f; --t3:#8b929e;
+  /* accent: selection, focus and the live curve only */
+  --acc:#0b6ec4; --acc-soft:rgba(11,110,196,.10); --acc-line:rgba(11,110,196,.35);
+  --ok:#1a7f45; --ok-ink:#12652f; --ok-soft:rgba(26,127,69,.12); --ok-bd:rgba(26,127,69,.34);
+  --warn:#9a6c0d; --bad:#b23f2f;
+  --chrome:#dee1e6; --chrome-tx:#3b4148;
+  /* radii, concentric */
+  --r-win:6px; --r-card:8px; --r-ctl:6px; --r-el:4px;
+  /* 4px scale */
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-6:24px;
+  --pad-win:12px; --pad-pnl:12px;
+  --h-ctl:28px; --h-in:20px;
+  --f-meta:11px; --f-body:13px; --f-hd:13px; --f-title:15px;
+  --ff:"Segoe UI",Tahoma,system-ui,sans-serif;
+  font-family:var(--ff);font-size:var(--f-body);line-height:1.45;color:var(--t1);
+  background:var(--s0);border-radius:var(--r-win);width:100%;max-width:1090px;
+  overflow:hidden;box-shadow:var(--sh-win);
+}
+.win[data-skin="classic-dark"]{
+  --s0:#191c21; --s1:#20242a; --s2:#272b31; --s3:#2e333a; --s3-hov:#363c44;
+  --sunk:#14171b;
+  --bd:rgba(255,255,255,.08); --bd-2:rgba(255,255,255,.14);
+  --hl:inset 0 1px 0 rgba(255,255,255,.06);
+  --sh-1:0 1px 1px rgba(0,0,0,.30),0 2px 4px rgba(0,0,0,.22);
+  --sh-2:0 1px 2px rgba(0,0,0,.36),0 8px 18px rgba(0,0,0,.28);
+  --sh-win:0 1px 2px rgba(0,0,0,.5),0 20px 48px rgba(0,0,0,.55);
+  --sh-in:inset 0 1px 2px rgba(0,0,0,.45);
+  --t1:#e7e9ec; --t2:#a3aab5; --t3:#79818d;
+  --acc:#4ea3ea; --acc-soft:rgba(78,163,234,.14); --acc-line:rgba(78,163,234,.40);
+  --ok:#4fb277; --ok-ink:#8fdcaa; --ok-soft:rgba(79,178,119,.16); --ok-bd:rgba(79,178,119,.40);
+  --warn:#d0a259; --bad:#e0685a;
+  --chrome:#24272c; --chrome-tx:#c9ced5;
+}
+/* MODERN: the same system on a warmer ground, with larger radii, more air and
+   a single 20px type anchor. Structural difference, not a recolour. */
+.win[data-skin="modern"]{
+  --s0:#e6e2db; --s1:#f1eee9; --s2:#fbfaf8; --s3:#ffffff; --s3-hov:#f6f3ee;
+  --sunk:#ece8e1;
+  --bd:rgba(45,38,30,.09); --bd-2:rgba(45,38,30,.16);
+  --hl:inset 0 1px 0 rgba(255,255,255,.9);
+  --sh-1:0 1px 1px rgba(45,38,30,.05),0 2px 6px rgba(45,38,30,.04);
+  --sh-2:0 1px 2px rgba(45,38,30,.07),0 10px 22px rgba(45,38,30,.06);
+  --sh-win:0 1px 2px rgba(45,38,30,.10),0 24px 56px rgba(45,38,30,.18);
+  --sh-in:inset 0 1px 2px rgba(45,38,30,.08);
+  --t1:#1d1b19; --t2:#6f675e; --t3:#948b81;
+  --acc:#b5443a; --acc-soft:rgba(181,68,58,.10); --acc-line:rgba(181,68,58,.32);
+  --ok:#3f7a55; --ok-ink:#245939; --ok-soft:rgba(63,122,85,.12); --ok-bd:rgba(63,122,85,.30);
+  --warn:#a8781f; --bad:#b5443a;
+  --chrome:#e9e5df; --chrome-tx:#4a443d;
+  --r-win:12px; --r-card:12px; --r-ctl:10px; --r-el:8px;
+  --pad-win:16px; --pad-pnl:16px;
+  --h-ctl:32px; --h-in:24px;
+  --f-meta:12px; --f-body:14px; --f-hd:14px; --f-title:20px;
+  --ff:"IBM Plex Sans","Segoe UI",system-ui,sans-serif;
+}
+.win[data-skin="modern-dark"]{
+  --s0:#17140f; --s1:#1f1b15; --s2:#26221b; --s3:#2e2921; --s3-hov:#372f26;
+  --sunk:#120f0b;
+  --bd:rgba(255,255,255,.07); --bd-2:rgba(255,255,255,.13);
+  --hl:inset 0 1px 0 rgba(255,255,255,.05);
+  --sh-1:0 1px 1px rgba(0,0,0,.35),0 2px 6px rgba(0,0,0,.25);
+  --sh-2:0 1px 2px rgba(0,0,0,.40),0 10px 22px rgba(0,0,0,.32);
+  --sh-win:0 1px 2px rgba(0,0,0,.55),0 24px 56px rgba(0,0,0,.60);
+  --sh-in:inset 0 1px 2px rgba(0,0,0,.50);
+  --t1:#ede9e4; --t2:#9d938a; --t3:#7b736b;
+  --acc:#e0705f; --acc-soft:rgba(224,112,95,.14); --acc-line:rgba(224,112,95,.36);
+  --ok:#6fbf8d; --ok-ink:#8fd0a8; --ok-soft:rgba(111,191,141,.14); --ok-bd:rgba(111,191,141,.34);
+  --warn:#c99a4a; --bad:#d4574b;
+  --chrome:#1a1918; --chrome-tx:#cdc5bb;
+  --r-win:12px; --r-card:12px; --r-ctl:10px; --r-el:8px;
+  --pad-win:16px; --pad-pnl:16px;
+  --h-ctl:32px; --h-in:24px;
+  --f-meta:12px; --f-body:14px; --f-hd:14px; --f-title:20px;
+  --ff:"IBM Plex Sans","Segoe UI",system-ui,sans-serif;
+}
+
+/* ---- title bar ---- */
+.tb{display:flex;align-items:center;gap:var(--sp-2);height:36px;
+  padding:0 var(--sp-2) 0 var(--sp-3);background:var(--chrome);color:var(--chrome-tx);
+  border-bottom:1px solid var(--bd);}
+.win[data-skin="modern"] .tb,.win[data-skin="modern-dark"] .tb{height:44px;padding-left:var(--sp-4);}
+.tb-name{font-size:var(--f-body);font-weight:600;}
+.tb-file{font-size:var(--f-body);color:var(--t3);overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;min-width:0;}
+.tb-btns{margin-left:auto;display:flex;gap:var(--sp-1);}
+.tb-btns b{width:28px;height:28px;display:flex;align-items:center;justify-content:center;
+  border-radius:var(--r-el);font-size:11px;font-weight:400;}
+.tb-btns b[data-close]{cursor:pointer;}
+.tb-btns b[data-close]:hover{background:var(--bad);color:#fff;}
+
+/* ---- primary strip: device above, state below ----
+   The strip carries only what changes while you play. The MIDI transport is not
+   that: it is picked once, so it lives in Settings, and the latency reading that
+   justifies the pick went with it. */
+.strip{display:flex;flex-direction:column;gap:var(--sp-2);
+  padding:var(--sp-2) var(--pad-win);background:var(--s1);border-bottom:1px solid var(--bd);}
+.win[data-skin="modern"] .strip,.win[data-skin="modern-dark"] .strip{
+  padding:var(--sp-3) var(--pad-win);gap:var(--sp-3);}
+.strip-row{display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap;min-width:0;}
+.dev{display:inline-flex;align-items:center;gap:var(--sp-2);height:var(--h-ctl);
+  padding:0 var(--sp-3);background:var(--s2);border:1px solid var(--bd);
+  border-radius:var(--r-ctl);box-shadow:var(--sh-1),var(--hl);font-weight:500;white-space:nowrap;}
+
+/* Transport chooser, inside Settings. One row per backend, each carrying its own
+   figure, so the comparison is on screen at the moment of choosing rather than
+   one number that changes after you commit. */
+.apiopts{display:flex;flex-direction:column;gap:2px;padding:var(--sp-1);
+  background:var(--sunk);border:1px solid var(--bd);border-radius:var(--r-ctl);
+  box-shadow:var(--sh-in);}
+.apiopt{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-3);
+  width:100%;height:var(--h-in);padding:0 var(--sp-2);border:1px solid transparent;
+  border-radius:var(--r-el);background:transparent;color:var(--t2);
+  font:500 var(--f-body)/1 var(--ff);text-align:left;cursor:pointer;
+  transition:background .16s ease-out,color .16s ease-out;}
+.apiopt:hover{color:var(--t1);background:var(--s3-hov);}
+.apiopt.on{background:var(--s3);color:var(--t1);border-color:var(--bd);
+  box-shadow:var(--sh-1),var(--hl);font-weight:600;}
+.apiopt:focus-visible{outline:2px solid var(--acc);outline-offset:-2px;}
+.apiopt b{flex:none;font-size:var(--f-body);font-weight:600;
+  font-variant-numeric:tabular-nums;color:var(--t2);}
+.apiopt.on b{color:var(--t1);}
+/* One caption for whichever row is selected, rather than the same sentence
+   repeated three times in a panel that has to fit inside the window. */
+.apinote{margin:0;padding:0 var(--sp-2);font-size:var(--f-meta);line-height:1.4;
+  color:var(--t2);}
+
+/* Buffers belong to Kernel Streaming alone. Inside a popover that is already
+   free to change height, they can sit inline instead of nesting a second layer. */
+.ks-rows{display:grid;gap:var(--sp-2);padding:var(--sp-2) var(--sp-2) 0;}
+.ks-row{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-3);}
+.stepper{display:inline-flex;align-items:center;gap:var(--sp-2);}
+.stepper-val{min-width:56px;text-align:center;font-variant-numeric:tabular-nums;
+  font-size:var(--f-body);color:var(--t1);}
+
+/* the breakdown for whichever backend is selected */
+.lat{display:flex;align-items:center;gap:var(--sp-2);height:var(--h-ctl);
+  padding:0 var(--sp-3);background:var(--s2);border:1px solid var(--bd);
+  border-radius:var(--r-ctl);box-shadow:var(--sh-1),var(--hl);white-space:nowrap;}
+.lat b{font-size:var(--f-body);font-weight:600;font-variant-numeric:tabular-nums;
+  min-width:52px;text-align:right;}
+.lat-bar{display:flex;flex:1;min-width:84px;height:6px;border-radius:99px;overflow:hidden;
+  background:var(--sunk);border:1px solid var(--bd);box-shadow:var(--sh-in);}
+.lat-bar i{height:100%;}
+
+/* grouping inside Settings */
+.setgrp{display:flex;flex-direction:column;gap:var(--sp-2);}
+.pop-sub{font-size:var(--f-meta);font-weight:600;color:var(--t2);
+  text-transform:uppercase;letter-spacing:.04em;}
+.pop-div{height:1px;background:var(--bd);margin:var(--sp-1) 0;}
+
+/* toggles */
+.tog{display:inline-flex;align-items:center;height:var(--h-ctl);cursor:pointer;
+  padding:0 var(--sp-3);background:var(--s3);color:var(--t1);border:1px solid var(--bd);
+  border-radius:var(--r-ctl);box-shadow:var(--sh-1),var(--hl);font-size:var(--f-body);
+  font-family:var(--ff);white-space:nowrap;appearance:none;
+  transition:background .16s ease-out,border-color .16s ease-out;}
+.tog.on{background:var(--ok-soft);border-color:var(--ok-bd);color:var(--ok-ink);font-weight:600;}
+.tog.susup{background:var(--acc-soft);border-color:var(--acc-line);color:var(--t1);font-weight:600;}
+.tog.big{font-weight:600;padding:0 var(--sp-4);}
+
+/* ---- layout ---- */
+.body{display:flex;gap:var(--sp-3);padding:var(--pad-win);align-items:stretch;}
+.left{flex:0 1 336px;min-width:0;display:flex;flex-direction:column;gap:var(--sp-3);}
+.right{flex:1;min-width:0;display:flex;flex-direction:column;gap:var(--sp-3);}
+.win[data-skin="modern"] .body,.win[data-skin="modern-dark"] .body,
+.win[data-skin="modern"] .left,.win[data-skin="modern-dark"] .left,
+.win[data-skin="modern"] .right,.win[data-skin="modern-dark"] .right{gap:var(--sp-4);}
+.pnl{background:var(--s2);border:1px solid var(--bd);border-radius:var(--r-card);
+  padding:var(--pad-pnl);display:flex;flex-direction:column;gap:var(--sp-3);min-width:0;
+  box-shadow:var(--sh-1),var(--hl);}
+.pnl.grow{flex:1;min-height:0;}
+.pnl-hd{font-size:var(--f-hd);font-weight:600;color:var(--t1);margin:0;}
+.row{display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap;}
+.row-act{margin-left:auto;display:flex;align-items:center;gap:var(--sp-2);}
+.lbl{font-size:var(--f-meta);color:var(--t2);white-space:nowrap;}
+
+/* ---- buttons: one raised system, ghost secondaries ---- */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:var(--sp-2);
+  height:var(--h-ctl);padding:0 var(--sp-3);background:var(--s3);color:var(--t1);
+  border:1px solid var(--bd);border-radius:var(--r-ctl);box-shadow:var(--sh-1),var(--hl);
+  font:500 var(--f-body)/1 var(--ff);white-space:nowrap;appearance:none;cursor:pointer;
+  transition:background .16s ease-out,box-shadow .16s ease-out,transform .1s ease-out;}
+.btn:hover{background:var(--s3-hov);box-shadow:var(--sh-2),var(--hl);}
+.btn:active{transform:translateY(1px);box-shadow:var(--sh-in);background:var(--sunk);}
+.btn:focus-visible{outline:2px solid var(--acc);outline-offset:2px;}
+.btn svg{width:16px;height:16px;display:block;fill:none;stroke:currentColor;stroke-width:1.6;
+  stroke-linecap:round;stroke-linejoin:round;}
+.btn.icon{width:var(--h-ctl);padding:0;}
+.btn.ghost{background:transparent;border-color:transparent;box-shadow:none;color:var(--t2);}
+.btn.ghost:hover{background:var(--s3-hov);color:var(--t1);border-color:var(--bd);box-shadow:var(--sh-1);}
+.btn.primary{padding:0 var(--sp-4);font-weight:600;box-shadow:var(--sh-2),var(--hl);}
+.btn.primary svg{fill:currentColor;stroke:none;}
+.btn.active{background:var(--ok-soft);border-color:var(--ok-bd);color:var(--ok-ink);}
+
+/* ---- recessed fields ---- */
+.combo{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-3);
+  height:var(--h-ctl);padding:0 var(--sp-3);font-size:var(--f-body);color:var(--t1);
+  flex:1;min-width:0;background:var(--sunk);border:1px solid var(--bd);
+  border-radius:var(--r-ctl);box-shadow:var(--sh-in);}
+.combo>span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.combo svg{width:14px;height:14px;flex:none;stroke:currentColor;fill:none;stroke-width:1.6;
+  stroke-linecap:round;stroke-linejoin:round;color:var(--t2);}
+.num{font-variant-numeric:tabular-nums;font-size:var(--f-body);color:var(--t1);}
+.num.time{min-width:88px;text-align:right;color:var(--t2);}
+.slider{height:6px;border-radius:99px;flex:1;position:relative;min-width:96px;
+  background:var(--sunk);border:1px solid var(--bd);box-shadow:var(--sh-in);}
+.slider i{position:absolute;inset:-1px auto -1px -1px;background:var(--acc);opacity:.55;
+  border-radius:99px;}
+.slider u{position:absolute;top:-5px;width:12px;height:14px;background:var(--s3);
+  border:1px solid var(--bd-2);border-radius:var(--r-el);box-shadow:var(--sh-1),var(--hl);}
+.seek{height:6px;border-radius:99px;position:relative;background:var(--sunk);
+  border:1px solid var(--bd);box-shadow:var(--sh-in);}
+.seek i{position:absolute;inset:-1px auto -1px -1px;width:31%;background:var(--acc);
+  opacity:.6;border-radius:99px;}
+
+/* ---- file list ---- */
+.flist{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;
+  background:var(--sunk);border:1px solid var(--bd);border-radius:var(--r-el);
+  box-shadow:var(--sh-in);}
+.frow{display:flex;justify-content:space-between;gap:var(--sp-3);
+  padding:var(--sp-2) var(--sp-3);font-size:var(--f-body);border-bottom:1px solid var(--bd);}
+.frow:last-child{border-bottom:0;}
+.frow.sel{background:var(--acc-soft);box-shadow:inset 2px 0 0 var(--acc);font-weight:600;}
+.frow span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.frow span:last-child{color:var(--t2);font-variant-numeric:tabular-nums;flex:none;}
+.now{font-size:var(--f-title);font-weight:600;letter-spacing:-.01em;line-height:1.25;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+/* ---- velocity ---- */
+.curve-panel{gap:var(--sp-3);}
+.curve-head{gap:var(--sp-3);}
+.disclosure{display:inline-flex;align-items:center;gap:var(--sp-2);height:var(--h-ctl);
+  padding:0 var(--sp-2) 0 0;background:none;border:0;margin:0;color:var(--t1);
+  font-family:var(--ff);cursor:pointer;border-radius:var(--r-ctl);}
+.disclosure:focus-visible{outline:2px solid var(--acc);outline-offset:2px;}
+.disclosure .chev{width:16px;height:16px;display:block;color:var(--t2);
+  transform:rotate(90deg);transition:transform .16s ease-out;}
+.curve-panel.collapsed .disclosure .chev{transform:rotate(0deg);}
+.curve-panel.collapsed .curve-body{display:none;}
+.curve-panel:not(.collapsed) .collapsed-only{display:none;}
+.curve-current{flex:0 1 auto;max-width:232px;}
+.sustain-group{margin-left:auto;display:flex;align-items:center;gap:var(--sp-2);}
+.sustain-group .slider{flex:none;width:120px;}
+.sustain-group .num{min-width:28px;text-align:right;}
+.curve-body{display:flex;flex-direction:column;gap:var(--sp-3);}
+.curve-name-editor{display:flex;align-items:center;gap:var(--sp-2);
+  padding:var(--sp-2) var(--sp-3);background:var(--acc-soft);border:1px solid var(--acc-line);
+  border-radius:var(--r-el);}
+.curve-name-editor input{flex:1;min-width:0;height:var(--h-ctl);padding:0 var(--sp-3);
+  color:var(--t1);background:var(--sunk);border:1px solid var(--bd);border-radius:var(--r-ctl);
+  box-shadow:var(--sh-in);font:400 var(--f-body)/1 var(--ff);}
+.curve-name-editor input:focus-visible{outline:2px solid var(--acc);outline-offset:1px;}
+.curve-workspace{display:grid;grid-template-columns:minmax(0,1fr) minmax(200px,236px);
+  gap:var(--sp-3);align-items:stretch;}
+.curve-main{display:flex;flex-direction:column;gap:var(--sp-3);min-width:0;}
+.curve-graph{min-width:0;padding:var(--sp-3);position:relative;overflow:hidden;
+  background:var(--sunk);border:1px solid var(--bd);border-radius:var(--r-el);
+  box-shadow:var(--sh-in);}
+.curve-graph-head{display:flex;align-items:center;justify-content:space-between;
+  gap:var(--sp-3);margin-bottom:var(--sp-2);}
+.curve-legend{display:flex;align-items:center;gap:var(--sp-3);color:var(--t2);
+  font-size:var(--f-meta);}
+.curve-legend span{display:inline-flex;align-items:center;gap:var(--sp-1);white-space:nowrap;}
+.curve-legend i{width:12px;height:6px;border-radius:2px;background:var(--acc);opacity:.22;}
+.curve-legend i.step{height:0;background:none;border-top:1px solid var(--t3);border-radius:0;}
+.curve-readout{font-size:var(--f-meta);color:var(--t2);font-variant-numeric:tabular-nums;
+  white-space:nowrap;}
+.curve-readout span,.curve-readout b{color:var(--t1);font-weight:600;}
+.curve-readout i{font-style:normal;color:var(--acc);padding:0 var(--sp-1);}
+.curve-canvas{position:relative;}
+.curve-output-axis{position:absolute;z-index:2;left:0;top:0;font-size:var(--f-meta);
+  color:var(--t3);pointer-events:none;}
+.curve-graph svg{display:block;width:100%;height:132px;cursor:crosshair;touch-action:none;}
+.curve-axis{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;
+  font-size:var(--f-meta);color:var(--t3);}
+.curve-axis span:nth-child(2){font-weight:500;color:var(--t2);}
+.curve-axis span:last-child{text-align:right;}
+.curve-macros{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:var(--sp-3);}
+.macro{padding:var(--sp-3);min-width:0;background:var(--sunk);border:1px solid var(--bd);
+  border-radius:var(--r-el);box-shadow:var(--sh-in);}
+.macro-head{display:flex;align-items:baseline;justify-content:space-between;
+  gap:var(--sp-3);margin-bottom:var(--sp-2);}
+.macro-head b{font-size:var(--f-body);font-weight:600;}
+.macro-head span{font-size:var(--f-meta);font-weight:500;color:var(--t2);white-space:nowrap;}
+.macro input[type="range"]{width:100%;height:20px;margin:0;accent-color:var(--acc);cursor:pointer;}
+.macro input[type="range"]:focus-visible{outline:2px solid var(--acc);outline-offset:2px;}
+.curve-bottom{display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap;}
+.ab-chip{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.04em;}
+.advanced-panel{padding:var(--sp-3);background:var(--s2);border:1px solid var(--bd);
+  border-radius:var(--r-el);box-shadow:var(--hl);}
+.advanced-copy{display:flex;align-items:baseline;gap:var(--sp-3);margin-bottom:var(--sp-2);}
+.advanced-copy b{font-size:var(--f-body);font-weight:600;white-space:nowrap;}
+.advanced-copy span{font-size:var(--f-meta);color:var(--t2);}
+.step-editor{height:72px;display:grid;grid-template-columns:repeat(32,1fr);align-items:end;
+  gap:1px;padding:var(--sp-1);cursor:crosshair;touch-action:none;overflow:hidden;
+  background:var(--sunk);border:1px solid var(--bd);border-radius:var(--r-el);
+  box-shadow:var(--sh-in);}
+.step-col{height:100%;position:relative;background:var(--s2);border-radius:1px;
+  pointer-events:none;}
+.step-col i{position:absolute;inset:auto 0 0;background:var(--acc);opacity:.5;}
+.curve-list{min-width:0;display:flex;flex-direction:column;overflow:hidden;
+  background:var(--sunk);border:1px solid var(--bd);border-radius:var(--r-el);
+  box-shadow:var(--sh-in);}
+.curve-list-head{padding:var(--sp-2) var(--sp-3);border-bottom:1px solid var(--bd);
+  font-size:var(--f-meta);font-weight:600;color:var(--t2);}
+.curve-rows{display:flex;flex-direction:column;flex:1;}
+.crow{display:grid;grid-template-columns:36px minmax(0,1fr) auto;align-items:center;
+  gap:var(--sp-3);padding:var(--sp-2) var(--sp-3);border:0;border-bottom:1px solid var(--bd);
+  background:transparent;color:var(--t1);font:500 var(--f-body)/1.3 var(--ff);text-align:left;
+  cursor:pointer;width:100%;transition:background .16s ease-out;}
+.crow:last-child{border-bottom:0;}
+.crow:hover{background:var(--s3-hov);}
+.crow:focus-visible{outline:2px solid var(--acc);outline-offset:-2px;}
+.crow.sel{background:var(--s2);box-shadow:inset 2px 0 0 var(--acc);font-weight:600;}
+.crow span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.crow svg{width:36px;height:24px;flex:none;}
+.crow em{font-style:normal;font-size:var(--f-meta);font-weight:500;color:var(--t2);
+  padding:2px var(--sp-2);background:var(--acc-soft);border-radius:99px;}
+
+/* ---- tracks ---- */
+.trk{display:flex;flex-direction:column;overflow:hidden;background:var(--sunk);
+  border:1px solid var(--bd);border-radius:var(--r-el);box-shadow:var(--sh-in);}
+.trk-h,.trk-r{display:grid;grid-template-columns:24px minmax(0,1fr) 152px 32px 64px 28px 28px;
+  align-items:center;gap:var(--sp-3);padding:var(--sp-1) var(--sp-3);}
+.trk-h{font-size:var(--f-meta);font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--t3);border-bottom:1px solid var(--bd);}
+.trk-r{border-bottom:1px solid var(--bd);font-size:var(--f-body);background:var(--s2);}
+.trk-r:last-child{border-bottom:0;}
+.trk-r.muted{color:var(--t3);background:transparent;}
+.trk-r.muted .nm{font-weight:400;}
+.trk-r .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500;}
+.trk-r .ins{color:var(--t2);display:flex;align-items:center;gap:var(--sp-2);min-width:0;}
+.trk-r .ins span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.trk-r .ins svg{width:14px;height:14px;flex:none;fill:none;stroke:currentColor;stroke-width:1.6;
+  stroke-linecap:round;stroke-linejoin:round;color:var(--t3);}
+.trk-r .n{font-variant-numeric:tabular-nums;text-align:right;color:var(--t2);}
+.mb{width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;
+  padding:0;border:1px solid var(--bd);border-radius:var(--r-el);background:var(--s3);
+  color:var(--t2);box-shadow:var(--sh-1),var(--hl);cursor:pointer;
+  transition:background .16s ease-out;}
+.mb svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.6;
+  stroke-linecap:round;stroke-linejoin:round;}
+.mb:hover{background:var(--s3-hov);color:var(--t1);}
+.mb:focus-visible{outline:2px solid var(--acc);outline-offset:2px;}
+.mb.mut{background:var(--acc-soft);border-color:var(--acc-line);color:var(--acc);}
+.mb.solo{background:var(--ok-soft);border-color:var(--ok-bd);color:var(--ok-ink);}
+
+/* ---- piano: a physical object. Ivory stays ivory in every skin. ---- */
+.piano-frame{padding:var(--sp-2);background:var(--sunk);border:1px solid var(--bd);
+  border-radius:var(--r-el);box-shadow:var(--sh-in);}
+.piano{height:96px;position:relative;background:#1f1c1a;border-radius:var(--r-el);
+  overflow:hidden;display:flex;padding:4px 4px 0;
+  box-shadow:inset 0 2px 6px rgba(0,0,0,.55),inset 0 -1px 0 rgba(255,255,255,.06);}
+.wk{flex:1;background:linear-gradient(#fffefb,#f2eee5);border:1px solid #b6b0a4;
+  border-right-width:0;border-radius:0 0 4px 4px;position:relative;
+  box-shadow:inset 0 -6px 8px rgba(0,0,0,.07);}
+.wk:last-child{border-right-width:1px;}
+.wk.lit{background:linear-gradient(#f8d3cc,#eec0b8);}
+.wk b{position:absolute;bottom:6px;left:0;right:0;text-align:center;font-size:10px;
+  color:#6a6258;font-family:var(--mono);font-weight:600;}
+.wk.lit b{color:#8c2f24;}
+.bk{position:absolute;top:0;left:69%;width:62%;height:58%;z-index:2;
+  background:linear-gradient(#2c2926,#131110);border-radius:0 0 4px 4px;
+  box-shadow:0 2px 3px rgba(0,0,0,.5),inset 0 -1px 0 rgba(255,255,255,.14);}
+.bk b{position:absolute;bottom:4px;left:0;right:0;text-align:center;font-size:9px;
+  color:#cdc6ba;font-family:var(--mono);font-weight:600;}
+.bk.lit{background:linear-gradient(#8e4036,#6a2b23);}
+
+/* ---- status bar ---- */
+.sb{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-2) var(--pad-win);
+  background:var(--s1);color:var(--t2);border-top:1px solid var(--bd);
+  font-size:var(--f-meta);flex-wrap:wrap;}
+.sb .k{color:var(--t1);font-weight:600;font-variant-numeric:tabular-nums;}
+.sb .sep{width:1px;height:12px;background:var(--bd-2);}
+
+/* ---- mini and tool windows ---- */
+.win.mini{max-width:480px;}
+.win.tool{max-width:840px;}
+.mini-body,.tool-body{padding:var(--pad-win);display:flex;flex-direction:column;gap:var(--sp-3);}
+.modesw{display:inline-flex;align-items:center;gap:var(--sp-1);height:var(--h-ctl);
+  padding:var(--sp-1);background:var(--sunk);border:1px solid var(--bd);
+  border-radius:var(--r-ctl);box-shadow:var(--sh-in);}
+.modesw b{display:inline-flex;align-items:center;height:var(--h-in);padding:0 var(--sp-3);
+  border-radius:var(--r-el);font-size:var(--f-meta);font-weight:500;color:var(--t2);}
+.modesw b.on{background:var(--s3);color:var(--t1);font-weight:600;box-shadow:var(--sh-1),var(--hl);}
+
+
+/* ---- interactive bits: everything below actually does something ---- */
+.tog:hover{background:var(--s3-hov);}
+.tog.on:hover{filter:brightness(1.03);}
+.tog:focus-visible{outline:2px solid var(--acc);outline-offset:2px;}
+.tog:active{transform:translateY(1px);box-shadow:var(--sh-in);}
+
+/* Settings opens in a panel anchored to its button, like the KS popover, so
+   showing it never reflows the strip. */
+.pop{position:absolute;z-index:8;top:calc(100% + var(--sp-2));right:0;min-width:344px;
+  display:flex;flex-direction:column;gap:var(--sp-2);padding:var(--sp-3);background:var(--s2);
+  border:1px solid var(--bd-2);border-radius:var(--r-card);box-shadow:var(--sh-2);}
+.pop-hd{font-size:var(--f-meta);font-weight:600;color:var(--t2);}
+.opt{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-3);
+  padding:var(--sp-2);border-radius:var(--r-el);background:transparent;border:0;width:100%;
+  color:var(--t1);font:500 var(--f-body)/1.3 var(--ff);text-align:left;cursor:pointer;
+  transition:background .16s ease-out;}
+.opt:hover{background:var(--s3-hov);}
+.opt:focus-visible{outline:2px solid var(--acc);outline-offset:-2px;}
+.opt small{display:block;font-weight:400;font-size:var(--f-meta);color:var(--t2);margin-top:2px;}
+.switch{flex:none;width:36px;height:20px;border-radius:99px;background:var(--sunk);
+  border:1px solid var(--bd);box-shadow:var(--sh-in);position:relative;
+  transition:background .16s ease-out,border-color .16s ease-out;}
+.switch i{position:absolute;top:1px;left:1px;width:16px;height:16px;border-radius:50%;
+  background:var(--s3);box-shadow:var(--sh-1);transition:transform .16s ease-out;}
+.opt[aria-pressed="true"] .switch{background:var(--ok-soft);border-color:var(--ok-bd);}
+.opt[aria-pressed="true"] .switch i{transform:translateX(16px);}
+.strip-row .row-act{position:relative;}
+
+/* key mapping: selection and the reassignment prompt */
+.wk.sel{background:linear-gradient(#dbe9fb,#c6dbf4);}
+.bk.sel{background:linear-gradient(#2f5c86,#1d3a57);}
+.wk.sel b,.bk.sel b{color:var(--acc);}
+.piano.arming .wk:hover{background:linear-gradient(#eef3fb,#dde7f5);}
+.key-readout{font-size:var(--f-body);color:var(--t2);}
+.key-readout b{color:var(--t1);font-weight:600;}
+.key-readout .await{color:var(--acc);font-weight:600;}
+
+@media (max-width:900px){
+  .body{flex-direction:column;} .left{flex:none;} .flist{max-height:240px;}
+  .curve-workspace{grid-template-columns:1fr;}
+  .trk-h,.trk-r{grid-template-columns:24px minmax(0,1fr) 28px 28px;}
+  .trk-h .ins,.trk-r .ins,.trk-h .ch,.trk-r .ch,.trk-h .n,.trk-r .n{display:none;}
+}
+
+/* ---- utilities, all on the 4px scale ---- */
+.sprite{position:absolute;width:0;height:0;overflow:hidden;}
+.mla{margin-left:auto;}
+.transpose{display:flex;align-items:center;gap:var(--sp-2);}
+.transpose .slider{flex:none;width:160px;}
+.transpose .num{min-width:32px;text-align:right;}
+.notes{display:grid;grid-template-columns:repeat(auto-fit,minmax(258px,1fr));gap:1px;
+  background:var(--rule);border:1px solid var(--rule);}
+.note{background:var(--panel);padding:16px 18px;}
+.note h3{font-family:var(--mono);font-size:11px;font-weight:600;letter-spacing:.09em;
+  text-transform:uppercase;color:var(--mark);margin:0 0 8px;}
+.note.fix h3{color:var(--flag);}
+.note p{margin:0;font-size:13.5px;color:var(--ink-2);}
+.note p+p{margin-top:8px;}
+.note code{font-family:var(--mono);font-size:12px;color:var(--ink);background:var(--mark-soft);padding:1px 4px;}
+.scale-tbl{width:100%;border-collapse:collapse;font-size:13.5px;}
+.scale-tbl th{font-family:var(--mono);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--ink-3);text-align:left;padding:0 14px 8px 0;border-bottom:1px solid var(--rule);font-weight:600;}
+.scale-tbl td{padding:9px 14px 9px 0;border-bottom:1px solid var(--rule);color:var(--ink-2);vertical-align:top;}
+.scale-tbl td:first-child{color:var(--ink);font-weight:500;}
+.scale-tbl .mono{font-family:var(--mono);font-size:12.5px;}
+footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--rule);font-size:13px;
+  color:var(--ink-3);max-width:72ch;}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;}}
+</style>
+
+<div class="wrap">
+  <p class="eyebrow">MIDI++ successor · UI direction v8</p>
+  <h1>MIDI DEMO Skin System</h1>
+  <p class="standfirst">Working title. The window below is not a screenshot: the toggles, the track mutes, the transport, the settings panel, the theme switch and the key mapper all work. Press things.</p>
+
+  <div class="correction">
+    <b>The velocity problem was not a lack of control; it was a lack of a goal.</b> Dragging 32 unexplained points is work, while choosing “smooth” or “S-curve” is a guess. The editor now starts with the velocities you actually play, shows each note travelling from input to game output, and puts two musical decisions ahead of the underlying 32 steps.
+  </div>
+
+  <section>
+    <h2>Live comparison</h2>
+    <div class="controls">
+      <div class="ctrl-group"><span class="ctrl-label">Skin</span>
+        <div class="seg" id="skinSeg">
+          <button data-skin="classic" aria-pressed="true">Classic</button>
+          <button data-skin="classic-dark" aria-pressed="false">Classic Dark</button>
+          <button data-skin="modern" aria-pressed="false">Modern</button>
+          <button data-skin="modern-dark" aria-pressed="false">Modern Dark</button>
+        </div>
+      </div>
+      <div class="ctrl-group"><span class="ctrl-label">Window</span>
+        <div class="seg" id="modeSeg">
+          <button data-mode="full" aria-pressed="true">Full</button>
+          <button data-mode="live" aria-pressed="false">Mini · Live</button>
+          <button data-mode="auto" aria-pressed="false">Mini · Autoplay</button>
+        </div>
+      </div>
+    </div>
+    <p class="meta-line" id="metaLine"></p>
+
+    <div class="desk">
+      <svg class="sprite" aria-hidden="true" focusable="false"><defs>
+        <symbol id="i-play" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M8 5.4v13.2L19 12z"/></symbol>
+        <symbol id="i-prev" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M7 6h2.2v12H7zM19 6v12l-8.4-6z"/></symbol>
+        <symbol id="i-next" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M14.8 6H17v12h-2.2zM5 6l8.4 6L5 18z"/></symbol>
+        <symbol id="i-restart" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 4.4v4.2h-4.2"/></symbol>
+        <symbol id="i-gear" viewBox="0 0 24 24"><path d="M10.6 3.4h2.8l.35 2.1a6.7 6.7 0 0 1 1.72 1l1.97-.83 1.4 2.42-1.6 1.4a6.9 6.9 0 0 1 0 2l1.6 1.4-1.4 2.42-1.97-.83a6.7 6.7 0 0 1-1.72 1l-.35 2.1h-2.8l-.35-2.1a6.7 6.7 0 0 1-1.72-1l-1.97.83-1.4-2.42 1.6-1.4a6.9 6.9 0 0 1 0-2l-1.6-1.4 1.4-2.42 1.97.83a6.7 6.7 0 0 1 1.72-1z"/><circle cx="12" cy="12" r="2.6"/></symbol>
+        <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2.6v2.2M12 19.2v2.2M21.4 12h-2.2M4.8 12H2.6M18.6 5.4l-1.6 1.6M7 17l-1.6 1.6M18.6 18.6 17 17M7 7 5.4 5.4"/></symbol>
+        <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.2A8.4 8.4 0 0 1 9.8 4a8.4 8.4 0 1 0 10.2 10.2z"/></symbol>
+        <symbol id="i-piano" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="2"/><path d="M8.5 5v8M12 5v8M15.5 5v8"/></symbol>
+        <symbol id="i-keys" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2.2"/><path d="M8 6v7M12 6v7M16 6v7"/></symbol>
+        <symbol id="i-mute" viewBox="0 0 24 24"><path d="M11.5 4.8 7 9H3.8v6H7l4.5 4.2z"/><path d="m15.8 9.6 4.4 4.8M20.2 9.6l-4.4 4.8"/></symbol>
+        <symbol id="i-sound" viewBox="0 0 24 24"><path d="M11.5 4.8 7 9H3.8v6H7l4.5 4.2z"/><path d="M15.2 9.2a4 4 0 0 1 0 5.6M18 6.6a7.6 7.6 0 0 1 0 10.8"/></symbol>
+        <symbol id="i-solo" viewBox="0 0 24 24"><path d="M4.2 15.2V12a7.8 7.8 0 0 1 15.6 0v3.2"/><rect x="2.2" y="14.2" width="4.4" height="6" rx="1.8"/><rect x="17.4" y="14.2" width="4.4" height="6" rx="1.8"/></symbol>
+        <symbol id="i-chev-down" viewBox="0 0 24 24"><path d="m6.5 9.5 5.5 5.5 5.5-5.5"/></symbol>
+        <symbol id="i-chev-right" viewBox="0 0 24 24"><path d="m9.5 6 6 6-6 6"/></symbol>
+        <symbol id="i-chev-left" viewBox="0 0 24 24"><path d="m14.5 6-6 6 6 6"/></symbol>
+        <symbol id="i-minus" viewBox="0 0 24 24"><path d="M6 12h12"/></symbol>
+        <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 6v12M6 12h12"/></symbol>
+      </defs></svg>
+
+      <div class="win" id="winFull" data-skin="classic">
+        <div class="tb">
+          <span class="tb-name">MIDI DEMO</span>
+          <span class="tb-file" id="tbFile">Mipha&#39;s Court.mid</span>
+          <span class="tb-btns"><b>&#8212;</b><b>&#9723;</b><b>&#10005;</b></span>
+        </div>
+
+        <div class="strip">
+          <div class="strip-row">
+            <span class="dev">Casio PX-160</span>
+            <span class="row-act">
+              <button class="btn icon active" id="openKeyMap" type="button" aria-pressed="true"
+                      title="Key Mapping" aria-label="Key Mapping"><svg><use href="#i-keys"/></svg></button>
+              <button class="btn icon" id="themeToggle" type="button"
+                      title="Dark theme" aria-label="Dark theme" aria-pressed="false"><svg><use href="#i-moon" id="themeIcon"/></svg></button>
+              <button class="btn icon" id="settingsBtn" type="button" title="Settings"
+                      aria-label="Settings" aria-expanded="false"><svg><use href="#i-gear"/></svg></button>
+              <div class="pop" id="settingsPanel" hidden>
+                <span class="pop-hd">Settings</span>
+                <div class="setgrp">
+                  <span class="pop-sub">MIDI input</span>
+                  <div class="apiopts" id="apiSeg" role="radiogroup" aria-label="MIDI transport">
+                    <button class="apiopt on" type="button" role="radio" aria-checked="true" data-api="ks">
+                      <span>Kernel Streaming</span><b>3.8 ms</b>
+                    </button>
+                    <button class="apiopt" type="button" role="radio" aria-checked="false" data-api="winrt">
+                      <span>WinRT</span><b>4.7 ms</b>
+                    </button>
+                    <button class="apiopt" type="button" role="radio" aria-checked="false" data-api="winmm">
+                      <span>WinMM</span><b>5.9 ms</b>
+                    </button>
+                  </div>
+                  <p class="apinote" id="apiNote">Opens the driver pin directly. Lowest overhead, and the only one with buffers to tune.</p>
+                  <div class="ks-rows" id="ksBuf">
+                    <div class="ks-row">
+                      <span class="lbl">Buffer size</span>
+                      <span class="stepper">
+                        <button class="btn icon ghost" type="button" aria-label="Smaller buffer"><svg><use href="#i-minus"/></svg></button>
+                        <span class="stepper-val" id="ksSize">64</span>
+                        <button class="btn icon ghost" type="button" aria-label="Larger buffer"><svg><use href="#i-plus"/></svg></button>
+                      </span>
+                    </div>
+                    <div class="ks-row">
+                      <span class="lbl">Buffer count</span>
+                      <span class="stepper">
+                        <button class="btn icon ghost" type="button" aria-label="Fewer buffers"><svg><use href="#i-minus"/></svg></button>
+                        <span class="stepper-val" id="ksCount">4</span>
+                        <button class="btn icon ghost" type="button" aria-label="More buffers"><svg><use href="#i-plus"/></svg></button>
+                      </span>
+                    </div>
+                  </div>
+                  <div class="lat">
+                    <span class="lbl">Selected</span><b id="statusLatency">3.8 ms</b>
+                    <span class="lat-bar" role="img" aria-label="Latency breakdown">
+                      <i id="latOk" title="Device to app"></i>
+                      <i id="latAcc" title="Parse and inject"></i>
+                      <i id="latWarn" title="Windows input pipeline"></i>
+                    </span>
+                  </div>
+                </div>
+                <div class="pop-div"></div>
+                <span class="pop-sub">Behaviour</span>
+                <button class="opt" type="button" data-setting="autoSolo" aria-pressed="true">
+                  <span>Solo piano tracks on load<small>Mutes anything that is not a piano part when a file opens</small></span>
+                  <span class="switch"><i></i></span>
+                </button>
+                <button class="opt" type="button" data-setting="velocityKeys" aria-pressed="true">
+                  <span>Velocity hotkeys<small>Off removes the ALT preamble, so one note is one keystroke</small></span>
+                  <span class="switch"><i></i></span>
+                </button>
+                <button class="opt" type="button" data-setting="alwaysOnTop" aria-pressed="false">
+                  <span>Always on top<small>Keeps the window above the game</small></span>
+                  <span class="switch"><i></i></span>
+                </button>
+              </div>
+            </span>
+          </div>
+          <div class="strip-row">
+            <button class="tog on big" type="button" data-tog="midi2key" aria-pressed="true">Midi2Key</button>
+            <button class="tog on" type="button" data-tog="velocity" aria-pressed="true">Velocity</button>
+            <button class="tog on" type="button" data-tog="sustain" aria-pressed="true">Sustain</button>
+            <button class="tog on" type="button" data-tog="keys88" aria-pressed="true">88 Keys</button>
+            <button class="tog" type="button" data-tog="midiconnect" aria-pressed="false">MidiConnect</button>
+          </div>
+        </div>
+
+        <div class="body">
+          <div class="left">
+            <div class="pnl grow">
+              <div class="row">
+                <span class="pnl-hd">MIDI Files</span>
+                <span class="row-act">
+                  <button class="btn ghost" type="button">Name &#8595;</button>
+                  <button class="btn ghost" type="button">Refresh</button>
+                </span>
+              </div>
+              <div class="flist" id="fileList">
+                <div class="frow sel"><span>Mipha's Court.mid</span><span>21 KB</span></div>
+                <div class="frow"><span>Elden Ring &ndash; Malenia, Sword of Miquella.mid</span><span>34 KB</span></div>
+                <div class="frow"><span>Hopes and Dreams.mid</span><span>28 KB</span></div>
+                <div class="frow"><span>Dark Souls III &ndash; Darkeater Midir.mid</span><span>41 KB</span></div>
+                <div class="frow"><span>Octopath 2 &ndash; Totohaha.mid</span><span>19 KB</span></div>
+                <div class="frow"><span>Mario Kart World &ndash; Rainbow Road.mid</span><span>22 KB</span></div>
+                <div class="frow"><span>CrossCode &ndash; Shizuka.mid</span><span>16 KB</span></div>
+                <div class="frow"><span>Astral Chain &ndash; Jena, Catastrophe.mid</span><span>37 KB</span></div>
+                <div class="frow"><span>Bayonetta 2 &ndash; Moon River.mid</span><span>24 KB</span></div>
+                <div class="frow"><span>Grandia &ndash; Leen's Love Theme.mid</span><span>18 KB</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="right">
+            <div class="pnl">
+              <div class="now" id="nowTitle">Mipha&#39;s Court</div>
+              <div class="seek" id="seek"><i id="seekFill"></i></div>
+              <div class="row">
+                <button class="btn primary" id="playBtn" type="button" aria-pressed="false"><svg><use href="#i-play"/></svg><span id="playLabel">Play</span></button>
+                <button class="btn icon" type="button" aria-label="Previous"><svg><use href="#i-prev"/></svg></button>
+                <button class="btn icon" type="button" aria-label="Next"><svg><use href="#i-next"/></svg></button>
+                <button class="btn" id="restartBtn" type="button"><svg><use href="#i-restart"/></svg>Restart</button>
+                <button class="btn" id="back10" type="button">&#8722;10s</button>
+                <button class="btn" id="fwd10" type="button">+10s</button>
+                <span class="num time mla" id="timeText">1:12 / 3:48</span>
+              </div>
+              <div class="row">
+                <span class="lbl">Speed</span>
+                <span class="stepper">
+                  <button class="btn icon" type="button" id="speedDown" aria-label="Slower"><svg><use href="#i-minus"/></svg></button>
+                  <span class="stepper-val" id="speedVal">1.00&times;</span>
+                  <button class="btn icon" type="button" id="speedUp" aria-label="Faster"><svg><use href="#i-plus"/></svg></button>
+                </span>
+                <span class="transpose">
+                  <span class="lbl">Transpose</span>
+                  <span class="slider" id="transposeSlider"><i id="transposeFill"></i><u id="transposeKnob" style="left:calc(50% - 6px)"></u></span>
+                  <span class="num" id="transposeVal">+0</span>
+                </span>
+              </div>
+            </div>
+
+            <div class="pnl">
+              <div class="row">
+                <span class="pnl-hd">Tracks</span>
+                <span class="row-act">
+                  <button class="btn" id="soloPiano" type="button">Solo Piano</button>
+                  <button class="btn ghost" id="unmuteAll" type="button">Unmute All</button>
+                </span>
+              </div>
+              <div class="trk" id="trackList" data-piano="1,1,0,0">
+                <div class="trk-h"><span>#</span><span>Track</span><span class="ins">Instrument</span>
+                  <span class="ch">Ch</span><span class="n">Notes</span><span>Mute</span><span>Solo</span></div>
+                <div class="trk-r" data-piano="1"><span>1</span><span class="nm">Piano R.H.</span>
+                  <span class="ins"><svg aria-hidden="true"><use href="#i-piano"/></svg><span>Acoustic Grand</span></span><span class="ch">1</span>
+                  <span class="n">1,284</span>
+                  <button class="mb" type="button" data-act="mute" data-name="Piano R.H." aria-pressed="false"><svg><use href="#i-sound"/></svg></button>
+                  <button class="mb" type="button" data-act="solo" data-name="Piano R.H." aria-pressed="false"><svg><use href="#i-solo"/></svg></button></div>
+                <div class="trk-r" data-piano="1"><span>2</span><span class="nm">Piano L.H.</span>
+                  <span class="ins"><svg aria-hidden="true"><use href="#i-piano"/></svg><span>Acoustic Grand</span></span><span class="ch">1</span>
+                  <span class="n">862</span>
+                  <button class="mb" type="button" data-act="mute" data-name="Piano L.H." aria-pressed="false"><svg><use href="#i-sound"/></svg></button>
+                  <button class="mb" type="button" data-act="solo" data-name="Piano L.H." aria-pressed="false"><svg><use href="#i-solo"/></svg></button></div>
+                <div class="trk-r" data-piano="0"><span>3</span><span class="nm">Flute</span>
+                  <span class="ins other"><span>Flute</span></span><span class="ch">3</span>
+                  <span class="n">318</span>
+                  <button class="mb" type="button" data-act="mute" data-name="Flute" aria-pressed="false"><svg><use href="#i-mute"/></svg></button>
+                  <button class="mb" type="button" data-act="solo" data-name="Flute" aria-pressed="false"><svg><use href="#i-solo"/></svg></button></div>
+                <div class="trk-r" data-piano="0"><span>4</span><span class="nm">Strings</span>
+                  <span class="ins other"><span>String Ensemble 1</span></span><span class="ch">4</span>
+                  <span class="n">410</span>
+                  <button class="mb" type="button" data-act="mute" data-name="Strings" aria-pressed="false"><svg><use href="#i-mute"/></svg></button>
+                  <button class="mb" type="button" data-act="solo" data-name="Strings" aria-pressed="false"><svg><use href="#i-solo"/></svg></button></div>
+              </div>
+            </div>
+
+            <div class="pnl curve-panel collapsed" id="curvePanel">
+              <div class="row curve-head">
+                <button class="disclosure" id="curveDisclosure" type="button"
+                        aria-expanded="false" aria-controls="curveBody">
+                  <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                       stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
+                       aria-hidden="true"><path d="m9.5 6 6 6-6 6"/></svg>
+                  <span class="pnl-hd">Velocity Response</span>
+                </button>
+                <span class="combo curve-current collapsed-only">
+                  <span id="collapsedCurveName">Linear Fine</span>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6.5 9.5 5.5 5.5 5.5-5.5"/></svg>
+                </span>
+                <span class="sustain-group">
+                  <span class="lbl">Sustain cutoff</span>
+                  <span class="slider"><i></i><u style="left:calc(50% - 6px)"></u></span>
+                  <span class="num">64</span>
+                </span>
+              </div>
+              <div class="curve-body" id="curveBody">
+                <div class="row">
+                  <span class="lbl">Shape how softly or loudly the game hears your playing</span>
+                  <span class="row-act">
+                    <button class="btn ghost" id="duplicateCurve" type="button">Duplicate</button>
+                    <button class="btn ghost" id="renameCurve" type="button">Rename</button>
+                    <button class="btn ghost" id="newCurve" type="button">New</button>
+                  </span>
+                </div>
+                <div class="curve-name-editor" id="curveNameEditor" hidden>
+                  <label class="lbl" for="curveNameInput">Curve name</label>
+                  <input id="curveNameInput" value="Linear Fine" autocomplete="off">
+                  <button class="btn" id="saveCurveName" type="button">Save</button>
+                  <button class="btn ghost" id="cancelCurveName" type="button">Cancel</button>
+                </div>
+                <div class="curve-workspace">
+                  <div class="curve-main">
+                    <div class="curve-graph">
+                      <div class="curve-graph-head">
+                        <span class="curve-legend">
+                          <span><i></i>Your playing this session</span>
+                          <span><i class="step"></i>32 game steps</span>
+                        </span>
+                        <span class="curve-readout" id="liveReadout"><span>72</span> played <i>&#8594;</i> <b>72</b> to game</span>
+                      </div>
+                      <div class="curve-canvas">
+                        <span class="curve-output-axis">Louder in game &#8593;</span>
+                        <svg id="bigCurve" viewBox="0 0 420 176" preserveAspectRatio="none" aria-label="Your played velocities mapped to game output"></svg>
+                      </div>
+                      <div class="curve-axis"><span>Gentle</span><span>How hard you play</span><span>Firm</span></div>
+                    </div>
+                    <div class="curve-macros">
+                      <label class="macro">
+                        <span class="macro-head"><b>Sensitivity</b><span id="sensitivityValue">Neutral</span></span>
+                        <input id="sensitivityControl" type="range" min="-50" max="50" value="0" aria-label="Sensitivity">
+                      </label>
+                      <label class="macro">
+                        <span class="macro-head"><b>Contrast</b><span id="contrastValue">Even response</span></span>
+                        <input id="contrastControl" type="range" min="0" max="100" value="0" aria-label="Contrast">
+                      </label>
+                    </div>
+                    <div class="curve-bottom">
+                      <button class="btn" id="compareCurve" type="button" aria-pressed="false"><span class="ab-chip">A/B</span> Hear previous</button>
+                      <button class="btn ghost" id="advancedCurve" type="button" aria-expanded="false">Advanced</button>
+                    </div>
+                    <div class="advanced-panel" id="advancedPanel" hidden>
+                      <div class="advanced-copy"><b>32 game steps</b><span>Drag a step to override the sampled value.</span></div>
+                      <div class="step-editor" id="stepEditor" role="application" aria-label="Advanced 32-step velocity editor"></div>
+                    </div>
+                  </div>
+                  <div class="curve-list">
+                    <div class="curve-list-head">Starting points</div>
+                    <div class="curve-rows" id="curveList"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="sb">
+          <span>Ready</span><span class="sep"></span>
+          <span>Events/note <span class="k" id="statusEvents">1.4</span></span>
+          <span class="sep"></span><span>Curve <span class="k" id="statusCurveName">Linear Fine</span></span><span class="sep"></span><span>Input <span class="k" id="statusApi">Kernel Streaming</span></span>
+          <span class="mla" id="statusSummary">2 of 4 tracks muted &middot; 88-key</span>
+        </div>
+      </div>
+
+      <!-- KEY MAPPING: its own window. Set up once, not while playing, and free
+           to be wider than the main window so black keys get real hit targets. -->
+      <div class="win tool" id="winKeys" data-skin="classic">
+        <div class="tb">
+          <span class="tb-name">Key Mapping</span>
+          <span class="tb-btns"><b>&#8212;</b><b data-close id="closeKeyMap">&#10005;</b></span>
+        </div>
+        <div class="tool-body">
+          <div class="row">
+            <span class="key-readout" id="keyReadout">Click a key to remap</span>
+            <span class="row-act">
+              <button class="btn icon" type="button" id="keyPrev" aria-label="Lower range"><svg><use href="#i-chev-left"/></svg></button>
+              <button class="btn" id="keyFull" type="button" aria-pressed="false">Full 88</button>
+              <button class="btn icon" type="button" id="keyNext" aria-label="Higher range"><svg><use href="#i-chev-right"/></svg></button>
+            </span>
+          </div>
+          <div class="piano-frame"><div class="piano" id="pianoStrip"></div></div>
+        </div>
+        <div class="sb">
+          <span>Layout <span class="k">88-key</span></span><span class="sep"></span>
+          <span>Range <span class="k" id="keyRange">C2&ndash;C6</span></span>
+        </div>
+      </div>
+
+      <div class="win mini" id="winMini" data-skin="classic" hidden>
+        <div class="tb"><span class="tb-name">MIDI DEMO</span>
+          <span class="tb-btns"><b>&#9723;</b><b>&#8212;</b><b>&#10005;</b></span></div>
+        <div class="strip">
+          <div class="strip-row">
+            <span class="dev">Casio PX-160</span>
+            <span class="modesw mla"><b id="swLive">Live</b><b id="swAuto">Autoplay</b></span>
+          </div>
+        </div>
+        <div class="mini-body">
+          <div class="row">
+            <span class="tog on big">Midi2Key</span>
+            <span class="tog on">Velocity</span>
+            <span class="tog on">Sustain</span>
+            <span class="tog on">88</span>
+          </div>
+          <div class="row" data-live-only>
+            <span class="lbl">Curve</span>
+            <span class="combo"><span id="miniCurveName">Linear Fine</span>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6.5 9.5 5.5 5.5 5.5-5.5"/></svg></span>
+            <span class="lbl">Transpose</span><span class="num">+0</span>
+          </div>
+          <div class="auto-stack" data-auto-only>
+            <div class="row">
+              <span class="combo"><span>Mipha's Court.mid</span>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6.5 9.5 5.5 5.5 5.5-5.5"/></svg></span>
+              <button class="btn" type="button">Solo Piano</button>
+            </div>
+            <div class="seek"><i></i></div>
+            <div class="row">
+              <button class="btn primary" type="button"><svg><use href="#i-play"/></svg>Play</button>
+              <button class="btn icon" type="button" aria-label="Previous"><svg><use href="#i-prev"/></svg></button>
+              <button class="btn icon" type="button" aria-label="Next"><svg><use href="#i-next"/></svg></button>
+              <span class="num time mla">1:12 / 3:48</span>
+            </div>
+          </div>
+        </div>
+        <div class="sb"><span>Events/note <span class="k">1.4</span></span>
+          <span class="mla">Kernel Streaming &middot; 88-key</span></div>
+      </div>
+    </div>
+  </section>
+  <section>
+    <h2>What you can operate</h2>
+    <div class="notes">
+      <div class="note">
+        <h3>Strip</h3>
+        <p>Toggles switch. <b>Sustain</b> cycles the fork's three states rather than two, because <code>SustainMode</code> is IG, SPACE_DOWN, SPACE_UP. <b>88 Keys</b> changes the status bar to 61-key. The gear opens <b>Settings</b>, where the MIDI input chooser now lives: pick a backend and the status bar renames the active input, the breakdown bar redraws, and the buffer steppers appear for Kernel Streaming alone.</p>
+      </div>
+      <div class="note">
+        <h3>Tracks</h3>
+        <p>Mute and solo work per row, with solo overriding mute the way it does in a DAW. <b>Solo Piano</b> mutes every non-piano part; <b>Unmute All</b> clears it. The status bar counts what is actually silent rather than repeating a number I typed in.</p>
+      </div>
+      <div class="note">
+        <h3>Settings</h3>
+        <p>Three switches that change behaviour, not three switches that look like settings. <b>Solo piano tracks on load</b> fires when you pick a different file. <b>Velocity hotkeys</b> off drops events per note from 1.4 to 1.0, which is the ALT preamble leaving.</p>
+      </div>
+      <div class="note">
+        <h3>Key mapping</h3>
+        <p>Click any key, then press a key on your keyboard: the assignment changes. Paging moves an octave at a time, Full 88 shows the whole board, and the range in the status bar follows.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Fitting a 1080p screen</h2>
+    <div class="notes">
+      <div class="note">
+        <h3>The problem</h3>
+        <p>Panels had stacked up in the order they were added: file list, transport, tracks, velocity editor, key mapping. That reached <b>1078 px</b> in Classic and <b>1210 px</b> in Modern. A 1080p screen with a taskbar leaves about 1000 px, so Modern did not fit and Classic only just did.</p>
+      </div>
+      <div class="note">
+        <h3>Key mapping is its own window</h3>
+        <p>It is set up once, not adjusted while playing, so it does not need to hold height in the window you keep open. As a separate window it is also free to be wider than the main one, which is what black keys needed to become real hit targets.</p>
+      </div>
+      <div class="note">
+        <h3>Velocity starts collapsed</h3>
+        <p>Same reasoning: you tune a curve once, then play. The collapsed header still carries the two things you touch mid-session, the active curve and the sustain cutoff, so collapsing costs nothing you actually reach for.</p>
+      </div>
+      <div class="note">
+        <h3>Tracks never collapses</h3>
+        <p>Tracks was ignored because it was easy to miss, so hiding it behind a tab or a disclosure would repeat the mistake that Solo Piano exists to fix. It stays open, and the height came out of the two panels that could afford it.</p>
+      </div>
+    </div>
+    <p class="standfirst" style="font-size:14px;margin:18px 0 0">Result after the depth rebuild: <b>635 px</b> in Classic and <b>728 px</b> in Modern with the editor collapsed, rising to 1009 and 1115 px while it is open. The collapsed state is the default and the one you keep open; Modern with the editor open still wants a taller screen. Tabs would have saved more, but only by hiding Tracks.</p>
+  </section>
+
+  <section>
+    <h2>Depth, spacing and state</h2>
+    <div class="notes">
+      <div class="note">
+        <h3>Four surfaces, not one</h3>
+        <p>Every skin defines a canvas, a structural tone for the strip and status bar, a card tone, and an elevated tone for controls, plus a fifth <b>recessed</b> tone for anything you type into, read from or fill up: fields, lists, the track table, the curve graph, slider tracks.</p>
+        <p>Raised things carry two shadows, a tight contact shadow and a soft ambient one, with a one-pixel top highlight. Recessed things carry an inner shadow. Borders are semi-transparent hairlines rather than solid grey lines.</p>
+      </div>
+      <div class="note">
+        <h3>One 4px scale</h3>
+        <p>4, 8, 12, 16, 24. No one-off values anywhere, including the popover, the steppers and the track table. Radii are concentric: a segment inset by 4px inside a 12px control is drawn at 8px, so nothing looks like a rounded box glued inside another rounded box.</p>
+        <p>Two deliberate departures from the brief: container padding starts at 12px in Classic and 16px in Modern rather than 24px, and hit targets are 28px and 32px rather than 44px. This is a dense mouse-driven desktop tool sitting beside a running game, not a touch surface.</p>
+      </div>
+      <div class="note">
+        <h3>Accent is 10 percent</h3>
+        <p>Accent means selection, focus, the live curve and the value fills. It is not used to decorate. Toggle state stays green because that is a semantic state, and it always pairs colour with a dot, a label or an icon so colour is never the only signal.</p>
+        <p>Mute is the clearest case: an unmuted track shows a speaker, a muted one shows a crossed speaker, and the row dims. Reading it does not depend on seeing the tint.</p>
+      </div>
+      <div class="note">
+        <h3>Every control has states</h3>
+        <p>Hover lifts the shadow, active presses the surface in and drops it a pixel, focus draws a ring with an offset, and transitions run at 160ms ease-out. Rows in the file list, preset list and track table share one height rhythm so their baselines line up across panels.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Velocity response — a musical decision, not a graphing exercise</h2>
+    <div class="notes">
+      <div class="note">
+        <h3>Start with how you really play</h3>
+        <p>The pale histogram is this session's input. It makes the useful question visible: is your normal playing range being squeezed into the middle, or spread across outputs the game can actually express?</p>
+      </div>
+      <div class="note">
+        <h3>See cause and effect live</h3>
+        <p>Each incoming note travels along the curve and reports both values — for example, <b>72 played → 84 to game</b>. Move across the graph in this mockup to try different input strengths.</p>
+      </div>
+      <div class="note">
+        <h3>Two decisions cover most players</h3>
+        <p><b>Sensitivity</b> answers “how hard must I play to get loud?” <b>Contrast</b> answers “how far apart should gentle and firm notes feel?” Both explain when you would move them.</p>
+      </div>
+      <div class="note">
+        <h3>The 32 steps stay underneath</h3>
+        <p>You edit a smooth response and the app samples it into the 32 levels MIDI++ already uses. The faint staircase keeps that implementation honest; exact step editing lives behind Advanced.</p>
+      </div>
+      <div class="note">
+        <h3>Presets describe outcomes</h3>
+        <p>Names are paired with a thumbnail and plain-language effect, so “Logarithmic” is no longer a vocabulary test. Pick by the feel you want, then tune from there.</p>
+      </div>
+      <div class="note">
+        <h3>Judge it by comparison</h3>
+        <p>The A/B button flips between the current edit and the previous curve while you play. That is faster and more trustworthy than trying to remember how the last shape felt.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Solo Piano — the feature, and why it's nearly free</h2>
+    <div class="notes">
+      <div class="note">
+        <h3>The data already exists</h3>
+        <p><code>TrackControl::TrackInfo</code> in your fork already carries <code>instrumentName</code>, <code>programNumber</code>, <code>channel</code> and <code>isDrums</code>. Nothing new needs parsing.</p>
+        <p>General MIDI programs <b>0–7 are pianos</b>. So Solo Piano is: mute every track where <code>programNumber &gt; 7 || isDrums</code>. That's the whole feature.</p>
+      </div>
+      <div class="note">
+        <h3>Mipha's Court is the exact case</h3>
+        <p>Flute over piano. Autoplay types the flute line into the same 88 keys as the piano, so the arrangement collapses. One click drops it.</p>
+      </div>
+      <div class="note">
+        <h3>Tracks needed to say what it's for</h3>
+        <p>You said you ignored the panel because it wasn't clear what it did. It now shows the instrument name with a dot marking piano vs everything else, and a one-line explanation in the header.</p>
+      </div>
+      <div class="note">
+        <h3>It should also run on load</h3>
+        <p>Worth a setting: <b>auto-solo piano tracks when a file opens</b>. Most virtual-piano users want this every time and would never find the button.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>What I fixed, and what I got wrong</h2>
+    <table class="scale-tbl">
+      <thead><tr><th style="width:22%">Your point</th><th style="width:38%">What was actually wrong</th><th>Fix</th></tr></thead>
+      <tbody>
+        <tr><td>Green circles everywhere</td><td>Every toggle carried a glowing green dot beside a label that was already green, and the device chip had one too. The dot repeated what the fill said. Classic decorative noise.</td><td>All of them gone, toggles included. State is the fill and the text. The one dot that carried real information, piano against everything else in Tracks, is now a small keyboard icon instead of a coloured circle.</td></tr>
+        <tr><td>Three random red keys on the piano</td><td>Nothing. They were decoration standing in for "notes sounding", with no legend and no way to produce or clear them.</td><td>Removed. Selection is the only highlight now, and it means something: click a key, press a QWERTY key, and the assignment changes in front of you.</td></tr>
+        <tr><td>The settings icon looks like a sun</td><td>It was a spoked circle, which is a sun. Users would read it as a theme switch.</td><td>A real toothed gear. The sun is now the theme button, where it belongs, and it becomes a moon in dark mode.</td></tr>
+        <tr><td>The demo is basically a screenshot</td><td>Fair. Only the transport picker, the curve editor and the two windows did anything.</td><td>Everything in the main window now works: toggles including the tri-state sustain, per-track mute and solo, Solo Piano and Unmute All, play and seek and speed and transpose, file selection, the settings panel, key remapping and the theme switch. The status bar recomputes from that state rather than being typed in.</td></tr>
+        <tr><td>Classic latency bar is invisible</td><td>The empty part of the bar was <span class="mono">--grid</span> (#e9ecf0) sitting on a status bar of #eceef1. Two values apart on an OLED, invisible on anything else.</td><td>The bar is a recessed track with its own border and inner shadow, so the unfilled part reads as a groove rather than nothing.</td></tr>
+        <tr><td>The user should not have to pick a MIDI API</td><td>A three-way transport picker and its latency bar held the best row in the window for a control you touch once, if ever. Two of the three options exist only to be worse than the third.</td><td>Both left the strip. Settings opens on <b>MIDI input</b>: Kernel Streaming selected by default, one row per backend, each carrying its own figure so the comparison is on screen at the moment of choosing. The strip keeps the device name, which you do change. The status bar names the active input.</td></tr>
+        <tr><td>Transport at the top, latency at the bottom</td><td>You had to look at opposite edges of the window to see that changing the API changed the number.</td><td>Pass two put latency in the strip beside the picker. Pass three moved the pair into Settings together, on the same reasoning taken one step further: a reading you consult only while switching belongs next to the switch, not on the main surface.</td></tr>
+        <tr><td>Kernel Streaming pushes the UI around</td><td>Buffer and Count were inserted inline, so revealing them shifted every control to their right and wrapped Modern onto a second row.</td><td>Moot now. The buffers sit inline in the Settings popover, which is already free to change height, and nothing in the main window moves at all.</td></tr>
+        <tr><td>The settings icon looks terrible</td><td>It was the <span class="mono">&amp;#9881;</span> glyph, rendered by whatever font happened to have it.</td><td>Drawn icons on a shared 24px grid, one stroke weight: gear, keyboard, transport, speaker, headphones, chevrons.</td></tr>
+        <tr><td>The design is missing depth</td><td>One background tone, one border colour, no shadows, no recessed surfaces. Everything sat on the same plane.</td><td>Four surface tiers plus a recessed tier, dual shadows with a top highlight, hairline borders, concentric radii. See the section above.</td></tr>
+        <tr><td>Speed numbers are uneven</td><td><span class="mono">.num</span> was right-aligned with a min-width, so the gap after the value was smaller than the gap before it.</td><td>The value is a fixed-width centred cell between two icon buttons, on tabular figures, so the group stays symmetrical at any value.</td></tr>
+        <tr><td>Why is Mute a letter M?</td><td>Single letters are only readable to someone who already knows the convention from a DAW.</td><td>Speaker and headphone icons with real labels for assistive tech. Muted shows a crossed speaker, not just a tint, so state does not depend on colour.</td></tr>
+        <tr><td>Cut the flavour text</td><td>Preset descriptions, macro help lines and the live preview note all restated what the control already showed.</td><td>Removed. The preset list is thumbnail plus name; the macros are name plus current value.</td></tr>
+        <tr><td>Controlled Top End should not be the default</td><td>It was chosen because it sounds best, which is a biased default.</td><td>Default is <b>Linear Fine</b>, the neutral response. The tuned curve is named <b>Pro</b> and carries a "recommended" tag one click away.</td></tr>
+        <tr><td>Random velocity animation</td><td>The dot wandered on a timer, which demonstrated nothing and drew the eye away.</td><td>Gone. The dot follows the pointer across the graph, and in the real app it follows the notes you play.</td></tr>
+        <tr><td>No blue fills in MIDI++</td><td class="mono">Theme::ACCENT is used only at MIDI++.cpp:797–798, as a hover/press border.</td><td>Still no accent-filled buttons. Accent is selection, focus rings, slider fills and the curve line, which is roughly the 10 percent the rules allow.</td></tr>
+        <tr><td>Why is Classic boxy?</td><td class="mono">CornerRadius() = 6, CardCornerRadius() = 8, drawn with GpRoundRect.</td><td>Classic keeps 8px cards and 6px controls, with 4px for elements nested inside them.</td></tr>
+        <tr><td>Why three Pedal buttons?</td><td class="mono">SustainMode is IG → SPACE_DOWN → SPACE_UP, cycled by one button (PlaybackCore.cpp:732–741).</td><td>One toggle labelled Sustain, with the tri-state shown by colour and LED.</td></tr>
+        <tr><td>Tracks design is bad</td><td class="mono">TrackControl already draws real Mute/Solo buttons with hover and press states, plus Channel and Program columns.</td><td>Real per-row buttons, instrument column with a piano marker, muted rows dimmed, Solo Piano in the header.</td></tr>
+        <tr><td>Key mapping missing from Classic</td><td>No technical reason. I hid it for style, which was arbitrary.</td><td>In both skins, in its own 840px window, so it costs the main window no height.</td></tr>
+        <tr><td>Piano inverts in dark mode</td><td>It is a physical object, not UI chrome.</td><td>Ivory and ebony are hardcoded in all four skins, now with a moulded gradient and a shadowed case. Only the highlight follows the theme.</td></tr>
+        <tr><td>Modern is just recoloured</td><td>Fair. Both skins had identical structure.</td><td>Modern differs in radius (12 against 8), density (16px against 12px), control height (32 against 28), type anchor (20px against 15px) and a warmer ground.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <footer>
+    Mockup, not a screenshot. Colours, corner radii, sustain states, track columns and control labels are taken from the fork at <code>D:\Dev\MIDIPlusPlus-modded</code>. Curve shapes and latency figures are illustrative. <b>Kernel Streaming is a planned backend, not a present one</b>: the fork's <code>MidiBackend</code> is WinRT, WinMM and Wooting analog, so shipping this panel as drawn means writing the KS backend first. The per-backend figures also need a measurement the fork does not yet have &mdash; the current instrumentation starts its clock at the backend callback, which is after the transport has already done its work. In ImGui the ambient shadow becomes two or three stacked translucent rounded rects, the contact shadow a one-pixel darker line under the surface, and the top highlight a one-pixel lighter line inside it, which is what a draw list renders cheaply.
+  </footer>
+</div>
+
+<script>
+(function(){
+  /* Presets carry no prose. The shape, the thumbnail and the live dot say what
+     they do; a sentence under each name was restating the picture. */
+  var curves=[
+    {n:"Linear Coarse",f:function(x){return Math.round(x*16)/16;},tag:"",s:0,c:0},
+    {n:"Linear Fine",f:function(x){return x;},tag:"",s:0,c:0},
+    {n:"Logarithmic",f:function(x){return Math.log(1+x*9)/Math.log(10);},tag:"",s:0,c:8},
+    {n:"Improved Low Volume",f:function(x){return Math.pow(x,0.62);},tag:"",s:4,c:14},
+    {n:"Exponential",f:function(x){return x*x;},tag:"",s:0,c:6},
+    {n:"Pro",f:function(x){return x*x*(3-2*x);},tag:"recommended",s:18,c:58}
+  ];
+  /* Linear Fine is the default: the neutral choice, not the best-sounding one.
+     Pro is marked recommended and is one click away. */
+  var DEFAULT_PRESET=1;
+  var current={preset:DEFAULT_PRESET,sensitivity:0,contrast:0,steps:null};
+  var previous={preset:5,sensitivity:18,contrast:58,steps:null};
+  var comparing=false,liveVelocity=72,sliderEditing=false,stepDragging=false;
+
+  var histogram=[0,0,1,1,2,3,5,7,10,14,19,25,32,41,51,62,73,83,91,97,100,96,88,76,63,48,34,22,13,7,3,1];
+
+  function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
+  function copyState(s){return {preset:s.preset,sensitivity:s.sensitivity,contrast:s.contrast,
+    steps:s.steps?s.steps.slice():null};}
+  function interpolateSteps(values,x){
+    var pos=clamp(x,0,1)*(values.length-1),i=Math.floor(pos),j=Math.min(values.length-1,i+1),t=pos-i;
+    t=t*t*(3-2*t);return values[i]+(values[j]-values[i])*t;
+  }
+  function shapedValue(state,x){
+    var shifted=clamp(x+state.sensitivity*.0028,0,1);
+    var y=clamp(curves[state.preset].f(shifted),0,1);
+    var separated=y*y*(3-2*y);
+    return clamp(y+(separated-y)*(state.contrast/100),0,1);
+  }
+  function curveValue(state,x){return state.steps?interpolateSteps(state.steps,x):shapedValue(state,x);}
+  function sampledSteps(state){
+    if(state.steps)return state.steps.slice();
+    var values=[];for(var i=0;i<32;i++)values.push(curveValue(state,i/31));return values;
+  }
+  function pts(f,w,h,p,n){var o=[];n=n||64;for(var i=0;i<=n;i++){var x=i/n;
+    o.push((p+x*(w-2*p)).toFixed(1)+","+(h-p-f(x)*(h-2*p)).toFixed(1));}return o.join(" ");}
+  function el(t){return document.createElementNS("http://www.w3.org/2000/svg",t);}
+  function line(x1,y1,x2,y2,opacity,dash){var n=el("line");
+    n.setAttribute("x1",x1);n.setAttribute("y1",y1);n.setAttribute("x2",x2);n.setAttribute("y2",y2);
+    n.setAttribute("stroke","currentColor");n.setAttribute("stroke-opacity",opacity);
+    if(dash)n.setAttribute("stroke-dasharray",dash);return n;}
+
+  var big=document.getElementById("bigCurve"),W=420,H=176,P=12;
+  var list=document.getElementById("curveList"),liveReadout=document.getElementById("liveReadout");
+  var sensitivity=document.getElementById("sensitivityControl"),contrast=document.getElementById("contrastControl");
+  var sensitivityValue=document.getElementById("sensitivityValue"),contrastValue=document.getElementById("contrastValue");
+  var compareButton=document.getElementById("compareCurve"),advancedButton=document.getElementById("advancedCurve");
+  var advancedPanel=document.getElementById("advancedPanel"),stepEditor=document.getElementById("stepEditor");
+  var nameEditor=document.getElementById("curveNameEditor"),nameInput=document.getElementById("curveNameInput");
+
+  function rememberCurrent(){previous=copyState(current);comparing=false;}
+  function stepPath(state){
+    var values=sampledSteps(state),plotW=W-2*P,d="M "+P+" "+(H-P-values[0]*(H-2*P)).toFixed(1);
+    for(var i=0;i<values.length;i++){
+      var x=P+(i+1)*plotW/values.length;
+      d+=" H "+x.toFixed(1);
+      if(i+1<values.length)d+=" V "+(H-P-values[i+1]*(H-2*P)).toFixed(1);
+    }
+    return d;
+  }
+  function drawBig(){
+    var shown=comparing?previous:current;
+    while(big.firstChild)big.removeChild(big.firstChild);
+    for(var g=1;g<4;g++){
+      big.appendChild(line(P,P+g*(H-2*P)/4,W-P,P+g*(H-2*P)/4,".10"));
+      big.appendChild(line(P+g*(W-2*P)/4,P,P+g*(W-2*P)/4,H-P,".06"));
+    }
+    var maxHist=Math.max.apply(Math,histogram),barW=(W-2*P)/histogram.length;
+    histogram.forEach(function(v,i){var r=el("rect"),height=(v/maxHist)*(H-2*P)*.32;
+      r.setAttribute("x",(P+i*barW+1).toFixed(1));r.setAttribute("y",(H-P-height).toFixed(1));
+      r.setAttribute("width",Math.max(1,barW-2).toFixed(1));r.setAttribute("height",height.toFixed(1));
+      r.setAttribute("rx","1.5");r.setAttribute("fill","currentColor");r.setAttribute("fill-opacity",".16");
+      big.appendChild(r);});
+    big.appendChild(line(P,H-P,W-P,P,".22","4 4"));
+    var ghost=el("path");ghost.setAttribute("d",stepPath(shown));ghost.setAttribute("fill","none");
+    ghost.setAttribute("stroke","currentColor");ghost.setAttribute("stroke-opacity",".35");
+    ghost.setAttribute("stroke-width","1");big.appendChild(ghost);
+    var pl=el("polyline");pl.setAttribute("points",pts(function(x){return curveValue(shown,x);},W,H,P,96));
+    pl.setAttribute("fill","none");pl.setAttribute("stroke","currentColor");pl.setAttribute("stroke-width","2.5");
+    pl.setAttribute("stroke-linecap","round");pl.setAttribute("stroke-linejoin","round");big.appendChild(pl);
+    var input=liveVelocity/127,output=curveValue(shown,input),cx=P+input*(W-2*P),cy=H-P-output*(H-2*P);
+    big.appendChild(line(cx,H-P,cx,cy,".22","3 3"));big.appendChild(line(P,cy,cx,cy,".14","3 3"));
+    var halo=el("circle");halo.setAttribute("cx",cx);halo.setAttribute("cy",cy);halo.setAttribute("r","7");
+    halo.setAttribute("fill","var(--s2)");halo.setAttribute("stroke","currentColor");
+    halo.setAttribute("stroke-width","2");big.appendChild(halo);
+    var dot=el("circle");dot.setAttribute("cx",cx);dot.setAttribute("cy",cy);dot.setAttribute("r","2.7");
+    dot.setAttribute("fill","currentColor");big.appendChild(dot);
+    var outputVelocity=Math.round(output*127);
+    liveReadout.innerHTML="<span>"+liveVelocity+"</span> played <i>&#8594;</i> <b>"+outputVelocity+"</b> to game";
+    big.setAttribute("aria-label",liveVelocity+" played maps to "+outputVelocity+" in the game");
+    big.style.color="var(--acc)";
+  }
+  function drawThumb(svg,curve,index){
+    var p=el("polyline");p.setAttribute("points",pts(curve.f,36,24,3,32));p.setAttribute("fill","none");
+    p.setAttribute("stroke","currentColor");p.setAttribute("stroke-width","1.6");
+    p.setAttribute("stroke-linecap","round");svg.appendChild(p);
+    svg.style.color=index===current.preset?"var(--acc)":"var(--t3)";
+  }
+  function renderList(){
+    while(list.firstChild)list.removeChild(list.firstChild);
+    curves.forEach(function(curve,i){
+      var row=document.createElement("button");row.type="button";
+      row.className="crow"+(i===current.preset?" sel":"");
+      row.dataset.index=i;row.setAttribute("aria-pressed",String(i===current.preset));
+      var svg=el("svg");svg.setAttribute("viewBox","0 0 36 24");svg.setAttribute("aria-hidden","true");
+      drawThumb(svg,curve,i);
+      var name=document.createElement("span");name.textContent=curve.n;
+      row.appendChild(svg);row.appendChild(name);
+      if(curve.tag){var em=document.createElement("em");em.textContent=curve.tag;row.appendChild(em);}
+      row.addEventListener("click",function(){
+        if(i===current.preset&&!current.steps)return;
+        rememberCurrent();
+        current={preset:i,sensitivity:curve.s||0,contrast:curve.c||0,
+          steps:curve.seedSteps?curve.seedSteps.slice():null};
+        closeNameEditor();renderList();renderAll();
+      });
+      list.appendChild(row);
+    });
+  }
+  function renderSteps(){
+    var values=sampledSteps(comparing?previous:current);
+    while(stepEditor.children.length<32){var col=document.createElement("span"),fill=document.createElement("i");
+      col.className="step-col";col.appendChild(fill);stepEditor.appendChild(col);}
+    Array.prototype.forEach.call(stepEditor.children,function(col,i){
+      col.firstChild.style.height=(values[i]*100).toFixed(1)+"%";
+      col.title="Step "+(i+1)+": "+Math.round(values[i]*127);});
+  }
+  function updateMacroCopy(){
+    sensitivity.value=current.sensitivity;contrast.value=current.contrast;
+    var s=current.sensitivity;
+    sensitivityValue.textContent=s>=15?"Light touch":s>=5?"Slightly lighter":
+      s<=-15?"Firm touch":s<=-5?"Slightly firmer":"Neutral";
+    var c=current.contrast;
+    contrastValue.textContent=c>=72?"Dramatic":c>=42?"Clear dynamics":c>=16?"Gentle contrast":"Even response";
+    compareButton.classList.toggle("active",comparing);
+    compareButton.setAttribute("aria-pressed",String(comparing));
+    compareButton.innerHTML="<span class=\"ab-chip\">A/B</span> "+(comparing?"Back to edit":"Hear previous");
+    var curveName=curves[current.preset].n;
+    document.getElementById("statusCurveName").textContent=curveName;
+    document.getElementById("miniCurveName").textContent=curveName;
+    document.getElementById("collapsedCurveName").textContent=curveName;
+  }
+  function renderAll(){drawBig();renderSteps();updateMacroCopy();}
+  function beginSliderEdit(){if(!sliderEditing){rememberCurrent();sliderEditing=true;}}
+  function wireSlider(control,key){
+    control.addEventListener("pointerdown",beginSliderEdit);
+    control.addEventListener("keydown",beginSliderEdit);
+    control.addEventListener("input",function(){beginSliderEdit();current[key]=Number(control.value);
+      current.steps=null;comparing=false;renderAll();});
+    control.addEventListener("change",function(){sliderEditing=false;});
+    control.addEventListener("pointerup",function(){sliderEditing=false;});
+    control.addEventListener("keyup",function(){sliderEditing=false;});
+  }
+  wireSlider(sensitivity,"sensitivity");wireSlider(contrast,"contrast");
+  compareButton.addEventListener("click",function(){comparing=!comparing;renderAll();});
+  advancedButton.addEventListener("click",function(){var open=advancedPanel.hidden;
+    advancedPanel.hidden=!open;advancedButton.classList.toggle("active",open);
+    advancedButton.setAttribute("aria-expanded",String(open));if(open)renderSteps();});
+  function editStep(e){
+    var rect=stepEditor.getBoundingClientRect(),index=clamp(Math.floor((e.clientX-rect.left)/rect.width*32),0,31);
+    var value=clamp(1-(e.clientY-rect.top)/rect.height,0,1),
+        lo=index?current.steps[index-1]:0,hi=index<31?current.steps[index+1]:1;
+    current.steps[index]=Math.round(clamp(value,lo,hi)*127)/127;comparing=false;renderAll();
+  }
+  stepEditor.addEventListener("pointerdown",function(e){rememberCurrent();current.steps=sampledSteps(current);
+    stepDragging=true;if(stepEditor.setPointerCapture)stepEditor.setPointerCapture(e.pointerId);editStep(e);});
+  stepEditor.addEventListener("pointermove",function(e){if(stepDragging)editStep(e);});
+  stepEditor.addEventListener("pointerup",function(){stepDragging=false;});
+  stepEditor.addEventListener("pointercancel",function(){stepDragging=false;});
+
+  function closeNameEditor(){nameEditor.hidden=true;}
+  function openNameEditor(){nameInput.value=curves[current.preset].n;nameEditor.hidden=false;
+    nameInput.focus();nameInput.select();}
+  function addCustom(name,steps){
+    var saved=steps.slice();
+    curves.push({n:name,f:function(x){return interpolateSteps(saved,x);},tag:"custom",s:0,c:0,seedSteps:saved});
+    current={preset:curves.length-1,sensitivity:0,contrast:0,steps:saved.slice()};
+    renderList();renderAll();openNameEditor();
+  }
+  document.getElementById("duplicateCurve").addEventListener("click",function(){
+    rememberCurrent();addCustom(curves[current.preset].n+" Copy",sampledSteps(current));});
+  document.getElementById("newCurve").addEventListener("click",function(){rememberCurrent();
+    var linear=[];for(var i=0;i<32;i++)linear.push(i/31);addCustom("New Curve",linear);});
+  document.getElementById("renameCurve").addEventListener("click",function(){
+    if(curves[current.preset].tag!=="custom"){rememberCurrent();
+      addCustom(curves[current.preset].n+" Copy",sampledSteps(current));}
+    else openNameEditor();});
+  document.getElementById("saveCurveName").addEventListener("click",function(){
+    var value=nameInput.value.trim();if(!value)return;
+    curves[current.preset].n=value;curves[current.preset].tag="custom";
+    closeNameEditor();renderList();renderAll();});
+  document.getElementById("cancelCurveName").addEventListener("click",closeNameEditor);
+  nameInput.addEventListener("keydown",function(e){
+    if(e.key==="Enter")document.getElementById("saveCurveName").click();
+    if(e.key==="Escape")closeNameEditor();});
+
+  /* The dot follows the pointer across the graph. It no longer wanders on a
+     timer: a demo that moves on its own is noise, and the real app moves it
+     from the notes you actually play. */
+  big.addEventListener("pointermove",function(e){var r=big.getBoundingClientRect();
+    liveVelocity=Math.round(clamp((e.clientX-r.left)/r.width,0,1)*127);drawBig();});
+
+  var curvePanel=document.getElementById("curvePanel"),
+      curveDisclosure=document.getElementById("curveDisclosure");
+  curveDisclosure.addEventListener("click",function(){
+    var open=!curvePanel.classList.toggle("collapsed");
+    curveDisclosure.setAttribute("aria-expanded",String(open));
+    if(open)renderAll();
+  });
+
+  renderList();renderAll();
+
+
+  var full=document.getElementById("winFull"),mini=document.getElementById("winMini"),
+      keys=document.getElementById("winKeys"),openKeyMap=document.getElementById("openKeyMap"),
+      meta=document.getElementById("metaLine"),skin="classic",mode="full",keysOpen=true;
+  var names={"classic":"Classic","classic-dark":"Classic Dark","modern":"Modern","modern-dark":"Modern Dark"};
+  var sizes={full:{classic:"1090 &times; 635 px, 1009 px with the velocity editor open &middot; key mapping 840 &times; 246 px &middot; resizable, 780 px minimum",
+                   modern:"1090 &times; 728 px, 1115 px with the velocity editor open &middot; key mapping 840 &times; 268 px &middot; resizable, 780 px minimum"},
+             live:{classic:"480 &times; 166 px","modern":"480 &times; 243 px"},
+             auto:{classic:"480 &times; 264 px","modern":"480 &times; 305 px"}};
+  /* The key mapping window is a real second window: it opens from the strip,
+     closes from its own title bar, and has no place in mini mode. */
+  function applyKeys(){
+    keys.hidden=!(keysOpen&&mode==="full");
+    openKeyMap.setAttribute("aria-pressed",String(keysOpen));
+    openKeyMap.classList.toggle("active",keysOpen);
+  }
+  openKeyMap.addEventListener("click",function(){keysOpen=!keysOpen;applyKeys();});
+  document.getElementById("closeKeyMap").addEventListener("click",function(){keysOpen=false;applyKeys();});
+  function apply(){
+    full.dataset.skin=skin;mini.dataset.skin=skin;keys.dataset.skin=skin;
+    full.hidden=(mode!=="full");mini.hidden=(mode==="full");
+    applyKeys();
+    var live=(mode==="live");
+    Array.prototype.forEach.call(document.querySelectorAll("[data-live-only]"),
+      function(e){e.hidden=!live;});
+    Array.prototype.forEach.call(document.querySelectorAll("[data-auto-only]"),
+      function(e){e.hidden=live;});
+    document.getElementById("swLive").className=live?"on":"";
+    document.getElementById("swAuto").className=live?"":"on";
+    var fam=skin.indexOf("modern")===0?"modern":"classic";
+    meta.innerHTML="<strong>"+names[skin]+"</strong> &middot; "+sizes[mode][fam];
+    paintTheme();
+  }
+  function wire(id,set){var seg=document.getElementById(id);
+    seg.addEventListener("click",function(e){var b=e.target.closest("button");if(!b)return;
+      Array.prototype.forEach.call(seg.querySelectorAll("button"),function(x){
+        x.setAttribute("aria-pressed",String(x===b));});set(b);apply();});}
+  wire("skinSeg",function(b){skin=b.dataset.skin;});
+  wire("modeSeg",function(b){mode=b.dataset.mode;});
+
+  /* Transport chooser, now inside Settings. Figures are illustrative. Each row
+     carries its own, so the three are comparable at the moment of choosing
+     instead of one number that only updates after you commit; the status bar
+     keeps the choice visible without spending strip space on it. */
+  var apiData={
+    ks:   {ms:"3.8 ms", ok:11, acc:9,  warn:21, buf:true,  name:"Kernel Streaming",
+           note:"Opens the driver pin directly. Lowest overhead, and the only one with buffers to tune."},
+    winrt:{ms:"4.7 ms", ok:16, acc:10, warn:26, buf:false, name:"WinRT",
+           note:"Windows.Devices.Midi. The modern system path, and what the fork uses today."},
+    winmm:{ms:"5.9 ms", ok:20, acc:10, warn:33, buf:false, name:"WinMM",
+           note:"Legacy midiIn*, through RtMidi. The fallback when a device reports nothing else."}
+  };
+  var apiSeg=document.getElementById("apiSeg"), ksBuf=document.getElementById("ksBuf"),
+      statusLatency=document.getElementById("statusLatency"),
+      statusApi=document.getElementById("statusApi"),
+      apiNote=document.getElementById("apiNote"),
+      latOk=document.getElementById("latOk"), latAcc=document.getElementById("latAcc"),
+      latWarn=document.getElementById("latWarn");
+  function paintApi(d){
+    statusLatency.textContent=d.ms;
+    statusApi.textContent=d.name;
+    apiNote.textContent=d.note;
+    latOk.style.width=d.ok+"%"; latAcc.style.width=d.acc+"%"; latWarn.style.width=d.warn+"%";
+    ksBuf.hidden=!d.buf;
+  }
+  apiSeg.addEventListener("click",function(e){
+    var b=e.target.closest("button"); if(!b) return;
+    var d=apiData[b.dataset.api]; if(!d) return;
+    Array.prototype.forEach.call(apiSeg.querySelectorAll("button"),function(x){
+      x.classList.toggle("on",x===b);
+      x.setAttribute("aria-checked",String(x===b));});
+    paintApi(d);
+  });
+  latOk.style.background="var(--ok)";
+  latAcc.style.background="var(--acc)";
+  latWarn.style.background="var(--warn)";
+  paintApi(apiData.ks);
+
+
+  /* ===================================================================
+     Everything below is live. A mockup that cannot be operated is just a
+     screenshot, and a screenshot cannot answer "what happens when I press
+     this", which is the only question worth asking of a layout.
+     =================================================================== */
+
+  var byId = function(id){ return document.getElementById(id); };
+
+  /* ---- toggles in the strip -------------------------------------- */
+  var togState = { midi2key:true, velocity:true, sustain:1, keys88:true, midiconnect:false };
+  // Sustain is the fork's tri-state: 0 ignore, 1 press on pedal down,
+  // 2 press on pedal up (PlaybackSystem.hpp SustainMode). One button cycles it.
+  var sustainNames = ["Sustain off", "Sustain", "Sustain up"];
+
+  function paintToggles(){
+    Array.prototype.forEach.call(document.querySelectorAll("[data-tog]"), function(button){
+      var key = button.dataset.tog;
+      if (key === "sustain") {
+        button.classList.toggle("on", togState.sustain === 1);
+        button.classList.toggle("susup", togState.sustain === 2);
+        button.textContent = sustainNames[togState.sustain];
+        button.setAttribute("aria-pressed", String(togState.sustain !== 0));
+      } else {
+        button.classList.toggle("on", !!togState[key]);
+        button.setAttribute("aria-pressed", String(!!togState[key]));
+      }
+    });
+    paintStatus();
+  }
+  document.addEventListener("click", function(e){
+    var button = e.target.closest("[data-tog]");
+    if (!button) return;
+    var key = button.dataset.tog;
+    if (key === "sustain") togState.sustain = (togState.sustain + 1) % 3;
+    else if (key === "keys88") { togState.keys88 = !togState.keys88; renderPiano(); }
+    else togState[key] = !togState[key];
+    paintToggles();
+  });
+
+  /* ---- tracks: mute, solo, Solo Piano ---------------------------- */
+  var trackList = byId("trackList");
+  var trackRows = Array.prototype.slice.call(trackList.querySelectorAll(".trk-r"));
+  var trackState = trackRows.map(function(row){
+    return { piano: row.dataset.piano === "1", muted: row.dataset.piano !== "1", solo:false };
+  });
+
+  function paintTracks(){
+    var anySolo = trackState.some(function(t){ return t.solo; });
+    trackRows.forEach(function(row, i){
+      var state = trackState[i];
+      var silent = anySolo ? !state.solo : state.muted;
+      row.classList.toggle("muted", silent);
+      var mute = row.querySelector('[data-act="mute"]');
+      var solo = row.querySelector('[data-act="solo"]');
+      mute.classList.toggle("mut", state.muted);
+      mute.setAttribute("aria-pressed", String(state.muted));
+      mute.setAttribute("aria-label", (state.muted ? "Unmute " : "Mute ") + mute.dataset.name);
+      mute.firstChild.firstChild.setAttribute("href", state.muted ? "#i-mute" : "#i-sound");
+      solo.classList.toggle("solo", state.solo);
+      solo.setAttribute("aria-pressed", String(state.solo));
+    });
+    paintStatus();
+  }
+  trackList.addEventListener("click", function(e){
+    var button = e.target.closest("[data-act]");
+    if (!button) return;
+    var row = button.closest(".trk-r");
+    var index = trackRows.indexOf(row);
+    if (index < 0) return;
+    if (button.dataset.act === "mute") trackState[index].muted = !trackState[index].muted;
+    else trackState[index].solo = !trackState[index].solo;
+    paintTracks();
+  });
+  // programNumber > 7 || isDrums is the whole feature (HANDOFF section 12).
+  function soloPiano(){
+    trackState.forEach(function(state){ state.muted = !state.piano; state.solo = false; });
+    paintTracks();
+  }
+  byId("soloPiano").addEventListener("click", soloPiano);
+  byId("unmuteAll").addEventListener("click", function(){
+    trackState.forEach(function(state){ state.muted = false; state.solo = false; });
+    paintTracks();
+  });
+
+  /* ---- status bar reflects the actual state ---------------------- */
+  function paintStatus(){
+    var anySolo = trackState.some(function(t){ return t.solo; });
+    var silent = trackState.filter(function(t){ return anySolo ? !t.solo : t.muted; }).length;
+    byId("statusSummary").innerHTML =
+      silent + " of " + trackState.length + " tracks muted &middot; " +
+      (togState.keys88 ? "88-key" : "61-key");
+  }
+
+  /* ---- transport -------------------------------------------------- */
+  var duration = 228, position = 72, playing = false, speed = 1.0, transpose = 0, timer = null;
+
+  function clock(seconds){
+    seconds = Math.max(0, Math.min(duration, Math.round(seconds)));
+    var m = Math.floor(seconds / 60), s = seconds % 60;
+    return m + ":" + (s < 10 ? "0" : "") + s;
+  }
+  function paintTransport(){
+    byId("seekFill").style.width = (position / duration * 100).toFixed(2) + "%";
+    byId("timeText").textContent = clock(position) + " / " + clock(duration);
+    byId("speedVal").innerHTML = speed.toFixed(2) + "&times;";
+    byId("transposeVal").textContent = (transpose >= 0 ? "+" : "") + transpose;
+    var percent = (transpose + 12) / 24 * 100;
+    byId("transposeFill").style.width = percent.toFixed(1) + "%";
+    byId("transposeKnob").style.left = "calc(" + percent.toFixed(1) + "% - 6px)";
+    byId("playLabel").textContent = playing ? "Pause" : "Play";
+    byId("playBtn").setAttribute("aria-pressed", String(playing));
+    byId("playBtn").classList.toggle("active", playing);
+  }
+  function tick(){
+    position += speed;
+    if (position >= duration) { position = duration; setPlaying(false); }
+    paintTransport();
+  }
+  function setPlaying(next){
+    playing = next;
+    if (timer) { window.clearInterval(timer); timer = null; }
+    if (playing) timer = window.setInterval(tick, 1000);
+    paintTransport();
+  }
+  byId("playBtn").addEventListener("click", function(){ setPlaying(!playing); });
+  byId("restartBtn").addEventListener("click", function(){ position = 0; paintTransport(); });
+  byId("back10").addEventListener("click", function(){ position = Math.max(0, position - 10); paintTransport(); });
+  byId("fwd10").addEventListener("click", function(){ position = Math.min(duration, position + 10); paintTransport(); });
+  byId("speedDown").addEventListener("click", function(){ speed = Math.max(0.25, +(speed - 0.05).toFixed(2)); paintTransport(); });
+  byId("speedUp").addEventListener("click", function(){ speed = Math.min(3, +(speed + 0.05).toFixed(2)); paintTransport(); });
+  byId("seek").addEventListener("pointerdown", function(e){
+    var rect = this.getBoundingClientRect();
+    position = clamp((e.clientX - rect.left) / rect.width, 0, 1) * duration;
+    paintTransport();
+  });
+  (function(){
+    var slider = byId("transposeSlider"), dragging = false;
+    function set(e){
+      var rect = slider.getBoundingClientRect();
+      transpose = Math.round(clamp((e.clientX - rect.left) / rect.width, 0, 1) * 24) - 12;
+      paintTransport();
+      renderPiano();
+    }
+    slider.addEventListener("pointerdown", function(e){
+      dragging = true;
+      if (slider.setPointerCapture) slider.setPointerCapture(e.pointerId);
+      set(e);
+    });
+    slider.addEventListener("pointermove", function(e){ if (dragging) set(e); });
+    slider.addEventListener("pointerup", function(){ dragging = false; });
+    slider.addEventListener("pointercancel", function(){ dragging = false; });
+  })();
+
+  /* ---- file list -------------------------------------------------- */
+  var fileLengths = { "Mipha's Court.mid":228, "Elden Ring – Malenia, Sword of Miquella.mid":312 };
+  byId("fileList").addEventListener("click", function(e){
+    var row = e.target.closest(".frow");
+    if (!row) return;
+    Array.prototype.forEach.call(this.querySelectorAll(".frow"), function(other){
+      other.classList.toggle("sel", other === row);
+    });
+    var name = row.firstChild.textContent;
+    byId("tbFile").textContent = name;
+    byId("nowTitle").textContent = name.replace(/\.mid$/, "");
+    duration = fileLengths[name] || 195;
+    position = 0;
+    setPlaying(false);
+    // The setting is not decoration: turning it off changes what happens here.
+    if (settings.autoSolo) soloPiano();
+  });
+
+  /* ---- settings, theme -------------------------------------------- */
+  var settings = { autoSolo:true, velocityKeys:true, alwaysOnTop:false };
+  var settingsPanel = byId("settingsPanel"), settingsBtn = byId("settingsBtn");
+  settingsBtn.addEventListener("click", function(e){
+    e.stopPropagation();
+    var open = settingsPanel.hidden;
+    settingsPanel.hidden = !open;
+    settingsBtn.setAttribute("aria-expanded", String(open));
+    settingsBtn.classList.toggle("active", open);
+  });
+  document.addEventListener("click", function(e){
+    if (settingsPanel.hidden) return;
+    if (settingsPanel.contains(e.target) || settingsBtn.contains(e.target)) return;
+    settingsPanel.hidden = true;
+    settingsBtn.setAttribute("aria-expanded", "false");
+    settingsBtn.classList.remove("active");
+  });
+  settingsPanel.addEventListener("click", function(e){
+    var option = e.target.closest("[data-setting]");
+    if (!option) return;
+    var key = option.dataset.setting;
+    settings[key] = !settings[key];
+    option.setAttribute("aria-pressed", String(settings[key]));
+    // Velocity hotkeys are the ALT preamble: switching them off is the one
+    // change that visibly moves the events-per-note figure.
+    if (key === "velocityKeys") {
+      togState.velocity = settings.velocityKeys;
+      paintToggles();
+      byId("statusEvents").textContent = settings.velocityKeys ? "1.4" : "1.0";
+    }
+  });
+
+  /* Light and dark are one control, and the icon says which way it goes.
+     A gear does not mean "theme", which is why the sun and moon are their
+     own button rather than something buried in settings. */
+  var themeToggle = byId("themeToggle");
+  function isDark(){ return skin.indexOf("dark") >= 0; }
+  function paintTheme(){
+    var dark = isDark();
+    byId("themeIcon").setAttribute("href", dark ? "#i-sun" : "#i-moon");
+    themeToggle.setAttribute("aria-pressed", String(dark));
+    themeToggle.title = dark ? "Light theme" : "Dark theme";
+    themeToggle.setAttribute("aria-label", themeToggle.title);
+  }
+  themeToggle.addEventListener("click", function(){
+    skin = isDark() ? skin.replace("-dark", "") : skin + "-dark";
+    Array.prototype.forEach.call(document.querySelectorAll("#skinSeg button"), function(button){
+      button.setAttribute("aria-pressed", String(button.dataset.skin === skin));
+    });
+    apply();
+  });
+
+  /* ---- key mapping: a real mapper, not three keys painted red ------
+     The earlier mockup lit three keys with no explanation. They meant
+     nothing, so they are gone. Selection means something instead: click a
+     key, press a QWERTY key, and the assignment changes here and now. */
+  var NOTE_NAMES = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+  var WHITE_STEPS = [0,2,4,5,7,9,11];
+  var defaultWhite = "zxcvbnmasdfghjkl".split("").concat("qwertyuiop1234567890".split(""));
+  var defaultBlack = "ZXCVBNMASDFGHJQWERTYU".split("");
+  var keyLabels = {};           // midi note -> qwerty character
+  var rangeStart = 36;          // C2
+  var showFull = false, selectedNote = null, arming = false;
+
+  function noteName(n){ return NOTE_NAMES[n % 12] + (Math.floor(n / 12) - 1); }
+  function isWhite(n){ return WHITE_STEPS.indexOf(n % 12) >= 0; }
+  function whiteNotes(start, count){
+    var out = [], n = start;
+    while (out.length < count && n < 128) { if (isWhite(n)) out.push(n); n++; }
+    return out;
+  }
+  (function seedLabels(){
+    var whites = whiteNotes(36, defaultWhite.length);
+    whites.forEach(function(note, i){ keyLabels[note] = defaultWhite[i]; });
+    var blackIndex = 0;
+    whites.forEach(function(note){
+      if (!isWhite(note + 1) && blackIndex < defaultBlack.length) {
+        keyLabels[note + 1] = defaultBlack[blackIndex++];
+      }
+    });
+  })();
+
+  function paintKeyReadout(){
+    var readout = byId("keyReadout");
+    if (selectedNote === null) { readout.textContent = "Click a key to remap"; return; }
+    if (arming) {
+      readout.innerHTML = "<b>" + noteName(selectedNote) + "</b> <span class=\"await\">press a key to assign</span>";
+      return;
+    }
+    var label = keyLabels[selectedNote];
+    readout.innerHTML = "<b>" + noteName(selectedNote) + "</b> is typed as <b>" +
+      (label ? label : "nothing") + "</b>";
+  }
+
+  function renderPiano(){
+    var strip = byId("pianoStrip");
+    if (!strip) return;
+    while (strip.firstChild) strip.removeChild(strip.firstChild);
+
+    var count = showFull ? 52 : 29;
+    var start = showFull ? 21 : rangeStart;
+    var whites = whiteNotes(start, count);
+    strip.classList.toggle("arming", arming);
+
+    whites.forEach(function(note, i){
+      var key = document.createElement("div");
+      key.className = "wk" + (note === selectedNote ? " sel" : "");
+      key.dataset.note = note;
+      var label = document.createElement("b");
+      label.textContent = showFull ? "" : (keyLabels[note] || "");
+      key.appendChild(label);
+
+      var sharp = note + 1;
+      if (i < whites.length - 1 && !isWhite(sharp)) {
+        var black = document.createElement("i");
+        black.className = "bk" + (sharp === selectedNote ? " sel" : "");
+        black.dataset.note = sharp;
+        var blackLabel = document.createElement("b");
+        blackLabel.textContent = showFull ? "" : (keyLabels[sharp] || "");
+        black.appendChild(blackLabel);
+        key.appendChild(black);
+      }
+      strip.appendChild(key);
+    });
+
+    var first = whites[0], last = whites[whites.length - 1];
+    byId("keyRange").textContent = noteName(first) + "–" + noteName(last);
+    byId("keyFull").setAttribute("aria-pressed", String(showFull));
+    byId("keyFull").classList.toggle("active", showFull);
+    byId("keyPrev").disabled = showFull || rangeStart <= 24;
+    byId("keyNext").disabled = showFull || rangeStart >= 72;
+    paintKeyReadout();
+  }
+
+  byId("pianoStrip").addEventListener("click", function(e){
+    var key = e.target.closest("[data-note]");
+    if (!key) return;
+    selectedNote = Number(key.dataset.note);
+    arming = true;
+    renderPiano();
+  });
+  document.addEventListener("keydown", function(e){
+    if (!arming || selectedNote === null) return;
+    if (e.key === "Escape") { arming = false; renderPiano(); return; }
+    if (e.key.length !== 1) return;
+    e.preventDefault();
+    keyLabels[selectedNote] = e.key;
+    arming = false;
+    renderPiano();
+  });
+  byId("keyPrev").addEventListener("click", function(){
+    rangeStart = Math.max(24, rangeStart - 12); renderPiano();
+  });
+  byId("keyNext").addEventListener("click", function(){
+    rangeStart = Math.min(72, rangeStart + 12); renderPiano();
+  });
+  byId("keyFull").addEventListener("click", function(){
+    showFull = !showFull; renderPiano();
+  });
+
+  paintToggles();
+  paintTracks();
+  paintTransport();
+  renderPiano();
+  apply();
+})();
+</script>

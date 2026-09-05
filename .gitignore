@@ -1,0 +1,3 @@
+# Local verification builds. Existing tracked release artifacts are preserved.
+/build/
+

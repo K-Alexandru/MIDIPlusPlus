@@ -441,6 +441,9 @@ VirtualPianoPlayer::VirtualPianoPlayer() noexcept(false)
             m_timerResolutionSet = minPeriod;
         }
     }
+    // The UI toggle owns this flag once the app is running; config only seeds it.
+    legit_mode_active.store(midi::Config::getInstance().legit_mode.ENABLED,
+                            std::memory_order_relaxed);
     auto mappings = define_key_mappings();
     limited_key_mappings = std::move(mappings.first);
     full_key_mappings = std::move(mappings.second);
@@ -588,6 +591,9 @@ void VirtualPianoPlayer::prepare_event_queue() {
 void VirtualPianoPlayer::play_notes() {
     prepare_event_queue();
 
+    // One seed per song start, so a reported run can be reproduced from its log
+    // while still differing between playthroughs.
+    legit_reseed();
     // Enable MMCSS for low-latency pro audio.
     DWORD taskIndex = 0;
     HANDLE mmcss_handle = AvSetMmThreadCharacteristics(L"Pro Audio", &taskIndex);
@@ -694,19 +700,70 @@ void VirtualPianoPlayer::play_notes() {
         buffer_index.store(current_index, std::memory_order_release);
 
         if (!batch.empty()) {
-            auto fut = processing_pool.enqueue([this, batch = std::move(batch)]() -> size_t {
-                // We release notes first, then press new ones
+            bool legit = legit_mode_active.load(std::memory_order_relaxed);
+            std::chrono::nanoseconds hesitation =
+                legit ? legit_batch_hesitation() : std::chrono::nanoseconds::zero();
+
+            // Press offsets are drawn here, on the loop thread, so the pool
+            // lambda stays free of generator state and the ordering below is
+            // decided before any injection happens.
+            std::vector<std::pair<std::chrono::nanoseconds, NoteEvent*>> presses;
+            std::vector<NoteEvent*> releases;
+            if (legit) {
+                presses.reserve(batch.size());
+                releases.reserve(batch.size());
                 for (auto* e : batch) {
-                    if (e->action == EventType::Release) {
-                        execute_note_event(*e);
+                    if (e->action == EventType::Release) { releases.push_back(e); continue; }
+                    if (e->action == EventType::Press && !e->isSustain && legit_should_skip()) {
+                        // A dropped press leaves pressed_keys false, and
+                        // release_key() only injects for a key it finds pressed,
+                        // so the orphaned note-off is already a no-op. Nothing
+                        // can be left held, which is what the 1.0.3 version got
+                        // wrong by dropping releases instead.
+                        continue;
                     }
+                    presses.emplace_back(legit_press_offset(), e);
                 }
-                for (auto* e : batch) {
-                    if (e->action == EventType::Press) {
-                        execute_note_event(*e);
+                std::stable_sort(presses.begin(), presses.end(),
+                    [](const auto& a, const auto& b) { return a.first < b.first; });
+            }
+
+            auto fut = processing_pool.enqueue(
+                [this, legit, hesitation,
+                 batch = std::move(batch),
+                 presses = std::move(presses),
+                 releases = std::move(releases)]() -> size_t {
+                if (!legit) {
+                    // We release notes first, then press new ones
+                    for (auto* e : batch) {
+                        if (e->action == EventType::Release) {
+                            execute_note_event(*e);
+                        }
                     }
+                    for (auto* e : batch) {
+                        if (e->action == EventType::Press) {
+                            execute_note_event(*e);
+                        }
+                    }
+                    return batch.size();
                 }
-                return batch.size();
+
+                if (hesitation > std::chrono::nanoseconds::zero()) {
+                    std::this_thread::sleep_for(hesitation);
+                }
+                // Releases stay on schedule; only attacks are spread.
+                for (auto* e : releases) {
+                    execute_note_event(*e);
+                }
+                std::chrono::nanoseconds elapsed{ 0 };
+                for (const auto& [offset, e] : presses) {
+                    if (offset > elapsed) {
+                        std::this_thread::sleep_for(offset - elapsed);
+                        elapsed = offset;
+                    }
+                    execute_note_event(*e);
+                }
+                return releases.size() + presses.size();
             });
             fut.get();
         }
@@ -825,7 +882,7 @@ void VirtualPianoPlayer::KeyPress(std::string_view key, bool press) {
     const auto& seq = it->second;
     const auto& events = press ? seq.events_press : seq.events_release;
     if (!events.empty()) {
-        NtUserSendInputCall(static_cast<UINT>(events.size()),
+        input_latency::send(static_cast<UINT>(events.size()),
                             const_cast<INPUT*>(events.data()),
                             sizeof(INPUT));
     }
@@ -905,7 +962,7 @@ void VirtualPianoPlayer::sendVirtualKey(WORD vk, bool press) {
     if (!press) {
         in.ki.dwFlags |= KEYEVENTF_KEYUP;
     }
-    NtUserSendInputCall(1, &in, sizeof(INPUT));
+    input_latency::send(1, &in, sizeof(INPUT));
 }
 
 void VirtualPianoPlayer::pressKey(WORD vk) {
@@ -1052,6 +1109,87 @@ void VirtualPianoPlayer::toggle_volume_adjustment() {
     }
     else {
         std::cout << "[AUTOVOL] Off.\n";
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Legit mode
+//
+// The score in note_buffer is never modified. Every effect below is applied at
+// the moment events fire, which is what makes the toggle work mid-song, keeps
+// find_next_event_index() and the position readout exact, and gives a different
+// performance on every playthrough instead of one fixed set of mistakes baked
+// in at load. See LEGIT-MODE.md for the reasoning and the discarded
+// alternative.
+//
+// Three rules keep this out of the way of the dispatch loop:
+//   * Offsets are late-only. The loop only learns an event exists once it is
+//     due, so firing early would need a fixed lookahead, and a permanent
+//     lookahead is exactly the latency this project is trying not to add.
+//   * Offsets are never added to total_adjusted_time. A hesitation displaces
+//     the notes it applies to and nothing else, so error cannot accumulate the
+//     way it did in the 1.0.3 parse-time version.
+//   * Only presses are displaced. Releases stay on schedule, so a key is always
+//     released before it can be pressed again and no note can be left held.
+// ---------------------------------------------------------------------------
+
+// splitmix64. Seeded per song start so a run is reproducible from its log.
+double VirtualPianoPlayer::legit_unit() noexcept {
+    uint64_t z = (legit_rng_state += 0x9E3779B97F4A7C15ull);
+    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull;
+    z = (z ^ (z >> 27)) * 0x94D049BB133111EBull;
+    z = z ^ (z >> 31);
+    // 53 bits is the whole mantissa, so this is uniform over [0,1).
+    return static_cast<double>(z >> 11) * 0x1.0p-53;
+}
+
+void VirtualPianoPlayer::legit_reseed() noexcept {
+    uint64_t forced = legit_seed_override.load(std::memory_order_relaxed);
+    legit_rng_state = forced ? forced : (static_cast<uint64_t>(__rdtsc()) | 1ull);
+}
+
+bool VirtualPianoPlayer::legit_should_skip() noexcept {
+    const auto& cfg = midi::Config::getInstance().legit_mode;
+    return cfg.NOTE_SKIP_CHANCE > 0.0 && legit_unit() < cfg.NOTE_SKIP_CHANCE;
+}
+
+// Attack spread. Full TIMING_VARIATION spans MAX_SPREAD_MS, which sits at the
+// top of the 30-50 ms asynchrony range measured in human piano performance.
+// Applied per press, so a chord stops landing on one sample and a single note
+// stops landing exactly on the grid, from one mechanism.
+std::chrono::nanoseconds VirtualPianoPlayer::legit_press_offset() noexcept {
+    const auto& cfg = midi::Config::getInstance().legit_mode;
+    if (cfg.TIMING_VARIATION <= 0.0) return std::chrono::nanoseconds::zero();
+    double ms = legit_unit() * cfg.TIMING_VARIATION * midi::LegitModeSettings::MAX_SPREAD_MS;
+    return std::chrono::nanoseconds(static_cast<long long>(ms * 1e6));
+}
+
+// Hesitation before a batch: one roll for the whole chord, because a player
+// hesitates before a chord rather than before one finger of it. Keeping it at
+// batch granularity also means no event ever has to overtake another.
+std::chrono::nanoseconds VirtualPianoPlayer::legit_batch_hesitation() noexcept {
+    const auto& cfg = midi::Config::getInstance().legit_mode;
+    if (cfg.EXTRA_DELAY_CHANCE <= 0.0 || legit_unit() >= cfg.EXTRA_DELAY_CHANCE)
+        return std::chrono::nanoseconds::zero();
+    double span = cfg.EXTRA_DELAY_MAX - cfg.EXTRA_DELAY_MIN;
+    double seconds = cfg.EXTRA_DELAY_MIN + legit_unit() * span;
+    return std::chrono::nanoseconds(static_cast<long long>(seconds * 1e9));
+}
+
+void VirtualPianoPlayer::toggle_legit_mode() {
+    bool newVal = !legit_mode_active.load(std::memory_order_relaxed);
+    legit_mode_active.store(newVal, std::memory_order_relaxed);
+    const auto& cfg = midi::Config::getInstance().legit_mode;
+    if (newVal) {
+        std::cout << "[LEGIT] Enabled: spread="
+                  << (cfg.TIMING_VARIATION * midi::LegitModeSettings::MAX_SPREAD_MS)
+                  << "ms skip=" << (cfg.NOTE_SKIP_CHANCE * 100.0)
+                  << "% hesitate=" << (cfg.EXTRA_DELAY_CHANCE * 100.0) << "%\n";
+        std::cout << "[LEGIT] Autoplay only. Notes are dropped on purpose; "
+                     "turn this off before judging a mapping or a curve.\n";
+    }
+    else {
+        std::cout << "[LEGIT] Disabled\n";
     }
 }
 
@@ -1589,7 +1727,7 @@ void VirtualPianoPlayer::arrowsend(WORD sc, bool extended) {
     in[1].ki.dwFlags= KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP
                       | (extended ? KEYEVENTF_EXTENDEDKEY : 0);
 
-    NtUserSendInputCall(2, in, sizeof(INPUT));
+    input_latency::send(2, in, sizeof(INPUT));
 }
 
 void VirtualPianoPlayer::hotkey_listener() {
@@ -1659,6 +1797,10 @@ void VirtualPianoPlayer::initializeKeyCache() {
 void VirtualPianoPlayer::execute_note_event(const NoteEvent& event) noexcept {
     if (!isTrackEnabled(event.trackIndex))
         return;
+
+    input_latency::Trace trace(input_latency::Source::Autoplay,
+        event.isSustain ? input_latency::Kind::Sustain :
+        event.action == EventType::Press ? input_latency::Kind::NoteOn : input_latency::Kind::NoteOff);
 
     if (!event.isSustain) {
         if (event.action == EventType::Press) {

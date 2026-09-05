@@ -31,6 +31,20 @@ namespace midi {
             throw ConfigException("MEASURE_SEC must be positive");
     }
 
+    void LegitModeSettings::validate() const {
+        auto probability = [](double v, const char* name) {
+            if (v < 0.0 || v > 1.0)
+                throw ConfigException(std::string(name) + " must be between 0.0 and 1.0");
+        };
+        probability(TIMING_VARIATION, "TIMING_VARIATION");
+        probability(NOTE_SKIP_CHANCE, "NOTE_SKIP_CHANCE");
+        probability(EXTRA_DELAY_CHANCE, "EXTRA_DELAY_CHANCE");
+        if (EXTRA_DELAY_MIN < 0.0)
+            throw ConfigException("EXTRA_DELAY_MIN cannot be negative");
+        if (EXTRA_DELAY_MAX < EXTRA_DELAY_MIN)
+            throw ConfigException("EXTRA_DELAY_MAX cannot be less than EXTRA_DELAY_MIN");
+    }
+
     void MIDISettings::validate() const {
         // No specific validation needed for DETECT_DRUMS
     }
@@ -107,6 +121,7 @@ namespace midi {
             auto_transpose.validate();
             hotkeys.validate();
             autoplayer_timing.validate();
+            legit_mode.validate();
             validateKeyMappings();
         }
         catch (const ConfigException& e) {
@@ -198,6 +213,37 @@ namespace midi {
         a.validate();
     }
 
+    void to_json(json& j, const LegitModeSettings& l) {
+        j = json{
+            {"ENABLED", l.ENABLED},
+            {"TIMING_VARIATION", l.TIMING_VARIATION},
+            {"NOTE_SKIP_CHANCE", l.NOTE_SKIP_CHANCE},
+            {"EXTRA_DELAY_CHANCE", l.EXTRA_DELAY_CHANCE},
+            {"EXTRA_DELAY_MIN", l.EXTRA_DELAY_MIN},
+            {"EXTRA_DELAY_MAX", l.EXTRA_DELAY_MAX}
+        };
+    }
+
+    // Every field is optional. Upstream dropped the reader for this block while
+    // leaving the block itself in config.json, so configs in the wild have it
+    // with any subset of keys, and a missing one must fall back to the default
+    // rather than throw the whole config away.
+    void from_json(const json& j, LegitModeSettings& l) {
+        auto flag = [&j](const char* key, bool& out) {
+            if (j.contains(key) && j.at(key).is_boolean()) j.at(key).get_to(out);
+        };
+        auto number = [&j](const char* key, double& out) {
+            if (j.contains(key) && j.at(key).is_number()) j.at(key).get_to(out);
+        };
+        flag("ENABLED", l.ENABLED);
+        number("TIMING_VARIATION", l.TIMING_VARIATION);
+        number("NOTE_SKIP_CHANCE", l.NOTE_SKIP_CHANCE);
+        number("EXTRA_DELAY_CHANCE", l.EXTRA_DELAY_CHANCE);
+        number("EXTRA_DELAY_MIN", l.EXTRA_DELAY_MIN);
+        number("EXTRA_DELAY_MAX", l.EXTRA_DELAY_MAX);
+        l.validate();
+    }
+
     void to_json(json& j, const MIDISettings& m) {
         j = json{ {"DETECT_DRUMS", m.DETECT_DRUMS} };
     }
@@ -278,7 +324,8 @@ namespace midi {
             {"STACKED_NOTE_HANDLING_MODE", Config::noteHandlingModeToString(c.playback.noteHandlingMode)},
             {"CUSTOM_VELOCITY_CURVES", json::array()},
             {"PLAYLIST_FILES", c.playlistFiles},
-            {"UI_SETTINGS", c.ui}
+            {"UI_SETTINGS", c.ui},
+            {"LEGIT_MODE_SETTINGS", c.legit_mode}
         };
 
         for (const auto& curve : c.playback.customVelocityCurves) {
@@ -327,6 +374,10 @@ namespace midi {
         if (j.contains("UI_SETTINGS")) {
             j.at("UI_SETTINGS").get_to(c.ui);
         }
+
+        if (j.contains("LEGIT_MODE_SETTINGS")) {
+            j.at("LEGIT_MODE_SETTINGS").get_to(c.legit_mode);
+        }
     }
 
     void Config::setDefaults() {
@@ -356,6 +407,16 @@ namespace midi {
 
         // UI settings
         ui = { true }; // alwaysOnTop
+
+        // Legit mode settings
+        legit_mode = {
+            false,  // ENABLED
+            0.1,    // TIMING_VARIATION
+            0.02,   // NOTE_SKIP_CHANCE
+            0.05,   // EXTRA_DELAY_CHANCE
+            0.05,   // EXTRA_DELAY_MIN
+            0.2     // EXTRA_DELAY_MAX
+        };
 
         // Hotkey settings
         hotkeys = {

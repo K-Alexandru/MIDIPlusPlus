@@ -6,6 +6,7 @@
 #include "MIDIDeviceUI.hpp"
 #include "resource.h"
 #include "Theme.hpp"
+#include "InputLatencyWindow.hpp"
 
 #include <CommCtrl.h>
 #include <GdiPlus.h>
@@ -318,6 +319,7 @@ enum ControlID {
     ID_BTN_SUSTAIN,
     ID_BTN_TRANSPOSE,
     ID_BTN_TRANSPOSEOUT,
+    ID_BTN_LEGIT,
     ID_CB_VELOCITY_CURVE,
     ID_SLIDER_SUSTAIN_CUTOFF,
     ID_STATIC_SUSTAIN_LABEL,
@@ -341,6 +343,7 @@ enum ControlID {
     ID_BTN_REFRESH_VCURVE,
     ID_EDIT_LOG,
     ID_BTN_CLEARLOG,
+    ID_BTN_LATENCY,
     ID_BTN_REFRESH_MIDI,
     ID_BTN_VLCURVE,
 
@@ -363,6 +366,7 @@ static bool IsToggleButtonID(int id) {
     case ID_BTN_VELOCITY:
     case ID_BTN_SUSTAIN:
     case ID_BTN_TRANSPOSEOUT:
+    case ID_BTN_LEGIT:
     case ID_BTN_MIDI2QWERTY:
     case ID_BTN_MIDICONNECT:
         return true;
@@ -1220,7 +1224,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
         {
             CardBody body(Layout::PADV_X, Layout::PADV_Y, Layout::PADV_W);
 
-            RowSplit t(body, 0, 6);
+            RowSplit t(body, 0, 7);
             struct AdvBtn { const wchar_t* label; int id; };
             const AdvBtn adv[] = {
                 { L"88-Key",    ID_BTN_88KEY        },
@@ -1229,6 +1233,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                 { L"Sustain",   ID_BTN_SUSTAIN      },
                 { L"Transpose", ID_BTN_TRANSPOSE    },
                 { L"OutRange",  ID_BTN_TRANSPOSEOUT },
+                { L"Legit",     ID_BTN_LEGIT        },
             };
             for (const auto& b : adv) {
                 RECT rc = t.next();
@@ -1358,6 +1363,11 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
         // Log
         // =====================================================================
         AddCard(Layout::LOG_X, Layout::LOG_Y, Layout::LOG_W, Layout::LOG_H, L"Log");
+        CreateWindowW(L"button", L"Measure latency",
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
+            Layout::LOG_X + Layout::S(62), Layout::LOG_Y + Layout::S(3),
+            Layout::S(136), Layout::S(25), hWnd,
+            reinterpret_cast<HMENU>(ID_BTN_LATENCY), g_hInst, nullptr);
         {
             CardBody body(Layout::LOG_X, Layout::LOG_Y, Layout::LOG_W);
             const int sideW = Layout::S(108);
@@ -1388,11 +1398,12 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
 
         // Initialize Toggle States
         {
-            std::vector<int> toggles = { ID_BTN_88KEY, ID_BTN_VOLADJ, ID_BTN_VELOCITY, ID_BTN_SUSTAIN, ID_BTN_TRANSPOSEOUT, ID_BTN_MIDI2QWERTY };
+            std::vector<int> toggles = { ID_BTN_88KEY, ID_BTN_VOLADJ, ID_BTN_VELOCITY, ID_BTN_SUSTAIN, ID_BTN_TRANSPOSEOUT, ID_BTN_LEGIT, ID_BTN_MIDI2QWERTY };
             for (int t : toggles)
                 g_toggleStates[t] = false;
             if (g_player && g_player->eightyEightKeyModeActive)
                 g_toggleStates[ID_BTN_88KEY] = true;
+            g_toggleStates[ID_BTN_LEGIT] = midi::Config::getInstance().legit_mode.ENABLED;
         }
 
         // One modern font across every child control.
@@ -1568,6 +1579,9 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
             }
             break;
 
+        case ID_BTN_LATENCY:
+            ShowInputLatencyWindow(hWnd);
+            break;
         case ID_BTN_CLEARLOG:
             if (code == BN_CLICKED) {
                 HWND editLog = GetDlgItem(hWnd, ID_EDIT_LOG);
@@ -2023,6 +2037,9 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                 case ID_BTN_TRANSPOSEOUT:
                     g_player->toggle_out_of_range_transpose();
                     break;
+                case ID_BTN_LEGIT:
+                    g_player->toggle_legit_mode();
+                    break;
                 }
             }
             else if (id == ID_BTN_TRANSPOSE && code == BN_CLICKED) {
@@ -2222,6 +2239,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
 // Main Entry Point
 // -----------------------------------------------------------------------------
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int) {
+    struct StopLatencyOnExit { ~StopLatencyOnExit() { input_latency::stop(); } } stopLatencyOnExit;
     // Opt into DPI awareness before any window exists, then bake the scale
     // factor into the theme and layout. Without this Windows bitmap-stretches
     // the whole UI on a >100% display and every glyph goes soft.

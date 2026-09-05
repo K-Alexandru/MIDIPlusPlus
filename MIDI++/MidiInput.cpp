@@ -198,9 +198,10 @@ public:
 
 private:
     static void __stdcall trampoline(double, std::vector<unsigned char>* message, void* user) {
+        const uint64_t t0 = nowQpc();
         auto* self = static_cast<WinMMMidiInput*>(user);
         if (!self || !message || message->empty() || !self->m_callback) return;
-        self->m_callback(nowQpc(), message->data(), message->size());
+        self->m_callback(t0, message->data(), message->size());
     }
 
     static bool parseId(const std::wstring& id, unsigned& index, std::wstring& name) {

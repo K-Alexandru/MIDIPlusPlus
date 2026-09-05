@@ -279,18 +279,24 @@ void MIDIConnect::ReleaseAllNumpadKeys() {
         inputs[i].ki.wScan = numpadScans[i];
         inputs[i].ki.dwFlags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP;
     }
-    NtUserSendInputCall(12, inputs, sizeof(INPUT));
+    input_latency::send(12, inputs, sizeof(INPUT));
 }
 
-void MIDIConnect::HandleMessage(uint64_t /*timestampQpc*/, const uint8_t* data, size_t length)
+void MIDIConnect::HandleMessage(uint64_t timestampQpc, const uint8_t* data, size_t length)
 {
     if (!data || length < 3) return;
     if (!m_isActive.load(std::memory_order_relaxed)) return;
+    if (data[1] > 127 || data[2] > 127) return;
 
     const uint8_t status = data[0];
     const uint8_t data1 = data[1];
     const uint8_t data2 = data[2];
     const uint8_t cmd = status & 0xF0;
+    if (cmd != 0x90 && cmd != 0x80 && !(cmd == 0xB0 && data1 == 64)) return;
+    input_latency::Trace trace(input_latency::Source::MidiConnect,
+        cmd == 0xB0 ? input_latency::Kind::Sustain :
+        cmd == 0x90 && data2 > 0 ? input_latency::Kind::NoteOn : input_latency::Kind::NoteOff,
+        timestampQpc);
 
     // Local batch: two callbacks can now run at once without fighting over one
     // buffer, which is what the old m_inCallback guard was papering over by
@@ -332,5 +338,5 @@ void MIDIConnect::HandleMessage(uint64_t /*timestampQpc*/, const uint8_t* data, 
         break;
     }
 
-    if (inputCount > 0) NtUserSendInputCall(static_cast<UINT>(inputCount), batched, sizeof(INPUT));
+    if (inputCount > 0) input_latency::send(static_cast<UINT>(inputCount), batched, sizeof(INPUT));
 }

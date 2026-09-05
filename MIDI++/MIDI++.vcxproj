@@ -144,6 +144,8 @@
   <ItemGroup>
     <ClCompile Include="ConfigHandler.cpp" />
     <ClCompile Include="InputInjector.cpp" />
+    <ClCompile Include="InputLatency.cpp" />
+    <ClCompile Include="InputLatencyWindow.cpp" />
     <ClCompile Include="MIDI++.cpp" />
     <ClCompile Include="MIDI2Key.cpp" />
     <ClCompile Include="MIDIConnect.cpp" />
@@ -161,6 +163,9 @@
   <ItemGroup>
     <ClInclude Include="config.hpp" />
     <ClInclude Include="InputHeader.h" />
+    <ClInclude Include="InputLatency.hpp" />
+    <ClInclude Include="InputLatencyWindow.hpp" />
+    <ClInclude Include="LatencyTelemetry.hpp" />
     <ClInclude Include="json.hpp" />
     <ClInclude Include="MIDI2Key.hpp" />
     <ClInclude Include="MIDIConnect.hpp" />

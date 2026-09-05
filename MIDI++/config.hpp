@@ -65,6 +65,26 @@ namespace midi {
         void validate() const;
     };
 
+    // Legit mode: makes autoplay sound played rather than typed. Applied at
+    // dispatch, never baked into the parsed score, so it can be toggled mid-song
+    // and never disturbs seeking, the position readout or the reported duration.
+    struct LegitModeSettings {
+        bool ENABLED = false;
+        double TIMING_VARIATION = 0.1;    // 0..1, scales the attack spread
+        double NOTE_SKIP_CHANCE = 0.02;   // 0..1, per note-on
+        double EXTRA_DELAY_CHANCE = 0.05; // 0..1, per due batch
+        double EXTRA_DELAY_MIN = 0.05;    // seconds
+        double EXTRA_DELAY_MAX = 0.2;     // seconds
+
+        // Full TIMING_VARIATION spreads a chord over this many milliseconds.
+        // Measured asynchrony in human piano performance is roughly 30-50 ms
+        // (Goebl/Repp; see LEGIT-MODE.md), so 1.0 sits at the top of that range
+        // and the 0.1 default gives a 5 ms spread.
+        static constexpr double MAX_SPREAD_MS = 50.0;
+
+        void validate() const;
+    };
+
     struct HotkeySettings {
         std::string SUSTAIN_KEY = "VK_SPACE";
         std::string VOLUME_UP_KEY = "VK_RIGHT";
@@ -97,6 +117,7 @@ namespace midi {
         AutoTranspose auto_transpose;
         HotkeySettings hotkeys;
         UISettings ui;
+        LegitModeSettings legit_mode;
         AutoplayerTimingAccuracy autoplayer_timing;
         std::map<std::string, std::map<std::string, std::string>> key_mappings;
         std::map<std::string, std::string> controls;
@@ -138,6 +159,8 @@ namespace midi {
     void from_json(const nlohmann::json& j, PlaybackSettings& p);
     void to_json(nlohmann::json& j, const Config& c);
     void from_json(const nlohmann::json& j, Config& c);
+    void to_json(nlohmann::json& j, const LegitModeSettings& l);
+    void from_json(const nlohmann::json& j, LegitModeSettings& l);
     void to_json(nlohmann::json& j, const UISettings& ui);
     void from_json(const nlohmann::json& j, UISettings& ui);
 
