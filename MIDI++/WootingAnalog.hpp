@@ -15,6 +15,8 @@
 
 #include <array>
 #include <cstdint>
+#include <map>
+#include <string>
 
 std::unique_ptr<IMidiInput> CreateWootingAnalogInput();
 
@@ -26,3 +28,10 @@ bool WootingAnalogAvailable();
 // would otherwise produce. Replace it to follow a user's own key mapping.
 void SetWootingScancodeNoteMap(const std::array<int16_t, 256>& map);
 std::array<int16_t, 256> DefaultWootingScancodeNoteMap();
+
+// The same map built from the user's own KEY_MAPPINGS.FULL, note name to key,
+// so a Wooting key sounds the note the app would type for it. Only unshifted
+// single-character bindings can be carried: a shifted key is two physical keys
+// to the analog SDK, so there is no one scancode to hang the note on.
+std::array<int16_t, 256> WootingScancodeNoteMapFrom(
+    const std::map<std::string, std::string>& keyMappings);

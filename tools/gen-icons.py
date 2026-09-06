@@ -33,6 +33,7 @@ ICONS = [
     ("Speaker", "volume-2"), ("Muted", "volume-x"), ("Solo", "headphones"),
     ("Piano", "piano"), ("Mini", "minimize-2"), ("Expand", "maximize-2"),
     ("Copy", "copy"), ("Rename", "pencil"), ("Check", "check"),
+    ("SortDown", "arrow-down"), ("SortUp", "arrow-up"),
 ]
 
 CURVE_STEPS = 10   # a 24-unit glyph shown at 32px needs no more than this

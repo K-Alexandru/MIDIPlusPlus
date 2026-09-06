@@ -190,7 +190,8 @@ inline constexpr short kPoints[] = {
     36, 351, 37, 351, 38, 352, 39, 352, 40, 352, 41, 352, 42, 352, 112, 331,
     113, 330, 114, 330, 115, 330, 116, 329, 116, 329, 117, 328, 118, 328, 119, 327,
     120, 327, 121, 326, 122, 326, 122, 325, 123, 325, 124, 324, 125, 323, 125, 323,
-    240, 80, 304, 144, 320, 96, 144, 272, 64, 192,
+    240, 80, 304, 144, 320, 96, 144, 272, 64, 192, 192, 80, 192, 304, 304, 192,
+    192, 304, 80, 192, 80, 192, 192, 80, 304, 192, 192, 304, 192, 80,
 };
 
 inline constexpr Path kPaths[] = {
@@ -266,6 +267,10 @@ inline constexpr Path kPaths[] = {
     {1324, 68, true},
     {1392, 2, false},
     {1394, 3, false},
+    {1397, 2, false},
+    {1399, 3, false},
+    {1402, 3, false},
+    {1405, 2, false},
 };
 
 // Indexed by the Icon enum in ui/Panels.cpp, in its declared order.
@@ -297,6 +302,8 @@ inline constexpr Glyph kGlyphs[] = {
     {67, 2},  // Copy: lucide copy
     {69, 2},  // Rename: lucide pencil
     {71, 1},  // Check: lucide check
+    {72, 2},  // SortDown: lucide arrow-down
+    {74, 2},  // SortUp: lucide arrow-up
 };
 
 } // namespace icon_data

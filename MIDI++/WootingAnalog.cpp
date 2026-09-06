@@ -2,6 +2,9 @@
 
 #include "WootingAnalog.hpp"
 
+#include <map>
+#include <string>
+
 #include <windows.h>
 
 #include <atomic>
@@ -89,30 +92,79 @@ std::array<int16_t, 256> g_scanToNote = DefaultWootingScancodeNoteMap();
 
 } // namespace
 
+namespace {
+
+// The virtual-piano layout's unshifted keys, low to high. This is the order
+// the shipped KEY_MAPPINGS.FULL uses: the number row is the bottom of the
+// range, not the top. Getting that backwards is what made a Wooting play A5
+// for "1" and jump an octave between "2" and "3".
+constexpr char kVirtualPianoWhites[] = "1234567890qwertyuiopasdfghjklzxcvbnm";
+
+// Set 1 scancode for an unshifted printable key, or 0 when there is none.
+// Shifted and ctrl bindings are deliberately absent: to the analog SDK a
+// shifted key is two physical keys, so there is no single scancode to attach
+// the note to.
+uint16_t ScancodeForKey(char key) {
+    switch (key) {
+    case '1': return SC_1; case '2': return SC_2; case '3': return SC_3;
+    case '4': return SC_4; case '5': return SC_5; case '6': return SC_6;
+    case '7': return SC_7; case '8': return SC_8; case '9': return SC_9;
+    case '0': return SC_0;
+    case 'q': return SC_Q; case 'w': return SC_W; case 'e': return SC_E;
+    case 'r': return SC_R; case 't': return SC_T; case 'y': return SC_Y;
+    case 'u': return SC_U; case 'i': return SC_I; case 'o': return SC_O;
+    case 'p': return SC_P;
+    case 'a': return SC_A; case 's': return SC_S; case 'd': return SC_D;
+    case 'f': return SC_F; case 'g': return SC_G; case 'h': return SC_H;
+    case 'j': return SC_J; case 'k': return SC_K; case 'l': return SC_L;
+    case 'z': return SC_Z; case 'x': return SC_X; case 'c': return SC_C;
+    case 'v': return SC_V; case 'b': return SC_B; case 'n': return SC_N;
+    case 'm': return SC_M;
+    default: return 0;
+    }
+}
+
+int NoteFromName(const std::string& name) {
+    static const char* kNames[12] = {"C", "C#", "D", "D#", "E", "F", "F#",
+                                     "G", "G#", "A", "A#", "B"};
+    if (name.size() < 2) return -1;
+    const std::string letters = name.substr(0, name.size() - 1);
+    const char octaveDigit = name.back();
+    if (octaveDigit < '0' || octaveDigit > '9') return -1;
+    for (int i = 0; i < 12; ++i) {
+        if (letters == kNames[i]) return (octaveDigit - '0' + 1) * 12 + i;
+    }
+    return -1;
+}
+
+} // namespace
+
 std::array<int16_t, 256> DefaultWootingScancodeNoteMap() {
     std::array<int16_t, 256> map{};
     map.fill(-1);
 
-    // White keys, C2 upward, in the order the app types them out: bottom row,
-    // then home and top rows, then the number row. Black keys are left
-    // unmapped until the user's own mapping is wired in; a shifted key is a
-    // different key to the analog SDK, and guessing that mapping here would be
-    // inventing behaviour.
-    const uint16_t whites[] = {
-        SC_Z, SC_X, SC_C, SC_V, SC_B, SC_N, SC_M,
-        SC_A, SC_S, SC_D, SC_F, SC_G, SC_H, SC_J, SC_K, SC_L,
-        SC_Q, SC_W, SC_E, SC_R, SC_T, SC_Y, SC_U, SC_I, SC_O, SC_P,
-        SC_1, SC_2, SC_3, SC_4, SC_5, SC_6, SC_7, SC_8, SC_9, SC_0
-    };
-    // C2 is MIDI note 36. Whites follow the major scale pattern from C.
+    // White keys from C2 upward, in the layout's own key order. Black keys are
+    // left unmapped: their bindings are shifted keys, which the analog SDK sees
+    // as two presses, and guessing a scancode for them would invent behaviour.
     const int steps[7] = { 0, 2, 4, 5, 7, 9, 11 };
-    int note = 36;
-    for (size_t i = 0; i < sizeof(whites) / sizeof(whites[0]); ++i) {
-        const int octave = static_cast<int>(i) / 7;
-        const int degree = static_cast<int>(i) % 7;
-        note = 36 + octave * 12 + steps[degree];
+    for (size_t i = 0; i + 1 < sizeof(kVirtualPianoWhites); ++i) {
+        const int note = 36 + static_cast<int>(i) / 7 * 12 + steps[i % 7];
         if (note > 127) break;
-        map[whites[i]] = static_cast<int16_t>(note);
+        const uint16_t code = ScancodeForKey(kVirtualPianoWhites[i]);
+        if (code) map[code] = static_cast<int16_t>(note);
+    }
+    return map;
+}
+
+std::array<int16_t, 256> WootingScancodeNoteMapFrom(
+        const std::map<std::string, std::string>& keyMappings) {
+    std::array<int16_t, 256> map{};
+    map.fill(-1);
+    for (const auto& [name, key] : keyMappings) {
+        if (key.size() != 1) continue;          // shifted and ctrl bindings have no single scancode
+        const uint16_t code = ScancodeForKey(key[0]);
+        const int note = NoteFromName(name);
+        if (code && note >= 0 && note <= 127) map[code] = static_cast<int16_t>(note);
     }
     return map;
 }

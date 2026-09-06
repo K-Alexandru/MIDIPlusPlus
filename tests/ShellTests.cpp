@@ -2,6 +2,7 @@
 #include "PlaybackSystem.hpp"
 #include "TrackFixture.hpp"
 #include "../MIDI++/VelocityTelemetry.hpp"
+#include "../MIDI++/WootingAnalog.hpp"
 #include <atomic>
 #include <iostream>
 #include <thread>
@@ -188,6 +189,34 @@ void ControllerTests(const std::filesystem::path& config, const std::filesystem:
     std::cout << "PASS async loading, engine dispatch off UI thread, track commands, generation checks and error recovery\n";
 }
 
+// The Wooting keyboard has no notes of its own: a key sounds whatever the
+// user's mapping would type for it. The layout's number row is the bottom of
+// the range, and having it at the top is what made "1" play A5 and the run
+// 1 2 3 jump an octave between 2 and 3.
+void WootingMapTests() {
+    const auto map = DefaultWootingScancodeNoteMap();
+    const auto note = [&](uint16_t scancode) { return static_cast<int>(map[scancode]); };
+    Require(note(0x02) == 36, "1 is C2, the bottom of the range");
+    Require(note(0x03) == 38 && note(0x04) == 40 && note(0x05) == 41, "2 3 4 continue the C major scale");
+    Require(note(0x06) == 43 && note(0x07) == 45, "5 and 6 stay inside the same octave as 1");
+    Require(note(0x0B) == 52, "0 is E3, not the top of the keyboard");
+    Require(note(0x10) == 53, "q follows 0 rather than restarting");
+    Require(note(0x32) == 96, "m is the top of the unshifted layout");
+    // Black keys are shifted bindings, and a shifted key is two physical keys
+    // to the analog SDK, so they stay unmapped rather than guessed.
+    Require(note(0x2A) == -1 && note(0x1D) == -1, "shift and ctrl are not notes");
+
+    // A user's own mapping wins over the built-in layout.
+    std::map<std::string, std::string> mapping{
+        {"C2", "1"}, {"D2", "2"}, {"C#2", "!"}, {"A0", "ctrl+1"}, {"C8", "m"}};
+    const auto custom = WootingScancodeNoteMapFrom(mapping);
+    Require(custom[0x02] == 36 && custom[0x03] == 38, "unshifted bindings carry their note");
+    Require(custom[0x32] == 108, "C8 reaches the top of the range");
+    Require(custom[0x10] == -1, "keys the mapping does not name stay silent");
+    for (const auto& entry : custom) Require(entry >= -1 && entry <= 127, "no note escapes the MIDI range");
+    std::cout << "PASS wooting scancode mapping follows the virtual piano layout\n";
+}
+
 // The velocity graph's missing half. observe() carries the decode, so the one
 // line inside MIDI2Key::ProcessMidiMessage that calls it has nothing left to
 // get wrong; these drive the same bytes a MIDI callback would.
@@ -272,6 +301,7 @@ int wmain() {
         const auto fixture = directory / L"tracks-\u97f3\u4e50.mid";
         WriteTrackFixture(fixture);
         VelocityTelemetryTests();
+        WootingMapTests();
         ModelTests(fixture);
         ReleaseTests(directory / L"config.json");
         ControllerTests(directory / L"config.json", fixture);

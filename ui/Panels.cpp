@@ -23,7 +23,7 @@ ImU32 OpaqueTint(skin::Argb tint, skin::Argb surface) {
 float SpecFontScale(const skin::Skin& s) { return s.type.family == "IBM Plex Sans" ? 1.3f : 2724.f / 2048.f; }
 enum class Icon { Folder, Open, Refresh, Settings, Sun, Moon, Play, Pause, Back, Forward,
                   Minus, Plus, Left, Right, Down, Up, Close, Keyboard, Speaker, Muted, Solo, Piano,
-                  Mini, Expand, Copy, Rename, Check };
+                  Mini, Expand, Copy, Rename, Check, SortDown, SortUp };
 
 // Icons are Lucide, flattened to polylines by tools/gen-icons.py into
 // ui/IconData.hpp. They used to be hand-written primitives here, which is how
@@ -65,17 +65,49 @@ bool IconButton(const char* id, Icon icon, const char* tip, const skin::Skin& s,
     return clicked;
 }
 
-bool TransportButton(const char* id, Icon icon, const char* label, const skin::Skin& s, float dpi, bool primary = false) {
+// Icon and label are centred as one unit. The width used to reserve 18px plus
+// a gap for the icon while the label was drawn 24px in, which left every
+// transport button two pixels wider on the right than on the left.
+bool TransportBody(const char* id, const Icon* icon, const char* label,
+                   const skin::Skin& s, float dpi, bool primary) {
     const ImVec2 min = ImGui::GetCursorScreenPos();
     const float pad = (primary ? 16.f : 12.f) * dpi;
-    const float width = 2 * pad + 18 * dpi + s.spacing.s2 + ImGui::CalcTextSize(label).x;
+    const float side = 16 * dpi;
+    const float lead = icon ? side + s.spacing.s2 : 0.f;
+    const float width = 2 * pad + lead + ImGui::CalcTextSize(label).x;
     const bool clicked = ImGui::Button(id, ImVec2(width, s.metric.controlHeight));
     auto* draw = ImGui::GetWindowDrawList();
-    DrawIcon(draw, icon, ImVec2(min.x + pad, min.y + (s.metric.controlHeight - 16 * dpi) / 2),
-             16 * dpi, ImGui::GetColorU32(ImGuiCol_Text), dpi);
-    draw->AddText(ImVec2(min.x + pad + 24 * dpi, min.y + (s.metric.controlHeight - ImGui::GetTextLineHeight()) / 2),
+    if (icon)
+        DrawIcon(draw, *icon, ImVec2(min.x + pad, min.y + (s.metric.controlHeight - side) / 2),
+                 side, ImGui::GetColorU32(ImGuiCol_Text), dpi);
+    draw->AddText(ImVec2(min.x + pad + lead, min.y + (s.metric.controlHeight - ImGui::GetTextLineHeight()) / 2),
                   ImGui::GetColorU32(ImGuiCol_Text), label);
     return clicked;
+}
+
+bool TransportButton(const char* id, Icon icon, const char* label, const skin::Skin& s,
+                     float dpi, bool primary = false) {
+    return TransportBody(id, &icon, label, s, dpi, primary);
+}
+
+// Label only, for the seek buttons. The spec draws them as bare text: a
+// chevron beside "10s" is the same word twice, and it crowded the pill.
+bool TransportButton(const char* id, const char* label, const skin::Skin& s,
+                     float dpi, bool primary = false) {
+    return TransportBody(id, nullptr, label, s, dpi, primary);
+}
+
+// ImGui's combo arrow is a heavy filled triangle. Every other mark in the
+// shell is a Lucide stroke, so the arrow is suppressed and one drawn here.
+// Sized off the combo's own height rather than a passed skin, so it can be
+// called from helpers that were never given one.
+void ComboChevron() {
+    const ImVec2 min = ImGui::GetItemRectMin(), max = ImGui::GetItemRectMax();
+    const float height = max.y - min.y;
+    const float side = height * .5f;
+    DrawIcon(ImGui::GetWindowDrawList(), Icon::Down,
+             ImVec2(max.x - side - height * .28f, min.y + (height - side) / 2),
+             side, ImGui::GetColorU32(ImGuiCol_Text), 1.f);
 }
 
 // A six-pixel groove with a full mouse/keyboard hit target. ImGui owns drag,
@@ -479,7 +511,9 @@ std::string DeviceName(const EngineSnapshot& state) {
 void CurveCombo(const char* id, float width, const EngineSnapshot& state, ShellEngine& engine) {
     ImGui::SetNextItemWidth(width);
     const auto& edit = state.comparingCurve ? state.previousCurve : state.curve;
-    if (ImGui::BeginCombo(id, state.ActiveVelocityName().c_str())) {
+    const bool curveOpen = ImGui::BeginCombo(id, state.ActiveVelocityName().c_str(), ImGuiComboFlags_NoArrowButton);
+    ComboChevron();
+    if (curveOpen) {
         for (size_t i = 0; i < state.curves.size(); ++i) {
             ImGui::PushID(static_cast<int>(i));
             if (ImGui::Selectable(state.curves[i].name.c_str(), i == edit.preset))
@@ -739,7 +773,9 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
       ImGui::TextWrapped("The device scan prefers WinRT, with WinMM as fallback. Kernel Streaming has no backend or buffer controls."); }
     ImGui::Separator();
     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - s.metric.controlHeight - 8 * dpi);
-    if (ImGui::BeginCombo("##midi-input", DeviceName(*state).c_str())) {
+    const bool deviceOpen = ImGui::BeginCombo("##midi-input", DeviceName(*state).c_str(), ImGuiComboFlags_NoArrowButton);
+    ComboChevron();
+    if (deviceOpen) {
         if (ImGui::Selectable("No MIDI input", state->liveDevice.empty())) engine.Send({ShellEngine::Action::LiveOpen});
         for (size_t i = 0; i < state->devices.size(); ++i) {
             const auto& device = state->devices[i];
@@ -761,7 +797,9 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
       ImGui::TextWrapped("Types incoming MIDI notes using the current key mapping."); }
     ImGui::SetNextItemWidth(-1);
     const auto channel = state->liveChannel < 0 ? "Every channel" : "Channel " + std::to_string(state->liveChannel + 1);
-    if (ImGui::BeginCombo("##live-channel", channel.c_str())) {
+    const bool channelOpen = ImGui::BeginCombo("##live-channel", channel.c_str(), ImGuiComboFlags_NoArrowButton);
+    ComboChevron();
+    if (channelOpen) {
         for (int i = -1; i < 16; ++i) {
             const auto label = i < 0 ? "Every channel" : "Channel " + std::to_string(i + 1);
             if (ImGui::Selectable(label.c_str(), state->liveChannel == i))
@@ -929,7 +967,9 @@ void Panels::DrawMini(HWND hwnd, const Fonts& fonts, const skin::Skin& design, f
     } else {
         ImGui::SetNextItemWidth(size.x - 2 * pad - 2 * control - 16 * dpi);
         const auto fileName = state->loaded.empty() ? "Choose MIDI file" : Utf8(state->loaded.filename());
-        if (ImGui::BeginCombo("##mini-file", fileName.c_str())) {
+        const bool fileOpen = ImGui::BeginCombo("##mini-file", fileName.c_str(), ImGuiComboFlags_NoArrowButton);
+        ComboChevron();
+        if (fileOpen) {
             for (size_t i = 0; i < state->files->size(); ++i) {
                 const auto& file = (*state->files)[i];
                 ImGui::PushID(static_cast<int>(i));
@@ -1036,7 +1076,7 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     const float refreshWidth = ImGui::CalcTextSize("Refresh").x + 16 * dpi;
     ImGui::SameLine(ImGui::GetWindowWidth() - sortWidth - refreshWidth - s.spacing.s2);
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8 * dpi, ImGui::GetStyle().FramePadding.y));
-    if (TransportButton("##sort-name", descendingNames_ ? Icon::Up : Icon::Down, "Name", s, dpi)) {
+    if (TransportButton("##sort-name", descendingNames_ ? Icon::SortUp : Icon::SortDown, "Name", s, dpi)) {
         descendingNames_ = !descendingNames_;
         filteredFiles_.reset();
     }
@@ -1147,9 +1187,9 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     ImGui::SameLine();
     if (TransportButton("##restart", Icon::Refresh, "Restart", s, dpi)) send(ShellEngine::Action::Restart);
     ImGui::SameLine();
-    if (TransportButton("##back10", Icon::Back, "-10s", s, dpi)) send(ShellEngine::Action::Back10);
+    if (TransportButton("##back10", "−10s", s, dpi)) send(ShellEngine::Action::Back10);
     ImGui::SameLine();
-    if (TransportButton("##forward10", Icon::Forward, "+10s", s, dpi)) send(ShellEngine::Action::Forward10);
+    if (TransportButton("##forward10", "+10s", s, dpi)) send(ShellEngine::Action::Forward10);
     const std::string time = Time(seeking_ ? seekPosition_ : state->position) + " / " + Time(state->duration);
     dl = ImGui::GetWindowDrawList();
     dl->AddText(ImVec2(content.x + contentWidth - ImGui::CalcTextSize(time.c_str()).x,

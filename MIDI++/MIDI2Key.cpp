@@ -4,6 +4,7 @@
 #include "InputHeader.h"
 #include "InputLatency.hpp"
 #include "VelocityTelemetry.hpp"
+#include "WootingAnalog.hpp"
 
 #pragma comment(lib, "avrt.lib")
 
@@ -354,6 +355,13 @@ MIDI2Key::~MIDI2Key() {
 void MIDI2Key::OpenDevice(const std::wstring& deviceId) {
     CloseDevice();
     if (deviceId.empty()) return;
+
+    // The analog keyboard has no notes of its own: a key sounds whatever the
+    // user's mapping types for it. Feeding that in here means a remap is
+    // picked up the next time the device is opened, and it stops the built-in
+    // layout being the only thing a Wooting ever plays.
+    if (BackendForDeviceId(deviceId) == MidiBackend::WootingAnalog && m_player)
+        SetWootingScancodeNoteMap(WootingScancodeNoteMapFrom(m_player->full_key_mappings));
 
     m_input = CreateMidiInput(BackendForDeviceId(deviceId));
     if (!m_input) return;
