@@ -559,7 +559,37 @@ void SheetExportTests() {
     auto allMissing = sheet::ToVirtualPiano({{0.0, "A9"}}, mapping);
     Require(allMissing.text.empty() && allMissing.unmapped == 1, "a score of nothing mappable writes nothing");
 
-    std::cout << "PASS MIDI to virtual piano sheet: chords, spacing, wrapping and unmapped notes\n";
+    // Two notes in one chord that map to the same character are typed once,
+    // because "[tt]" is not a chord anyone can play. They are neither written
+    // nor unmapped, so counting only the two buckets lost them: on the owner's
+    // own files that was 5370 of 5371 note-ons and 1581 of 1586, with zero
+    // reported unmapped, which read as the exporter silently dropping notes.
+    const std::map<std::string, std::string> shared{
+        {"C4", "t"}, {"B3", "t"}, {"E4", "y"}};
+    auto doubled = sheet::ToVirtualPiano({{0.0, "C4"}, {0.010, "B3"}, {0.020, "E4"}}, shared);
+    Require(doubled.text == "[ty]", "a repeated character in a chord is typed once");
+    Require(doubled.notes == 2 && doubled.merged == 1 && doubled.unmapped == 0,
+            "the note that shared a character is counted as merged, not lost");
+
+    // Outside the chord window the same character is written twice, because
+    // then it really is struck twice.
+    auto apart = sheet::ToVirtualPiano({{0.0, "C4"}, {1.0, "B3"}}, shared);
+    Require(apart.text == "t t" && apart.notes == 2 && apart.merged == 0,
+            "the same key struck twice is two notes, not a merge");
+
+    // The invariant the three counters exist for: every note handed in lands in
+    // exactly one of written, merged or unmapped.
+    const std::vector<sheet::Note> mixed{
+        {0.0, "C4"}, {0.005, "B3"}, {0.010, "E4"},   // chord, one merge
+        {0.5, "A9"},                                  // unmapped
+        {1.0, "C4"}, {1.005, "B3"},                   // chord, one merge
+        {2.0, "E4"}};
+    auto total = sheet::ToVirtualPiano(mixed, shared);
+    Require(total.notes + total.merged + total.unmapped == mixed.size(),
+            "notes + merged + unmapped accounts for every note handed in");
+    Require(total.merged == 2 && total.unmapped == 1, "and each lands in the right one");
+
+    std::cout << "PASS MIDI to virtual piano sheet: chords, spacing, wrapping, merged and unmapped notes\n";
 }
 
 // Three index spaces once disagreed about what "device 1" meant, which is

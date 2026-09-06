@@ -47,25 +47,39 @@ struct Options {
 
 struct Result {
     std::string text;
-    size_t notes = 0;      // notes that reached the sheet
+    size_t notes = 0;      // characters written, which is notes that reached the sheet
     size_t groups = 0;     // chords and single notes written
     size_t unmapped = 0;   // notes with no key in the mapping, so dropped
+    // Two notes in one chord that map to the same character are typed once:
+    // "[aa]" is not a chord anyone can play. They are neither written nor
+    // unmapped, so without this counter they were simply missing, and
+    // notes + unmapped came up short of the score on any real file.
+    size_t merged = 0;     // mapped notes that shared a chord-mate's character
 };
+
+// notes + merged + unmapped == the number of notes handed in. Nothing is lost
+// silently; every note lands in exactly one of the three.
 
 namespace detail {
 
 // A chord's characters are sorted so the same chord always reads the same way,
 // and so a sheet diffs cleanly against another take of the same piece.
-inline void appendGroup(std::string& out, std::vector<std::string>& keys) {
+// Returns how many keys the dedupe removed, which the caller must count: it
+// mutates keys, so group.size() afterwards is the written count, not the
+// source count.
+inline size_t appendGroup(std::string& out, std::vector<std::string>& keys) {
     std::sort(keys.begin(), keys.end());
+    const size_t before = keys.size();
     keys.erase(std::unique(keys.begin(), keys.end()), keys.end());
+    const size_t merged = before - keys.size();
     if (keys.size() == 1) {
         out += keys.front();
-        return;
+        return merged;
     }
     out += '[';
     for (const auto& key : keys) out += key;
     out += ']';
+    return merged;
 }
 
 } // namespace detail
@@ -95,7 +109,7 @@ inline Result ToVirtualPiano(std::vector<Note> notes,
             }
             result.text.append(spaces, ' ');
         }
-        detail::appendGroup(result.text, group);
+        result.merged += detail::appendGroup(result.text, group);
         result.notes += group.size();
         ++result.groups;
         previousEnd = groupStart;
