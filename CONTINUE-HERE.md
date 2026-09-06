@@ -79,6 +79,27 @@ an in-process injection recorder, and the real DX11 renderer. PNGs are written
 to `build\render-tests\`. It requires no MIDI hardware and sends no keystrokes
 to other applications.
 
+```powershell
+& .\tests\run-native-tests.ps1
+```
+
+This is Windows' side of the same app, which the harness above cannot reach
+because it drives ImGui IO in process and never sends a window message:
+`WM_GETMINMAXINFO`, `WM_SIZE` and `ResizeBuffers`, `WM_DPICHANGED`, `WM_CLOSE`,
+and a physical click at a physical pixel landing on the control drawn there. It
+drives the real cursor and fronts a window, so it owns the desktop for about
+half a minute; do not click anything while it runs. It works in
+`build\native-tests\`, so it never touches the settings, config or MIDI folder
+in use. `tests/NativeShell.ps1` is the reusable half, for one-off measurement
+rather than only for this suite.
+
+**Read the header of `tests/NativeShell.ps1` before writing any script that
+clicks or screenshots this app.** This machine runs at 125% and MIDI++ is
+per-monitor DPI aware; PowerShell is not. Without
+`SetProcessDpiAwarenessContext`, every coordinate is off by 25% and the app
+looks like it is ignoring input. `GetDeviceCaps(LOGPIXELSX)` reads 96 from a
+virtualised process, so nothing warns you.
+
 ## ImGui UI progress
 
 The shell and the main panels are built. The dated entries below record each
@@ -267,10 +288,15 @@ Remaining limits for this follow-up:
 - **Browser comparison:** the repository Edge capture and an in-app browser
   session now cover the rendered mockup. Settings, backend choice, Play,
   file filtering and mini transpose were exercised with no console errors.
-- **Hardware/native host:** live curve reconnection under physical playing,
-  game delivery, native full/mini resizing, and physical mixed-DPI monitor moves
-  remain unverified. The render and interaction harnesses use ImGui IO and DX11,
-  not native window automation.
+- **Hardware/native host:** narrowed 2026-09-06 by `tests/run-native-tests.ps1`,
+  which does drive native window automation. Now covered: the enforced minimum
+  size, resizing and the swap chain rebuild, a physical click reaching the
+  control drawn there at the display's real scale, and a clean `WM_CLOSE`.
+  Still unverified: live curve reconnection under physical playing, and game
+  delivery, both of which need hands on a keyboard. Mini-mode resizing is not
+  covered because reaching it needs a click on a strip icon whose position moves
+  with the panel work. The mixed-DPI move is written and skips itself on a
+  single-monitor machine, which is what this one is.
 
 Completed 2026-09-05, mockup reference (`docs/design/`):
 
