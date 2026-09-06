@@ -1,4 +1,5 @@
 #include "Panels.hpp"
+#include "IconData.hpp"
 #include "imgui_internal.h"
 #include "json.hpp"
 #include <commdlg.h>
@@ -24,68 +25,24 @@ enum class Icon { Folder, Open, Refresh, Settings, Sun, Moon, Play, Pause, Back,
                   Minus, Plus, Left, Right, Down, Up, Close, Keyboard, Speaker, Muted, Solo, Piano,
                   Mini, Expand, Copy, Rename, Check };
 
+// Icons are Lucide, flattened to polylines by tools/gen-icons.py into
+// ui/IconData.hpp. They used to be hand-written primitives here, which is how
+// the piano ended up a filled blob and the gear read as a sun at strip size.
+// Vector rather than a rasterised atlas so 150 and 200 percent stay crisp, and
+// not an icon font because the house rules rule out font glyphs.
 void DrawIcon(ImDrawList* dl, Icon icon, ImVec2 min, float side, ImU32 ink, float dpi) {
-    const auto p = [&](float x, float y) { return ImVec2(min.x + side * x / 24.f, min.y + side * y / 24.f); };
-    const auto line = [&](float x, float y, float xx, float yy) { dl->AddLine(p(x, y), p(xx, yy), ink, 1.5f * dpi); };
-    const auto rect = [&](float x, float y, float xx, float yy) { dl->AddRect(p(x, y), p(xx, yy), ink, 1.5f * dpi, 0, 1.5f * dpi); };
-    const auto fill = [&](float x, float y, float xx, float yy) { dl->AddRectFilled(p(x, y), p(xx, yy), ink, .5f * dpi); };
-    switch (icon) {
-    case Icon::Folder: rect(3, 7, 21, 20); line(3, 7, 3, 4); line(3, 4, 10, 4); line(10, 4, 13, 7); break;
-    case Icon::Open: rect(5, 3, 19, 21); line(9, 12, 15, 12); line(12, 9, 15, 12); line(12, 15, 15, 12); break;
-    case Icon::Refresh:
-        dl->PathArcTo(p(12, 12), side * .34f, .5f, 5.9f, 18); dl->PathStroke(ink, 0, 1.5f * dpi);
-        line(20, 5, 20, 10); line(15, 9, 20, 10); break;
-    case Icon::Settings:
-        // One closed outline stepping between two radii: eight teeth, then the
-        // bore. The old drawing was a circle with spokes crossing it, which
-        // reads as a sun at strip size rather than a gear.
-        for (int i = 0; i < 32; ++i) {
-            const float a = i * 3.14159265f / 16.f;
-            const float radius = i % 4 < 2 ? 9.f : 7.f;
-            dl->PathLineTo(p(12 + radius * std::cos(a), 12 + radius * std::sin(a)));
+    const auto& glyph = icon_data::kGlyphs[static_cast<int>(icon)];
+    const float scale = side / (icon_data::kGrid * icon_data::kUnit);
+    // Lucide is drawn at stroke-width 2 on a 24 grid. Below one pixel a stroke
+    // stops being a line and starts being a grey smear, so it is clamped.
+    const float thickness = std::max(1.f, side * icon_data::kStrokeWidth / icon_data::kGrid);
+    for (unsigned short p = 0; p < glyph.count; ++p) {
+        const auto& path = icon_data::kPaths[glyph.first + p];
+        for (unsigned short i = 0; i < path.count; ++i) {
+            const short* xy = &icon_data::kPoints[2 * (path.first + i)];
+            dl->PathLineTo(ImVec2(min.x + xy[0] * scale, min.y + xy[1] * scale));
         }
-        dl->PathStroke(ink, ImDrawFlags_Closed, 1.5f * dpi);
-        dl->AddCircle(p(12, 12), side * .13f, ink, 16, 1.5f * dpi); break;
-    case Icon::Sun:
-        dl->AddCircle(p(12, 12), side * .22f, ink, 16, 1.5f * dpi);
-        for (int i = 0; i < 8; ++i) { const float a = i * 3.14159265f / 4.f;
-            line(12 + 8 * std::cos(a), 12 + 8 * std::sin(a), 12 + 10 * std::cos(a), 12 + 10 * std::sin(a)); } break;
-    case Icon::Moon:
-        dl->PathArcTo(p(12, 12), side * .38f, .2f, 4.5f, 20);
-        dl->PathBezierCubicCurveTo(p(8, 13), p(13, 18), p(21, 14));
-        dl->PathStroke(ink, ImDrawFlags_Closed, 1.5f * dpi); break;
-    case Icon::Play: dl->AddTriangle(p(6, 3), p(6, 21), p(21, 12), ink, 1.5f * dpi); break;
-    case Icon::Pause: rect(6, 4, 9, 20); rect(15, 4, 18, 20); break;
-    case Icon::Back: line(12, 5, 4, 12); line(4, 12, 12, 19); line(21, 5, 13, 12); line(13, 12, 21, 19); break;
-    case Icon::Forward: line(3, 5, 11, 12); line(11, 12, 3, 19); line(12, 5, 20, 12); line(20, 12, 12, 19); break;
-    case Icon::Plus: line(12, 6, 12, 18); [[fallthrough]];
-    case Icon::Minus: line(6, 12, 18, 12); break;
-    case Icon::Left: line(15, 5, 8, 12); line(8, 12, 15, 19); break;
-    case Icon::Right: line(9, 5, 16, 12); line(16, 12, 9, 19); break;
-    case Icon::Down: line(5, 9, 12, 16); line(12, 16, 19, 9); break;
-    case Icon::Up: line(6.5f, 14.5f, 12, 9); line(12, 9, 17.5f, 14.5f); break;
-    case Icon::Mini: rect(3, 5, 21, 19); fill(12, 11, 18, 16); break;
-    case Icon::Expand: line(3, 10, 3, 3); line(3, 3, 10, 3); line(14, 21, 21, 21); line(21, 21, 21, 14); break;
-    case Icon::Copy: rect(7, 7, 21, 21); line(3, 17, 3, 3); line(3, 3, 17, 3); break;
-    case Icon::Rename: line(4, 17, 17, 4); line(17, 4, 21, 8); line(21, 8, 8, 21); line(8, 21, 3, 21); line(3, 21, 4, 17); break;
-    case Icon::Check: line(4, 12, 9, 17); line(9, 17, 20, 6); break;
-    case Icon::Close: line(6, 6, 18, 18); line(6, 18, 18, 6); break;
-    case Icon::Keyboard:
-        rect(3, 6, 21, 18);
-        for (float x : {6.f, 9.5f, 13.f, 16.5f}) fill(x, 9, x + 2, 10.5f);
-        fill(8, 13, 16, 14.5f); break;
-    case Icon::Speaker:
-    case Icon::Muted:
-        line(3, 9, 7, 9); line(7, 9, 12, 5); line(12, 5, 12, 19);
-        line(12, 19, 7, 15); line(7, 15, 3, 15); line(3, 15, 3, 9);
-        if (icon == Icon::Muted) { line(16, 9, 22, 15); line(16, 15, 22, 9); }
-        else { dl->PathArcTo(p(12, 12), side * .34f, -.7f, .7f, 8); dl->PathStroke(ink, 0, 1.5f * dpi); } break;
-    case Icon::Solo:
-        dl->PathArcTo(p(12, 12), side * .34f, 3.14159265f, 6.2831853f, 16); dl->PathStroke(ink, 0, 1.5f * dpi);
-        rect(3, 12, 7, 20); rect(17, 12, 21, 20); break;
-    case Icon::Piano:
-        rect(3.5f, 5, 20.5f, 19);
-        line(8.5f, 5, 8.5f, 13); line(12, 5, 12, 13); line(15.5f, 5, 15.5f, 13); break;
+        dl->PathStroke(ink, path.closed ? ImDrawFlags_Closed : 0, thickness);
     }
 }
 
