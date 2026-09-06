@@ -620,6 +620,46 @@ game can accept fewer than four events is still unknown and still needs someone
 at the keyboard. `SheetExport.hpp` has no caller: turning it into a button is
 an `EngineSnapshot` field and an `Action`, which belong to the panel owner.
 
+Completed 2026-09-06, the Wooting poll loop finally has tests:
+
+- **It had none, and that was the largest untested thing in the tree.**
+  Everything the analog backend decides lived inside a `while` loop that needs a
+  keyboard on the desk, so it was written, shipped and reported as unverified
+  three times without ever being exercised. `WootingPollStep` is that loop with
+  the SDK and the clock taken out: the buffer, the note map, the settings and
+  an elapsed time go in, note ons and note offs come out. It allocates nothing,
+  because it still runs at 1kHz on its own thread.
+- **The hazard it was hiding.** A key sounds `note + shift`, and the shift can
+  be let go while the key is still held. Releasing what the map says now rather
+  than what was actually sounded would send a note off for a pitch nobody was
+  holding and leave the real one down in the game with nothing left to release
+  it. The state carries the note that was sent, and there is now a test that
+  fails if it stops.
+- **Injection moved out from under the lock.** The loop used to call the
+  callback, which runs the whole injection path, while holding the mutex that a
+  settings change waits on. It now decides under the lock and sends outside it.
+- **Closing the device is one more poll of an empty buffer**, rather than a
+  second copy of the release logic. A key that is not in the buffer has been
+  let go, which is already what the step does.
+
+Twelve cases: the trigger and either side of the release gap, a key already
+down not sounding twice, a key leaving the buffer, shift raising a note, shift
+released mid-note releasing the note that sounded, shift arriving mid-note not
+retuning it, a shift key too lightly held to count, a shift past either end of
+the MIDI range staying silent and leaving nothing to release, the shift key and
+unmapped keys sounding nothing, two keys released independently, and a faster
+strike being louder than a slower one to the same depth.
+
+Verified: the shell Release build, the original solution build, the full
+`tests/run-shell-tests.ps1` with and without `-Render` across all four skins at
+100/150/200%, and the legit-mode suite.
+
+Still unverified: no Wooting was in the loop here either. What is tested is
+every decision the loop makes; what is not is the SDK underneath it, whether
+the keycode mode really returns Set 1 scancodes, and how any of it feels to
+play. The panel owner reports the device enumerates and opens, which is further
+than this has been before.
+
 `ShellEngine` owns the player and command queue. Construction, loading,
 play/stop, key cleanup and destruction run on its worker, and scheduling keeps
 the inherited playback threads. The legacy hotkey listener is disabled only in
@@ -674,7 +714,8 @@ From `HANDOFF.md` section 15, and they are not stylistic preferences:
    musical structure. Start there.
 3. **Wooting analog playing.** The connected device now enumerates, opens, and
    has conditional Settings controls for trigger, shift amount and velocity
-   scale. Physical key travel, held-Left-Shift black keys, velocity feel and
+   scale, and as of 2026-09-06 every decision its poll loop makes is tested.
+   Physical key travel, held-Left-Shift black keys, velocity feel and
    game delivery still need the owner to play it. The three remaining gaps
    against wooting-analog-midi stay out of scope by design: polyphonic
    aftertouch from continuous key depth, a second per-key note map, and a MIDI

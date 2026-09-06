@@ -193,6 +193,66 @@ WootingAnalogSettings GetWootingAnalogSettings() {
 // Scale means the same number here. Its default of 5 makes 20 units of depth
 // per second a full-strength strike, which is a press covering the travel in
 // about 50ms.
+size_t WootingPollStep(WootingPollState& state,
+                       const uint16_t* codes, const float* values, int count,
+                       const std::array<int16_t, 256>& noteMap,
+                       const WootingAnalogSettings& settings,
+                       double seconds,
+                       WootingPollEvent* out, size_t outCapacity) {
+    size_t written = 0;
+    const auto emit = [&](bool on, int note, uint8_t velocity) {
+        if (written < outCapacity) out[written++] = {on, static_cast<uint8_t>(note), velocity};
+    };
+
+    const float release = settings.trigger * settings.releaseFraction;
+    std::array<bool, 256> seen{};
+    seen.fill(false);
+
+    // The shift is read before any note key, because a key struck in the same
+    // poll as the shift should hear it. The buffer carries only keys that are
+    // off the rest, so the shift being absent is the shift being up.
+    int shift = 0;
+    for (int i = 0; i < count; ++i)
+        if (codes[i] == kWootingShiftScancode && values[i] >= settings.trigger)
+            shift = settings.shiftAmount;
+
+    for (int i = 0; i < count; ++i) {
+        const uint16_t code = codes[i];
+        if (code >= 256) continue;
+        const int16_t note = noteMap[code];
+        if (note < 0) continue;
+
+        seen[code] = true;
+        const float depth = values[i];
+        const float previousDepth = state.lastDepth[code];
+        state.lastDepth[code] = depth;
+
+        if (state.sounding[code] < 0 && depth >= settings.trigger) {
+            // A shift that pushes a key off the MIDI range has no note to send,
+            // so the key stays silent rather than wrapping round to a pitch
+            // nobody asked for. It also stays unsounded, so letting it go later
+            // releases nothing.
+            const int shifted = note + shift;
+            if (shifted < 0 || shifted > 127) continue;
+            state.sounding[code] = static_cast<int16_t>(shifted);
+            emit(true, shifted, WootingVelocityFor(depth, previousDepth, seconds, settings.velocityScale));
+        }
+        else if (state.sounding[code] >= 0 && depth <= release) {
+            emit(false, state.sounding[code], 0);
+            state.sounding[code] = -1;
+        }
+    }
+
+    // A key that drops out of the buffer has been let go.
+    for (size_t code = 0; code < state.sounding.size(); ++code) {
+        if (state.sounding[code] < 0 || seen[code]) continue;
+        state.lastDepth[code] = 0.0f;
+        emit(false, state.sounding[code], 0);
+        state.sounding[code] = -1;
+    }
+    return written;
+}
+
 uint8_t WootingVelocityFor(float depth, float previousDepth, double seconds, float velocityScale) {
     // No elapsed time is no measurement. Answering in the middle is the only
     // honest option: 0 would silence the note and 127 would shout it.
@@ -264,14 +324,10 @@ private:
         Sdk& s = sdk();
         std::array<uint16_t, kMaxKeys> codes{};
         std::array<float, kMaxKeys> values{};
-        std::array<float, 256> lastDepth{};
-        lastDepth.fill(0.0f);
-        // The note a key is currently sounding, or -1 for a key that is up.
-        // It has to be the note actually sent, not the mapped one, because the
-        // shift can be released while the key is still held and the note off
-        // has to match the note on or the game is left holding a key down.
-        std::array<int16_t, 256> sounding{};
-        sounding.fill(-1);
+        // Room for a note off and a note on per key in the buffer, plus a
+        // release for every key that could drop out of it in one poll.
+        std::array<WootingPollEvent, 2 * kMaxKeys + 256> events{};
+        WootingPollState state;
 
         LARGE_INTEGER freq{};
         QueryPerformanceFrequency(&freq);
@@ -286,58 +342,19 @@ private:
             const double dt = static_cast<double>(now.QuadPart - previous.QuadPart) / static_cast<double>(freq.QuadPart);
             previous = now;
 
-            std::array<bool, 256> seen{};
-            seen.fill(false);
-
-            if (count > 0) {
+            size_t produced = 0;
+            {
                 std::lock_guard<std::mutex> lock(g_mapMutex);
-                const WootingAnalogSettings settings = g_settings;
-                const float release = settings.trigger * settings.releaseFraction;
-
-                // The shift is read before any note key, because a key struck in
-                // the same poll as the shift should hear it. The buffer holds
-                // only keys that are off the rest, so the shift being absent is
-                // the shift being up.
-                int shift = 0;
-                for (int i = 0; i < count && i < static_cast<int>(kMaxKeys); ++i)
-                    if (codes[i] == kWootingShiftScancode && values[i] >= settings.trigger)
-                        shift = settings.shiftAmount;
-
-                for (int i = 0; i < count && i < static_cast<int>(kMaxKeys); ++i) {
-                    const uint16_t code = codes[i];
-                    if (code >= 256) continue;
-                    const int16_t note = g_scanToNote[code];
-                    if (note < 0) continue;
-
-                    seen[code] = true;
-                    const float depth = values[i];
-                    const float previousDepth = lastDepth[code];
-                    lastDepth[code] = depth;
-
-                    if (sounding[code] < 0 && depth >= settings.trigger) {
-                        // A shift that pushes a key off the MIDI range has no
-                        // note to send, so the key stays silent rather than
-                        // wrapping round to a pitch nobody asked for.
-                        const int shifted = note + shift;
-                        if (shifted < 0 || shifted > 127) continue;
-                        sounding[code] = static_cast<int16_t>(shifted);
-                        emitNoteOn(static_cast<uint8_t>(shifted),
-                                   velocityFor(depth, previousDepth, dt, settings.velocityScale),
-                                   static_cast<uint64_t>(now.QuadPart));
-                    }
-                    else if (sounding[code] >= 0 && depth <= release) {
-                        emitNoteOff(static_cast<uint8_t>(sounding[code]), static_cast<uint64_t>(now.QuadPart));
-                        sounding[code] = -1;
-                    }
-                }
+                produced = WootingPollStep(state, codes.data(), values.data(),
+                                           (std::min)(count, static_cast<int>(kMaxKeys)),
+                                           g_scanToNote, g_settings, dt,
+                                           events.data(), events.size());
             }
-
-            // A key that drops out of the buffer has been released.
-            for (size_t code = 0; code < sounding.size(); ++code) {
-                if (sounding[code] < 0 || seen[code]) continue;
-                lastDepth[code] = 0.0f;
-                emitNoteOff(static_cast<uint8_t>(sounding[code]), static_cast<uint64_t>(now.QuadPart));
-                sounding[code] = -1;
+            // Sent outside the lock: the callback runs the whole injection path
+            // and must not hold a lock a settings change would wait on.
+            for (size_t i = 0; i < produced; ++i) {
+                if (events[i].on) emitNoteOn(events[i].note, events[i].velocity, static_cast<uint64_t>(now.QuadPart));
+                else emitNoteOff(events[i].note, static_cast<uint64_t>(now.QuadPart));
             }
 
             // 1kHz. Fast enough that the poll adds well under a millisecond to
@@ -345,15 +362,15 @@ private:
             Sleep(1);
         }
 
-        for (size_t code = 0; code < sounding.size(); ++code) {
-            if (sounding[code] < 0) continue;
-            emitNoteOff(static_cast<uint8_t>(sounding[code]), 0);
-            sounding[code] = -1;
+        // An empty buffer means every key has been let go, which releases
+        // whatever was still sounding when the device closed.
+        {
+            std::lock_guard<std::mutex> lock(g_mapMutex);
+            const size_t produced = WootingPollStep(state, nullptr, nullptr, 0, g_scanToNote,
+                                                    g_settings, 0, events.data(), events.size());
+            for (size_t i = 0; i < produced; ++i)
+                if (!events[i].on) emitNoteOff(events[i].note, 0);
         }
-    }
-
-    static uint8_t velocityFor(float depth, float previousDepth, double dt, float velocityScale) {
-        return WootingVelocityFor(depth, previousDepth, dt, velocityScale);
     }
 
     void emitNoteOn(uint8_t note, uint8_t velocity, uint64_t timestampQpc) {

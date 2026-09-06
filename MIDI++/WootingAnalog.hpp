@@ -61,3 +61,37 @@ inline constexpr uint16_t kWootingShiftScancode = 0x2A; // Left Shift
 // scale can be driven directly by a test: the loop around it needs a keyboard,
 // and this does not.
 uint8_t WootingVelocityFor(float depth, float previousDepth, double seconds, float velocityScale);
+
+// What one poll of the analog buffer decides, with no SDK and no clock in it.
+//
+// The loop that calls this needs a Wooting on the desk; this does not, and it
+// is where everything that can be got wrong lives: the trigger and its release
+// gap, which note a shifted key sounds, and which note a key that is let go has
+// to release.
+struct WootingPollState {
+    std::array<float, 256> lastDepth{};
+    // The note each key is currently sounding, or -1 for a key that is up. It
+    // has to be the note actually sent, not the note the map gives now: the
+    // shift can be let go while the key is still held, and a note off that does
+    // not match its note on leaves the game holding a key down forever.
+    std::array<int16_t, 256> sounding{};
+
+    WootingPollState() { lastDepth.fill(0.0f); sounding.fill(-1); }
+};
+
+struct WootingPollEvent {
+    bool on = false;
+    uint8_t note = 0;
+    uint8_t velocity = 0;   // 0 on a note off
+};
+
+// codes and values are the SDK's buffer for this poll, count its length.
+// seconds is the time since the previous poll, used only for strike speed.
+// Writes at most 2 * count + 256 events, so out must hold that; returns how
+// many were written. Allocates nothing: this runs at 1kHz on its own thread.
+size_t WootingPollStep(WootingPollState& state,
+                       const uint16_t* codes, const float* values, int count,
+                       const std::array<int16_t, 256>& noteMap,
+                       const WootingAnalogSettings& settings,
+                       double seconds,
+                       WootingPollEvent* out, size_t outCapacity);

@@ -353,6 +353,144 @@ void WootingMapTests() {
     std::cout << "PASS wooting scancode mapping follows the virtual piano layout\n";
 }
 
+// The Wooting poll loop, which until now had no test at all: the loop needs a
+// keyboard on the desk, so everything it decides was written and shipped
+// unexercised. WootingPollStep is that loop without the SDK or the clock.
+void WootingPollTests() {
+    // A tiny map: "1" is C2, "2" is D2, and nothing else is a note.
+    constexpr uint16_t SC_1 = 0x02, SC_2 = 0x03, SC_ESC = 0x01;
+    std::array<int16_t, 256> map{};
+    map.fill(-1);
+    map[SC_1] = 36;   // C2
+    map[SC_2] = 38;   // D2
+
+    WootingAnalogSettings settings{};   // trigger 0.5, release fraction 0.6, shift 12, scale 5
+    std::array<WootingPollEvent, 300> out{};
+    const auto poll = [&](WootingPollState& state, std::vector<uint16_t> codes,
+                          std::vector<float> values, double seconds = 0.001) {
+        std::vector<WootingPollEvent> events;
+        const size_t count = WootingPollStep(state, codes.data(), values.data(),
+                                             static_cast<int>(codes.size()), map, settings,
+                                             seconds, out.data(), out.size());
+        for (size_t i = 0; i < count; ++i) events.push_back(out[i]);
+        return events;
+    };
+
+    // A key below the trigger is not a note yet, and crossing it is.
+    {
+        WootingPollState state;
+        Require(poll(state, {SC_1}, {0.40f}).empty(), "a key short of the trigger sounds nothing");
+        auto struck = poll(state, {SC_1}, {0.80f});
+        Require(struck.size() == 1 && struck[0].on && struck[0].note == 36, "crossing the trigger sounds the mapped note");
+        Require(struck[0].velocity > 0, "a struck note carries a velocity");
+        Require(poll(state, {SC_1}, {0.95f}).empty(), "a key already down does not sound again");
+    }
+
+    // The release gap is what stops a key resting on the trigger from
+    // stuttering. Default is 0.6 of it, so 0.30.
+    {
+        WootingPollState state;
+        poll(state, {SC_1}, {0.80f});
+        Require(poll(state, {SC_1}, {0.45f}).empty(), "falling below the trigger is not yet a release");
+        Require(poll(state, {SC_1}, {0.31f}).empty(), "nor is anything above the release");
+        auto released = poll(state, {SC_1}, {0.30f});
+        Require(released.size() == 1 && !released[0].on && released[0].note == 36, "reaching the release lets the note go");
+        auto again = poll(state, {SC_1}, {0.80f});
+        Require(again.size() == 1 && again[0].on, "and the key can then be struck again");
+    }
+
+    // A key that vanishes from the buffer has been let go. The SDK reports only
+    // keys that are off the rest, so this is the ordinary way a note ends.
+    {
+        WootingPollState state;
+        poll(state, {SC_1}, {0.80f});
+        auto gone = poll(state, {}, {});
+        Require(gone.size() == 1 && !gone[0].on && gone[0].note == 36, "a key leaving the buffer releases its note");
+        Require(poll(state, {}, {}).empty(), "and does not release it twice");
+    }
+
+    // Shift amount, which is the whole reason a Wooting can play a black key:
+    // the layout only reaches the naturals.
+    {
+        settings.shiftAmount = 1;
+        WootingPollState state;
+        auto sharp = poll(state, {kWootingShiftScancode, SC_1}, {0.90f, 0.80f});
+        Require(sharp.size() == 1 && sharp[0].on && sharp[0].note == 37, "holding shift plays the note above");
+        // Letting shift go while the key is still down must release the note
+        // that was actually sounded. Releasing 36 would leave 37 held in the
+        // game with nothing left to release it.
+        auto let = poll(state, {SC_1}, {0.10f});
+        Require(let.size() == 1 && !let[0].on && let[0].note == 37,
+                "the note off matches the note on, not what the map says now");
+        settings.shiftAmount = 12;
+    }
+
+    // A shift arriving after the key is down does not retune a sounding note,
+    // which is what the upstream app does and for the same reason.
+    {
+        WootingPollState state;
+        auto plain = poll(state, {SC_1}, {0.80f});
+        Require(plain.size() == 1 && plain[0].note == 36, "struck without shift");
+        Require(poll(state, {kWootingShiftScancode, SC_1}, {0.90f, 0.85f}).empty(),
+                "shifting mid-note changes nothing while the key is held");
+        auto let = poll(state, {kWootingShiftScancode, SC_1}, {0.90f, 0.05f});
+        Require(let.size() == 1 && !let[0].on && let[0].note == 36, "and it still releases the note it sounded");
+    }
+
+    // A shift below the trigger is not held. The shift is an analog key too.
+    {
+        settings.shiftAmount = 1;
+        WootingPollState state;
+        auto unshifted = poll(state, {kWootingShiftScancode, SC_1}, {0.20f, 0.80f});
+        Require(unshifted.size() == 1 && unshifted[0].note == 36, "a shift key barely touched is not held");
+        settings.shiftAmount = 12;
+    }
+
+    // A shift that pushes a key off the MIDI range plays nothing, and leaves
+    // nothing behind to release.
+    {
+        settings.shiftAmount = 127;
+        WootingPollState state;
+        Require(poll(state, {kWootingShiftScancode, SC_1}, {0.90f, 0.80f}).empty(),
+                "a note shifted past 127 is silent rather than wrapped");
+        Require(poll(state, {}, {}).empty(), "and a silent key releases nothing when let go");
+        settings.shiftAmount = -127;
+        WootingPollState below;
+        Require(poll(below, {kWootingShiftScancode, SC_1}, {0.90f, 0.80f}).empty(),
+                "and the same below zero");
+        settings.shiftAmount = 12;
+    }
+
+    // The shift key itself is not a note, and neither is anything unmapped.
+    {
+        WootingPollState state;
+        Require(poll(state, {kWootingShiftScancode}, {0.90f}).empty(), "the shift key sounds nothing of its own");
+        Require(poll(state, {SC_ESC}, {0.90f}).empty(), "a key the map does not name sounds nothing");
+    }
+
+    // Two keys at once are two notes, and each is released on its own.
+    {
+        WootingPollState state;
+        auto both = poll(state, {SC_1, SC_2}, {0.80f, 0.90f});
+        Require(both.size() == 2 && both[0].on && both[1].on, "two keys struck together are two note ons");
+        Require((both[0].note == 36 && both[1].note == 38), "each key sounds its own note");
+        auto one = poll(state, {SC_1, SC_2}, {0.80f, 0.05f});
+        Require(one.size() == 1 && !one[0].on && one[0].note == 38, "letting one go leaves the other sounding");
+    }
+
+    // Velocity comes from how fast the key was travelling, so the same depth
+    // reached faster is louder. Depth alone cannot work: every key crosses the
+    // trigger at the same depth.
+    {
+        WootingPollState fast, slow;
+        auto quick = poll(fast, {SC_1}, {0.80f}, 0.002);
+        auto gentle = poll(slow, {SC_1}, {0.80f}, 0.100);
+        Require(quick[0].velocity > gentle[0].velocity, "a faster strike is a louder note");
+    }
+
+    std::cout << "PASS wooting poll: trigger, release gap, shift, dropped keys and strike velocity\n";
+}
+
 // Sheet text is what people paste to each other for these games, and it is the
 // half of the YouTube to MIDI pipeline that needs nothing installed. A note is
 // the character the app would type for it, notes struck together are bracketed,
@@ -669,6 +807,7 @@ int wmain() {
         VelocityTelemetryTests();
         WootingMapTests();
         WootingSettingsTests();
+        WootingPollTests();
         PortResolutionTests();
         SheetExportTests();
         TwoDeviceTests();
