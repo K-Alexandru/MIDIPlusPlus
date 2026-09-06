@@ -78,6 +78,11 @@ four skins are at the top, the window markup follows the icon sprite, and the
 behaviour is one IIFE at the end. The sections after the live comparison carry
 the sizing and operability notes.
 
+## The comparison
+
+`spec-vs-build.md` is the panel-by-panel comparison against the real shell,
+with the line in `ui/Panels.cpp` that produces each difference.
+
 ## What these are not
 
 They are pictures of the spec, not of the build. The shell's own render tests
