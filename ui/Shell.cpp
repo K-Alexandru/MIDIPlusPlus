@@ -310,8 +310,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
         const int active = panels.preferences.skin;
         const bool modeChanged = appliedMini != panels.miniMode;
         const bool sizeChanged = modeChanged || appliedExpanded != panels.velocityExpanded ||
-            (panels.miniMode && appliedMiniAutoplay != panels.miniAutoplay) ||
-            (appliedSkin >= 0 && appliedSkin / 2 != active / 2);
+            (panels.miniMode && appliedMiniAutoplay != panels.miniAutoplay);
         if (sizeChanged) {
             RECT window{}, client{}; GetWindowRect(hwnd, &window); GetClientRect(hwnd, &client);
             if (modeChanged && panels.miniMode) fullRect = window;

@@ -513,15 +513,15 @@ void Panels::DrawKeyMapping(const Fonts& fonts, const skin::Skin& design, float 
 Panels::~Panels() { if (measuring_) input_latency::stop(); }
 
 ImVec2 Panels::DesiredSize() const {
-    const bool modern = preferences.skin >= 2;
-    if (miniMode) return ImVec2(480, miniAutoplay ? (modern ? 305.f : 264.f) : (modern ? 243.f : 166.f));
-    return ImVec2(1090, velocityExpanded ? (modern ? 1115.f : 1009.f) : (modern ? 728.f : 635.f));
+    if (miniMode) return ImVec2(480, miniAutoplay ? 264.f : 166.f);
+    return ImVec2(1090, velocityExpanded ? 1009.f : 635.f);
 }
 
 namespace {
 const char* BackendName(MidiBackend backend) {
     switch (backend) {
     case MidiBackend::WinMM: return "WinMM";
+    case MidiBackend::KernelStreaming: return "Kernel Streaming";
     case MidiBackend::WootingAnalog: return "Wooting Analog";
     default: return "WinRT";
     }
@@ -799,7 +799,8 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
     section("MIDI INPUT");
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12 * dpi, (s.metric.controlHeight - ImGui::GetTextLineHeight()) / 2));
     // The list and every open command use the ids supplied by ShellEngine.
-    for (const auto backend : {MidiBackend::WinRT, MidiBackend::WinMM, MidiBackend::WootingAnalog}) {
+    for (const auto backend : {MidiBackend::WinRT, MidiBackend::WinMM,
+                               MidiBackend::KernelStreaming, MidiBackend::WootingAnalog}) {
         const auto available = std::find_if(state->devices.begin(), state->devices.end(),
             [&](const LiveDevice& device) { return BackendForDeviceId(device.id) == backend; });
         ImGui::BeginDisabled(available == state->devices.end());
@@ -809,9 +810,6 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
         }
         ImGui::EndDisabled();
     }
-    ImGui::TextDisabled("Kernel Streaming: unavailable");
-    { FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
-      ImGui::TextWrapped("The device scan prefers WinRT, with WinMM as fallback. Kernel Streaming has no backend or buffer controls."); }
     ImGui::Separator();
     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - s.metric.controlHeight - 8 * dpi);
     const bool deviceOpen = ImGui::BeginCombo("##midi-input", DeviceName(*state).c_str(), ImGuiComboFlags_NoArrowButton);

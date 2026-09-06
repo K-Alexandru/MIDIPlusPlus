@@ -754,6 +754,35 @@ status was covered by converter tests and code inspection rather than a real
 file. Mini Settings was opened through the native interaction harness, but an
 active latency measurement was not started and then closed through that popup.
 
+Completed 2026-09-06, skin-independent sizing and the four-backend Settings list:
+
+- **Changing skin no longer changes the window size.** `Panels::DesiredSize`
+  now returns 1090 by 635 collapsed, 1090 by 1009 expanded, 480 by 166 in mini
+  live mode and 480 by 264 in mini autoplay for every skin. These are the
+  owner's requested smaller Classic dimensions. `ui/Shell.cpp` no longer
+  treats a Classic to Modern family change as a resize event.
+- **Settings reflects the backends that exist.** WinRT, WinMM, Kernel Streaming
+  and Wooting Analog are four radio choices. Each stays disabled when its scan
+  produced no device. The two stale lines saying Kernel Streaming was
+  unavailable and WinMM was only a fallback are gone. No buffer controls were
+  invented for Kernel Streaming.
+
+Verified: the Release x64 shell build and
+`tests/run-shell-tests.ps1 -Render` pass with the combined Kernel Streaming
+tree. The shell tests found two Kernel Streaming MIDI pins and exercised its
+enumeration, id routing and refusal paths. Full-window captures passed and were
+inspected across all four skins at 100/150/200% and back to 100%. The ignored
+DirectX 11 panel harness also rendered and checked both mini modes in all four
+skins at all three scales and back to 100%, producing identical 480 by 166 and
+480 by 264 logical sizes for Classic and Modern. Its Settings captures show all
+four backend rows at every skin and scale without stale explanatory copy.
+
+Still unverified: the desktop-driving native suite was not run because it
+fronts a real window and moves the owner's cursor, and permission to take over
+the desktop was not given during this pass. Therefore a real top-level window
+was not measured while switching skins. The two Kernel Streaming pins were not
+opened on physical MIDI hardware, and WinMM had no enumerated port on this run.
+
 Fixed 2026-09-06, the frame rate while using Key Mapping:
 
 - **The app called itself backgrounded whenever you used its second window.**
