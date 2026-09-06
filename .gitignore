@@ -11,3 +11,7 @@
 # 20MB of debug symbols against a 1MB executable, and the largest thing in the
 # repository. The executable is what people download; symbols are rebuildable.
 /x64/Release/MIDI++.pdb
+
+# Stray MSBuild output. A /p:OutDir given as a relative path resolves against
+# the project directory, not the repository root, which put a 20MB pdb here.
+/MIDI++/build/
