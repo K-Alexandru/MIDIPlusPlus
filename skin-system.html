@@ -1740,6 +1740,14 @@ body.only-keys #winFull{display:none!important;}
     Array.prototype.forEach.call(document.querySelectorAll("#modeSeg button"),function(b){
       b.setAttribute("aria-pressed",String(b.dataset.mode===mode));});
     if(q.get("only")==="keys")document.body.classList.add("only-keys");
+    /* The velocity editor starts collapsed, so its expanded and advanced states
+       are only reachable by clicking. Driving the real buttons rather than
+       setting hidden directly keeps one code path for both. */
+    var velocity=q.get("velocity");
+    if(velocity==="open"||velocity==="advanced"){
+      document.getElementById("curveDisclosure").click();
+      if(velocity==="advanced")document.getElementById("advancedCurve").click();
+    }
     if(q.get("frame")==="1"){
       /* The page's own light/dark is independent of the window skin. A capture
          of a dark skin on a light page is a comparison nobody asked for. */

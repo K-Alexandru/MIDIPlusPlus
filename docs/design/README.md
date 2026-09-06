@@ -22,6 +22,10 @@ after any change to the mockup:
 | `classic-dark-full.png` | Full window, Classic Dark |
 | `modern-full.png` | Full window, Modern, 1090 x 728 |
 | `modern-dark-full.png` | Full window, Modern Dark |
+| `classic-velocity.png` | Velocity editor expanded, Classic |
+| `modern-velocity.png` | Velocity editor expanded, Modern |
+| `classic-velocity-advanced.png` | Velocity editor with the 32-step editor open, Classic |
+| `modern-velocity-advanced.png` | Velocity editor with the 32-step editor open, Modern |
 | `classic-keymap.png` | Key mapping window, Classic, 840 x 246 |
 | `modern-keymap.png` | Key mapping window, Modern, 840 x 268 |
 | `classic-mini-live.png` | Mini, live input, Classic, 480 x 166 |
@@ -29,9 +33,9 @@ after any change to the mockup:
 | `classic-mini-auto.png` | Mini, autoplay, Classic, 480 x 264 |
 | `modern-mini-auto.png` | Mini, autoplay, Modern, 480 x 305 |
 
-Every case has the velocity editor collapsed. The expanded editor, the settings
-panel and the transport chooser are behind clicks, so they need one of the two
-options below.
+The four full-window shots have the velocity editor collapsed; the four velocity
+shots are the same window with it open. The settings panel and the transport
+chooser are still behind clicks, so they need one of the two options below.
 
 ## 2. The mockup in a browser
 
@@ -53,6 +57,7 @@ so a state can be pointed at rather than described:
 | `keys` | `1` shows the key mapping window, `0` hides it. Full mode only |
 | `frame` | `1` hides the page prose, leaving the window alone |
 | `only` | `keys` shows the key mapping window without the main one |
+| `velocity` | `open` expands the velocity editor, `advanced` also opens the 32-step editor |
 
 `http://127.0.0.1:8756/skin-system.html?skin=modern-dark&mode=live` opens on
 that case directly. The same parameters work on a `file:` URL for anything that

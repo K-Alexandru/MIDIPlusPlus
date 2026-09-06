@@ -110,9 +110,16 @@ range reads `C2-C6` with a hyphen where the spec has an en dash.
 The render harnesses draw the panels without a native window, so the title bar,
 the window buttons and the key mapping window's separate-window behaviour are
 outside this pass. The native host was verified separately in the previous
-session. The velocity editor's expanded, advanced and constrained states were
-captured (`mode-1` through `mode-3`) but the spec side needs clicks in the
-mockup to match them, which this pass did not do.
+session.
+
+The velocity editor now has both sides: `mode-1` through `mode-3` on the build,
+`classic-velocity*.png` and `modern-velocity*.png` on the spec. They were not
+read against each other in this pass.
+
+One thing the spec side settles: its histogram is labelled "Your playing this
+session". `MIDI++/VelocityTelemetry.hpp` now records exactly that, and the
+build can draw it as soon as the panel owner carries the field into
+`EngineSnapshot`. CONTINUE-HERE.md has the field and what to draw with it.
 
 ## Reproducing
 
