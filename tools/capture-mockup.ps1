@@ -48,6 +48,11 @@ $cases = @(
   @{ name = 'modern-full';       skin = 'modern';       mode = 'full'; keys = 0; w = 1150; h = 795 }
   @{ name = 'modern-dark-full';  skin = 'modern-dark';  mode = 'full'; keys = 0; w = 1150; h = 795 }
 
+  @{ name = 'classic-velocity';          skin = 'classic'; mode = 'full'; keys = 0; w = 1150; h = 1075; velocity = 'open' }
+  @{ name = 'modern-velocity';           skin = 'modern';  mode = 'full'; keys = 0; w = 1150; h = 1180; velocity = 'open' }
+  @{ name = 'classic-velocity-advanced'; skin = 'classic'; mode = 'full'; keys = 0; w = 1150; h = 1290; velocity = 'advanced' }
+  @{ name = 'modern-velocity-advanced';  skin = 'modern';  mode = 'full'; keys = 0; w = 1150; h = 1400; velocity = 'advanced' }
+
   @{ name = 'classic-keymap';    skin = 'classic';      mode = 'full'; keys = 1; w = 900; h = 320; only = 'keys' }
   @{ name = 'modern-keymap';     skin = 'modern';       mode = 'full'; keys = 1; w = 900; h = 345; only = 'keys' }
 
@@ -72,6 +77,7 @@ try {
   foreach ($c in $selected) {
     $query = "frame=1&skin=$($c.skin)&mode=$($c.mode)&keys=$($c.keys)"
     if ($c.only) { $query += "&only=$($c.only)" }
+    if ($c.velocity) { $query += "&velocity=$($c.velocity)" }
     $url = ([System.Uri]$page).AbsoluteUri + "?" + $query
     $out = Join-Path $OutDir ($c.name + '.png')
 

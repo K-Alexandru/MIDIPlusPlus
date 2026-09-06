@@ -3,6 +3,7 @@
 #include "MIDI2Key.hpp"
 #include "InputHeader.h"
 #include "InputLatency.hpp"
+#include "VelocityTelemetry.hpp"
 
 #pragma comment(lib, "avrt.lib")
 
@@ -409,6 +410,11 @@ void MIDI2Key::ProcessMidiMessage(uint64_t timestampQpc, const uint8_t* bytes, s
     uint8_t channel = status & 0x0F;
     if (m_selectedChannel >= 0 && channel != (uint8_t)m_selectedChannel) return;
     if (cmd != 0x90 && cmd != 0x80 && !(cmd == 0xB0 && bytes[1] == 64)) return;
+
+    // After the channel filter, so the histogram describes the part being
+    // played and not everything on the wire, and before the enable checks, so
+    // it still describes what was played when velocity output is switched off.
+    velocity_telemetry::observe(bytes, length);
 
     input_latency::Trace trace(input_latency::Source::LiveKeys,
         cmd == 0xB0 ? input_latency::Kind::Sustain :
