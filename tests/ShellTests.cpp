@@ -3,6 +3,7 @@
 #include "TrackFixture.hpp"
 #include "../MIDI++/VelocityTelemetry.hpp"
 #include "../MIDI++/WootingAnalog.hpp"
+#include "../MIDI++/config.hpp"
 #include <atomic>
 #include <iostream>
 #include <thread>
@@ -203,8 +204,10 @@ void WootingMapTests() {
     Require(note(0x10) == 53, "q follows 0 rather than restarting");
     Require(note(0x32) == 96, "m is the top of the unshifted layout");
     // Black keys are shifted bindings, and a shifted key is two physical keys
-    // to the analog SDK, so they stay unmapped rather than guessed.
+    // to the analog SDK, so they stay unmapped rather than guessed. Shift
+    // amount is what reaches them: it is a note offset, not a note.
     Require(note(0x2A) == -1 && note(0x1D) == -1, "shift and ctrl are not notes");
+    Require(map[kWootingShiftScancode] == -1, "the shift key never sounds a note of its own");
 
     // A user's own mapping wins over the built-in layout.
     std::map<std::string, std::string> mapping{
@@ -215,6 +218,54 @@ void WootingMapTests() {
     Require(custom[0x10] == -1, "keys the mapping does not name stay silent");
     for (const auto& entry : custom) Require(entry >= -1 && entry <= 127, "no note escapes the MIDI range");
     std::cout << "PASS wooting scancode mapping follows the virtual piano layout\n";
+}
+
+// The three controls wooting-analog-midi exposes and this backend did not.
+// Their absence is why a Wooting here played one fixed layout of white keys at
+// one fixed sensitivity, so the defaults are that app's and a number carried
+// over from it has to mean the same thing.
+void WootingSettingsTests() {
+    const auto defaults = midi::WootingAnalogSettings{};
+    Require(defaults.TRIGGER_THRESHOLD == 0.5 && defaults.SHIFT_AMOUNT == 12 && defaults.VELOCITY_SCALE == 5.0,
+            "defaults match wooting-analog-midi");
+
+    WootingAnalogSettings applied{0.25f, 0.5f, 1, 2.0f};
+    SetWootingAnalogSettings(applied);
+    const auto read = GetWootingAnalogSettings();
+    Require(read.trigger == 0.25f && read.shiftAmount == 1 && read.velocityScale == 2.0f,
+            "settings survive the round trip into the backend");
+    SetWootingAnalogSettings({});
+
+    // Upstream's formula: rate * scale / 100, clamped, onto 1..127. At the
+    // default scale of 5, twenty units of depth per second is a full strike.
+    Require(WootingVelocityFor(0.2f, 0.0f, 0.01, 5.0f) == 127, "a fast strike reaches full velocity");
+    Require(WootingVelocityFor(0.1f, 0.0f, 0.01, 5.0f) == 64, "half that rate is half the range");
+    Require(WootingVelocityFor(0.1f, 0.0f, 0.01, 10.0f) == 127, "doubling the scale doubles the reading");
+    Require(WootingVelocityFor(0.1f, 0.0f, 0.01, 2.5f) == 32, "halving the scale halves it");
+    // A key on the way back up is not a strike, and no elapsed time is no
+    // measurement at all rather than a silent or a maximum note.
+    Require(WootingVelocityFor(0.0f, 0.5f, 0.01, 5.0f) == 1, "a key travelling back up is not a strike");
+    Require(WootingVelocityFor(0.5f, 0.0f, 0.0, 5.0f) == 96, "no elapsed time answers in the middle");
+
+    // Every field is optional so a config naming only what the user changed
+    // still loads, and a config written before this existed keeps the defaults.
+    midi::WootingAnalogSettings parsed;
+    nlohmann::json partial = {{"SHIFT_AMOUNT", 1}};
+    partial.get_to(parsed);
+    Require(parsed.SHIFT_AMOUNT == 1 && parsed.TRIGGER_THRESHOLD == 0.5 && parsed.VELOCITY_SCALE == 5.0,
+            "a partial block changes only what it names");
+
+    const auto rejects = [](const nlohmann::json& value) {
+        midi::WootingAnalogSettings out;
+        try { value.get_to(out); } catch (const midi::ConfigException&) { return true; }
+        return false;
+    };
+    Require(rejects({{"TRIGGER_THRESHOLD", 0.0}}), "a zero trigger would fire on a resting key");
+    Require(rejects({{"TRIGGER_THRESHOLD", 1.5}}), "a trigger past full travel could never fire");
+    Require(rejects({{"RELEASE_FRACTION", 1.0}}), "a release at the trigger leaves no gap to stop stutter");
+    Require(rejects({{"SHIFT_AMOUNT", 200}}), "a shift wider than the MIDI range is a typo");
+    Require(rejects({{"VELOCITY_SCALE", 0.0}}), "a zero scale would silence every note");
+    std::cout << "PASS wooting trigger, shift amount and velocity scale\n";
 }
 
 // The velocity graph's missing half. observe() carries the decode, so the one
@@ -302,6 +353,7 @@ int wmain() {
         WriteTrackFixture(fixture);
         VelocityTelemetryTests();
         WootingMapTests();
+        WootingSettingsTests();
         ModelTests(fixture);
         ReleaseTests(directory / L"config.json");
         ControllerTests(directory / L"config.json", fixture);

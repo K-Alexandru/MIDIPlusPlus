@@ -35,3 +35,29 @@ std::array<int16_t, 256> DefaultWootingScancodeNoteMap();
 // to the analog SDK, so there is no one scancode to hang the note on.
 std::array<int16_t, 256> WootingScancodeNoteMapFrom(
     const std::map<std::string, std::string>& keyMappings);
+
+// How the backend turns key travel into notes. Mirrors the three controls
+// wooting-analog-midi exposes, whose absence is why a Wooting here could only
+// play the white keys of one fixed table at one fixed sensitivity. Defaults
+// match that app. Config carries these as WOOTING_ANALOG; see config.hpp for
+// the field-by-field explanation and the accepted ranges.
+struct WootingAnalogSettings {
+    float trigger = 0.5f;
+    float releaseFraction = 0.6f;
+    int shiftAmount = 12;
+    float velocityScale = 5.0f;
+};
+
+// Safe to call while a device is open: the poll loop reads a copy each pass.
+void SetWootingAnalogSettings(const WootingAnalogSettings& settings);
+WootingAnalogSettings GetWootingAnalogSettings();
+
+// Set 1 scancode of the key that applies the shift, and the only key the
+// backend reads that is not a note.
+inline constexpr uint16_t kWootingShiftScancode = 0x2A; // Left Shift
+
+// MIDI velocity for a key that travelled from previousDepth to depth in the
+// given number of seconds. Free rather than private to the poll loop so the
+// scale can be driven directly by a test: the loop around it needs a keyboard,
+// and this does not.
+uint8_t WootingVelocityFor(float depth, float previousDepth, double seconds, float velocityScale);

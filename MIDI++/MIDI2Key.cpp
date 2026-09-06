@@ -360,8 +360,17 @@ void MIDI2Key::OpenDevice(const std::wstring& deviceId) {
     // user's mapping types for it. Feeding that in here means a remap is
     // picked up the next time the device is opened, and it stops the built-in
     // layout being the only thing a Wooting ever plays.
-    if (BackendForDeviceId(deviceId) == MidiBackend::WootingAnalog && m_player)
+    if (BackendForDeviceId(deviceId) == MidiBackend::WootingAnalog && m_player) {
         SetWootingScancodeNoteMap(WootingScancodeNoteMapFrom(m_player->full_key_mappings));
+        // The layout only reaches the white keys, so without a shift amount the
+        // black ones cannot be played at all. Reading the settings here means
+        // changing one takes effect on the next open, the same as a remap.
+        const auto& configured = midi::Config::getInstance().wooting;
+        SetWootingAnalogSettings({static_cast<float>(configured.TRIGGER_THRESHOLD),
+                                  static_cast<float>(configured.RELEASE_FRACTION),
+                                  configured.SHIFT_AMOUNT,
+                                  static_cast<float>(configured.VELOCITY_SCALE)});
+    }
 
     m_input = CreateMidiInput(BackendForDeviceId(deviceId));
     if (!m_input) return;

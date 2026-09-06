@@ -122,6 +122,7 @@ namespace midi {
             hotkeys.validate();
             autoplayer_timing.validate();
             legit_mode.validate();
+            wooting.validate();
             validateKeyMappings();
         }
         catch (const ConfigException& e) {
@@ -253,6 +254,38 @@ namespace midi {
         m.validate();
     }
 
+    void to_json(nlohmann::json& j, const WootingAnalogSettings& w) {
+        j = nlohmann::json{
+            {"TRIGGER_THRESHOLD", w.TRIGGER_THRESHOLD},
+            {"RELEASE_FRACTION", w.RELEASE_FRACTION},
+            {"SHIFT_AMOUNT", w.SHIFT_AMOUNT},
+            {"VELOCITY_SCALE", w.VELOCITY_SCALE}
+        };
+    }
+
+    // Every field is optional, so a config carrying only the one setting the
+    // user cared about still loads.
+    void from_json(const nlohmann::json& j, WootingAnalogSettings& w) {
+        w.TRIGGER_THRESHOLD = j.value("TRIGGER_THRESHOLD", w.TRIGGER_THRESHOLD);
+        w.RELEASE_FRACTION = j.value("RELEASE_FRACTION", w.RELEASE_FRACTION);
+        w.SHIFT_AMOUNT = j.value("SHIFT_AMOUNT", w.SHIFT_AMOUNT);
+        w.VELOCITY_SCALE = j.value("VELOCITY_SCALE", w.VELOCITY_SCALE);
+        w.validate();
+    }
+
+    void WootingAnalogSettings::validate() const {
+        if (TRIGGER_THRESHOLD <= 0.0 || TRIGGER_THRESHOLD > 1.0)
+            throw ConfigException("WOOTING_ANALOG TRIGGER_THRESHOLD must be above 0 and at most 1");
+        if (RELEASE_FRACTION <= 0.0 || RELEASE_FRACTION >= 1.0)
+            throw ConfigException("WOOTING_ANALOG RELEASE_FRACTION must be between 0 and 1, exclusive");
+        // A note that lands outside 0..127 cannot be sent, and the map itself
+        // spans five octaves, so anything past a keyboard's width is a typo.
+        if (SHIFT_AMOUNT < -127 || SHIFT_AMOUNT > 127)
+            throw ConfigException("WOOTING_ANALOG SHIFT_AMOUNT must be between -127 and 127 semitones");
+        if (VELOCITY_SCALE < 0.1 || VELOCITY_SCALE > 20.0)
+            throw ConfigException("WOOTING_ANALOG VELOCITY_SCALE must be between 0.1 and 20");
+    }
+
     void to_json(nlohmann::json& j, const UISettings& ui) {
         j = nlohmann::json{ {"alwaysOnTop", ui.alwaysOnTop} };
     }
@@ -325,7 +358,8 @@ namespace midi {
             {"CUSTOM_VELOCITY_CURVES", json::array()},
             {"PLAYLIST_FILES", c.playlistFiles},
             {"UI_SETTINGS", c.ui},
-            {"LEGIT_MODE_SETTINGS", c.legit_mode}
+            {"LEGIT_MODE_SETTINGS", c.legit_mode},
+            {"WOOTING_ANALOG", c.wooting}
         };
 
         for (const auto& curve : c.playback.customVelocityCurves) {
@@ -378,6 +412,12 @@ namespace midi {
         if (j.contains("LEGIT_MODE_SETTINGS")) {
             j.at("LEGIT_MODE_SETTINGS").get_to(c.legit_mode);
         }
+
+        // Absent in every config written before this existed, so its own
+        // defaults stand rather than the read failing.
+        if (j.contains("WOOTING_ANALOG")) {
+            j.at("WOOTING_ANALOG").get_to(c.wooting);
+        }
     }
 
     void Config::setDefaults() {
@@ -407,6 +447,10 @@ namespace midi {
 
         // UI settings
         ui = { true }; // alwaysOnTop
+
+        // Wooting analog settings: the struct's own defaults are the upstream
+        // app's, so there is nothing to restate here.
+        wooting = {};
 
         // Legit mode settings
         legit_mode = {

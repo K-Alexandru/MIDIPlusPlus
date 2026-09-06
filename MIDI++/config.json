@@ -181,6 +181,12 @@
         "NOTE_SKIP_CHANCE": 0.02,
         "TIMING_VARIATION": 0.1
     },
+    "WOOTING_ANALOG": {
+        "TRIGGER_THRESHOLD": 0.5,
+        "RELEASE_FRACTION": 0.6,
+        "SHIFT_AMOUNT": 12,
+        "VELOCITY_SCALE": 5.0
+    },
     "MIDI_SETTINGS": {
         "DETECT_DRUMS": true
     },

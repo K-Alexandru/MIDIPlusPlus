@@ -89,6 +89,7 @@ constexpr uint16_t SC_N = 0x31, SC_M = 0x32;
 
 std::mutex g_mapMutex;
 std::array<int16_t, 256> g_scanToNote = DefaultWootingScancodeNoteMap();
+WootingAnalogSettings g_settings{};
 
 } // namespace
 
@@ -174,6 +175,35 @@ void SetWootingScancodeNoteMap(const std::array<int16_t, 256>& map) {
     g_scanToNote = map;
 }
 
+void SetWootingAnalogSettings(const WootingAnalogSettings& settings) {
+    std::lock_guard<std::mutex> lock(g_mapMutex);
+    g_settings = settings;
+}
+
+WootingAnalogSettings GetWootingAnalogSettings() {
+    std::lock_guard<std::mutex> lock(g_mapMutex);
+    return g_settings;
+}
+
+// How hard the key was struck, from how fast it was travelling as it crossed
+// the trigger. Depth alone cannot work: every key crosses the trigger at the
+// same depth, so depth at that moment is a constant.
+//
+// rate * scale / 100 is wooting-analog-midi's own formula, so its Velocity
+// Scale means the same number here. Its default of 5 makes 20 units of depth
+// per second a full-strength strike, which is a press covering the travel in
+// about 50ms.
+uint8_t WootingVelocityFor(float depth, float previousDepth, double seconds, float velocityScale) {
+    // No elapsed time is no measurement. Answering in the middle is the only
+    // honest option: 0 would silence the note and 127 would shout it.
+    if (seconds <= 0.0) return 96;
+    const double rate = (static_cast<double>(depth) - static_cast<double>(previousDepth)) / seconds;
+    double scaled = rate * static_cast<double>(velocityScale) / 100.0;
+    if (scaled < 0.0) scaled = 0.0;
+    if (scaled > 1.0) scaled = 1.0;
+    return static_cast<uint8_t>(1 + static_cast<int>(scaled * 126.0));
+}
+
 bool WootingAnalogAvailable() {
     Sdk& s = sdk();
     if (!s.bound()) return false;
@@ -224,11 +254,6 @@ public:
     const std::wstring& openedDeviceId() const noexcept override { return m_openedId; }
 
 private:
-    // Analog depth at which a key counts as struck, and the lower value it has
-    // to come back through before it can be struck again. The gap is what stops
-    // a key resting near the threshold from stuttering.
-    static constexpr float kOnThreshold = 0.35f;
-    static constexpr float kOffThreshold = 0.20f;
     static constexpr size_t kMaxKeys = 32;
 
     void pollLoop() {
@@ -241,8 +266,12 @@ private:
         std::array<float, kMaxKeys> values{};
         std::array<float, 256> lastDepth{};
         lastDepth.fill(0.0f);
-        std::array<bool, 256> down{};
-        down.fill(false);
+        // The note a key is currently sounding, or -1 for a key that is up.
+        // It has to be the note actually sent, not the mapped one, because the
+        // shift can be released while the key is still held and the note off
+        // has to match the note on or the game is left holding a key down.
+        std::array<int16_t, 256> sounding{};
+        sounding.fill(-1);
 
         LARGE_INTEGER freq{};
         QueryPerformanceFrequency(&freq);
@@ -262,6 +291,18 @@ private:
 
             if (count > 0) {
                 std::lock_guard<std::mutex> lock(g_mapMutex);
+                const WootingAnalogSettings settings = g_settings;
+                const float release = settings.trigger * settings.releaseFraction;
+
+                // The shift is read before any note key, because a key struck in
+                // the same poll as the shift should hear it. The buffer holds
+                // only keys that are off the rest, so the shift being absent is
+                // the shift being up.
+                int shift = 0;
+                for (int i = 0; i < count && i < static_cast<int>(kMaxKeys); ++i)
+                    if (codes[i] == kWootingShiftScancode && values[i] >= settings.trigger)
+                        shift = settings.shiftAmount;
+
                 for (int i = 0; i < count && i < static_cast<int>(kMaxKeys); ++i) {
                     const uint16_t code = codes[i];
                     if (code >= 256) continue;
@@ -273,27 +314,30 @@ private:
                     const float previousDepth = lastDepth[code];
                     lastDepth[code] = depth;
 
-                    if (!down[code] && depth >= kOnThreshold) {
-                        down[code] = true;
-                        emitNoteOn(static_cast<uint8_t>(note),
-                                   velocityFor(depth, previousDepth, dt),
+                    if (sounding[code] < 0 && depth >= settings.trigger) {
+                        // A shift that pushes a key off the MIDI range has no
+                        // note to send, so the key stays silent rather than
+                        // wrapping round to a pitch nobody asked for.
+                        const int shifted = note + shift;
+                        if (shifted < 0 || shifted > 127) continue;
+                        sounding[code] = static_cast<int16_t>(shifted);
+                        emitNoteOn(static_cast<uint8_t>(shifted),
+                                   velocityFor(depth, previousDepth, dt, settings.velocityScale),
                                    static_cast<uint64_t>(now.QuadPart));
                     }
-                    else if (down[code] && depth <= kOffThreshold) {
-                        down[code] = false;
-                        emitNoteOff(static_cast<uint8_t>(note), static_cast<uint64_t>(now.QuadPart));
+                    else if (sounding[code] >= 0 && depth <= release) {
+                        emitNoteOff(static_cast<uint8_t>(sounding[code]), static_cast<uint64_t>(now.QuadPart));
+                        sounding[code] = -1;
                     }
                 }
             }
 
             // A key that drops out of the buffer has been released.
-            for (size_t code = 0; code < down.size(); ++code) {
-                if (!down[code] || seen[code]) continue;
-                down[code] = false;
+            for (size_t code = 0; code < sounding.size(); ++code) {
+                if (sounding[code] < 0 || seen[code]) continue;
                 lastDepth[code] = 0.0f;
-                std::lock_guard<std::mutex> lock(g_mapMutex);
-                const int16_t note = g_scanToNote[code];
-                if (note >= 0) emitNoteOff(static_cast<uint8_t>(note), static_cast<uint64_t>(now.QuadPart));
+                emitNoteOff(static_cast<uint8_t>(sounding[code]), static_cast<uint64_t>(now.QuadPart));
+                sounding[code] = -1;
             }
 
             // 1kHz. Fast enough that the poll adds well under a millisecond to
@@ -301,27 +345,15 @@ private:
             Sleep(1);
         }
 
-        for (size_t code = 0; code < down.size(); ++code) {
-            if (!down[code]) continue;
-            std::lock_guard<std::mutex> lock(g_mapMutex);
-            const int16_t note = g_scanToNote[code];
-            if (note >= 0) emitNoteOff(static_cast<uint8_t>(note), 0);
+        for (size_t code = 0; code < sounding.size(); ++code) {
+            if (sounding[code] < 0) continue;
+            emitNoteOff(static_cast<uint8_t>(sounding[code]), 0);
+            sounding[code] = -1;
         }
     }
 
-    // How hard the key was struck, from how fast it was travelling as it
-    // crossed the threshold. Depth alone cannot work: every key crosses the
-    // threshold at the same depth, so depth at that moment is a constant.
-    static uint8_t velocityFor(float depth, float previousDepth, double dt) {
-        if (dt <= 0.0) return 96;
-        const double rate = (static_cast<double>(depth) - static_cast<double>(previousDepth)) / dt;
-        // A brisk press covers the travel in about 40ms, so roughly 25 units of
-        // depth per second is a firm strike; scale that onto 1..127.
-        double scaled = rate / 25.0;
-        if (scaled < 0.0) scaled = 0.0;
-        if (scaled > 1.0) scaled = 1.0;
-        const int velocity = 1 + static_cast<int>(scaled * 126.0);
-        return static_cast<uint8_t>(velocity);
+    static uint8_t velocityFor(float depth, float previousDepth, double dt, float velocityScale) {
+        return WootingVelocityFor(depth, previousDepth, dt, velocityScale);
     }
 
     void emitNoteOn(uint8_t note, uint8_t velocity, uint64_t timestampQpc) {
