@@ -13,14 +13,29 @@
 #include "RtMidi.h"
 #include "WootingAnalog.hpp"
 
+#include <algorithm>
 #include <mutex>
 #include <string>
+#include <vector>
 
 namespace {
 
 // WinMM ids are prefixed so BackendForDeviceId can route without a lookup.
 constexpr wchar_t kWinMMPrefix[] = L"winmm:";
 constexpr wchar_t kWootingPrefix[] = L"wooting:";
+
+// A WinMM id is "winmm:<index>|<name>". The bar is found from the front, so a
+// name containing one keeps every character of it.
+bool parseWinMMId(const std::wstring& id, unsigned& index, std::wstring& name) {
+    const size_t prefix = wcslen(kWinMMPrefix);
+    if (id.size() < prefix || id.compare(0, prefix, kWinMMPrefix) != 0) return false;
+    const size_t bar = id.find(L'|', prefix);
+    const std::wstring digits = id.substr(prefix, bar == std::wstring::npos ? std::wstring::npos : bar - prefix);
+    for (wchar_t c : digits) if (c < L'0' || c > L'9') return false;
+    index = digits.empty() ? 0u : static_cast<unsigned>(_wtoi(digits.c_str()));
+    name = (bar == std::wstring::npos) ? std::wstring() : id.substr(bar + 1);
+    return true;
+}
 
 inline uint64_t nowQpc() {
     LARGE_INTEGER c{};
@@ -128,11 +143,23 @@ public:
             RtMidiIn probe(RtMidi::Api::WINDOWS_MM, "MIDI++ enumerate", 100);
             const unsigned count = probe.getPortCount();
             out.reserve(count);
+            std::vector<std::wstring> stripped;
+            stripped.reserve(count);
+            for (unsigned i = 0; i < count; ++i)
+                stripped.push_back(StripRtMidiPortIndex(widen(probe.getPortName(i))));
             for (unsigned i = 0; i < count; ++i) {
-                std::wstring name = widen(probe.getPortName(i));
-                // The port name is the identity; the index only breaks the tie
-                // when two ports report the same name.
-                out.push_back({ kWinMMPrefix + std::to_wstring(i) + L"|" + name, name, MidiBackend::WinMM });
+                // The port name is the identity and the index only breaks the
+                // tie when two ports report the same name, so the id carries
+                // the name without RtMidi's index welded onto it.
+                const std::wstring& name = stripped[i];
+                // For display the number goes back on only where it is the one
+                // thing telling two rows apart, which is what two keyboards of
+                // the same model look like.
+                const bool ambiguous =
+                    std::count(stripped.begin(), stripped.end(), name) > 1;
+                std::wstring shown = ambiguous ? name + L" " + std::to_wstring(i) : name;
+                out.push_back({ kWinMMPrefix + std::to_wstring(i) + L"|" + name,
+                                std::move(shown), MidiBackend::WinMM });
             }
         }
         catch (RtMidiError const&) {
@@ -145,31 +172,25 @@ public:
         close();
         if (deviceId.empty()) return false;
 
-        unsigned index = 0;
-        std::wstring wantedName;
-        if (!parseId(deviceId, index, wantedName)) return false;
-
         try {
             m_in = new RtMidiIn(RtMidi::Api::WINDOWS_MM, "MIDI++", 100);
             const unsigned count = m_in->getPortCount();
             if (count == 0) { destroy(); return false; }
 
-            // Prefer the port whose name matches; fall back to the recorded
-            // index. Windows renumbers ports when devices come and go, so the
-            // name is the more reliable half of the id.
-            unsigned target = count;
-            if (!wantedName.empty()) {
-                for (unsigned i = 0; i < count; ++i) {
-                    if (widen(m_in->getPortName(i)) == wantedName) { target = i; break; }
-                }
-            }
-            if (target >= count) target = (index < count) ? index : 0;
+            std::vector<std::wstring> names;
+            names.reserve(count);
+            for (unsigned i = 0; i < count; ++i) names.push_back(widen(m_in->getPortName(i)));
+
+            // A device that is not there reports it, rather than quietly
+            // handing back whichever port happens to be first.
+            const int target = ResolveWinMMPort(deviceId, names);
+            if (target < 0) { destroy(); return false; }
 
             m_callback = std::move(callback);
             m_in->setCallback(&WinMMMidiInput::trampoline, this);
             m_in->ignoreTypes(true, true, true);
             m_in->setBufferSize(256, 1);
-            m_in->openPort(target);
+            m_in->openPort(static_cast<unsigned>(target));
             m_openedId = deviceId;
             return true;
         }
@@ -202,16 +223,6 @@ private:
         auto* self = static_cast<WinMMMidiInput*>(user);
         if (!self || !message || message->empty() || !self->m_callback) return;
         self->m_callback(t0, message->data(), message->size());
-    }
-
-    static bool parseId(const std::wstring& id, unsigned& index, std::wstring& name) {
-        const size_t prefix = wcslen(kWinMMPrefix);
-        if (id.compare(0, prefix, kWinMMPrefix) != 0) return false;
-        const size_t bar = id.find(L'|', prefix);
-        const std::wstring digits = id.substr(prefix, bar == std::wstring::npos ? std::wstring::npos : bar - prefix);
-        index = digits.empty() ? 0u : static_cast<unsigned>(_wtoi(digits.c_str()));
-        name = (bar == std::wstring::npos) ? std::wstring() : id.substr(bar + 1);
-        return true;
     }
 
     void destroy() {
@@ -248,6 +259,34 @@ std::vector<MidiInputDevice> EnumerateMidiInputs() {
         for (auto& device : wooting->enumerate()) devices.push_back(std::move(device));
     }
     return devices;
+}
+
+std::wstring StripRtMidiPortIndex(const std::wstring& name) {
+    const size_t space = name.find_last_of(L' ');
+    if (space == std::wstring::npos || space + 1 >= name.size()) return name;
+    for (size_t i = space + 1; i < name.size(); ++i)
+        if (name[i] < L'0' || name[i] > L'9') return name;
+    return name.substr(0, space);
+}
+
+int ResolveWinMMPort(const std::wstring& deviceId, const std::vector<std::wstring>& portNames) {
+    unsigned index = 0;
+    std::wstring wanted;
+    if (!parseWinMMId(deviceId, index, wanted)) return -1;
+    const std::wstring target = StripRtMidiPortIndex(wanted);
+
+    if (!target.empty()) {
+        // The recorded index is the tie-break, not the answer, so it is
+        // consulted first and only accepted when the name agrees with it.
+        if (index < portNames.size() && StripRtMidiPortIndex(portNames[index]) == target)
+            return static_cast<int>(index);
+        for (size_t i = 0; i < portNames.size(); ++i)
+            if (StripRtMidiPortIndex(portNames[i]) == target) return static_cast<int>(i);
+        return -1;
+    }
+
+    // An id written before names were recorded carries nothing but its index.
+    return index < portNames.size() ? static_cast<int>(index) : -1;
 }
 
 MidiBackend BackendForDeviceId(const std::wstring& deviceId) {

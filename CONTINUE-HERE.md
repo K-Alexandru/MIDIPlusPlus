@@ -471,6 +471,54 @@ There is no UI for the three settings: they are config-only, and adding one
 means an `EngineSnapshot` field and `ShellEngine::Action` entries, which belong
 to whoever owns the panel.
 
+Completed 2026-09-06, two MIDI devices at once (item 4, now closed):
+
+- **Confirmed, and it was not already right.** `269c2f2` replaced three
+  disagreeing index spaces with opaque ids, which fixed what the combo and the
+  opener disagreed about. It did not fix how a WinMM id resolves back to a port,
+  and that had two faults that only appear with two devices present.
+- **RtMidi welds the index into the name.** `MidiInWinMM::getPortName` appends
+  `" <portNumber>"` to every name, so this machine reports `MIDI 0` and
+  `loopMIDI Port 1`. The name half of an id was the half meant to outlive
+  renumbering, and it carried the number it was supposed to outlive: unplug the
+  first device, the second becomes `loopMIDI Port 0`, the stored name stops
+  matching, and resolution falls back to the index that just moved. Names are
+  now compared, and stored in ids, with that one trailing numeric token removed.
+  A device genuinely called `Digital Piano 2` keeps its number, because RtMidi's
+  suffix is always last and only one token is taken.
+- **A missing device was substituted, silently.** The old resolution ended
+  `if (target >= count) target = (index < count) ? index : 0;`, so asking for a
+  keyboard that had been unplugged opened whatever was at port 0 instead. That
+  is the opposite of what `MidiInput.hpp` promises, and it is worse than an
+  error because an error is visible. `ResolveWinMMPort` returns -1 and the open
+  fails.
+- **The index is the tie-break, not the answer.** Two keyboards of the same
+  model report the same name, which is what RtMidi's suffix was for. The
+  recorded index is consulted first and accepted only when the name at it
+  agrees; otherwise the first name match wins. RtMidi's number goes back onto a
+  displayed name only where two rows would otherwise read identically.
+- **WinRT was already correct and is untouched.** Its ids are device interface
+  paths, `FromIdAsync` either returns the port or nothing, and there is no
+  renumbering and no fallback. It is also the list the app actually uses:
+  `EnumerateMidiInputs` only falls back to WinMM when WinRT reports nothing.
+
+Verified: the shell Release build, the original solution build, the full
+`tests/run-shell-tests.ps1` with and without `-Render`, and the legit-mode
+suite. `PortResolutionTests` covers the suffix stripping, renumbering, absent
+devices, identical names, stale indices, legacy ids with no name, WinRT and
+Wooting ids offered to the WinMM resolver, a malformed index, a name containing
+the separator, and every id this machine's own WinMM enumerator hands out
+resolving back to its own distinct port. `TwoDeviceTests` opens both real
+inputs at once and checks each landed on the port it was given and that closing
+one leaves the other alone.
+
+Still unverified: `TwoDeviceTests` ran against WinRT, because that is what
+`EnumerateMidiInputs` returns on this machine, and it skips itself on a machine
+with fewer than two inputs rather than failing. So the WinMM open path is
+covered by the resolver's tests and not by a live two-port open. Both inputs
+were loopMIDI ports; a real piano alongside a virtual port was not tried, and
+nothing here sent or received an actual note through two devices at once.
+
 `ShellEngine` owns the player and command queue. Construction, loading,
 play/stop, key cleanup and destruction run on its worker, and scheduling keeps
 the inherited playback threads. The legacy hotkey listener is disabled only in
@@ -529,9 +577,9 @@ From `HANDOFF.md` section 15, and they are not stylistic preferences:
    panel owner is the one who can give them a UI. Still absent against
    wooting-analog-midi: polyphonic aftertouch from continuous key depth, a
    per-key note map edited in the app, and a MIDI channel selector.
-4. **Two MIDI devices at once.** The id-based opening in `269c2f2` is meant to
-   fix this and has not been confirmed with two inputs present. Two loopMIDI
-   ports reproduce it without a second piano.
+4. **Two MIDI devices at once.** Closed 2026-09-06; see the entry above. The
+   ids from `269c2f2` were right and their WinMM resolution was not. What is
+   left is playing through two devices for real, rather than opening two.
 5. **`MIDIConnect`'s 6.5MB table** and **the `NtUserSendInput` syscall stub**,
    both described in `HANDOFF.md` section 4. The stub is the riskier of the two:
    its uninitialised state returns 69, which silently no-ops every keystroke.

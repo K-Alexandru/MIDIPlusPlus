@@ -3,6 +3,7 @@
 #include "TrackFixture.hpp"
 #include "../MIDI++/VelocityTelemetry.hpp"
 #include "../MIDI++/WootingAnalog.hpp"
+#include "../MIDI++/MidiInput.hpp"
 #include "../MIDI++/config.hpp"
 #include <atomic>
 #include <fstream>
@@ -275,6 +276,117 @@ void WootingMapTests() {
     std::cout << "PASS wooting scancode mapping follows the virtual piano layout\n";
 }
 
+// Three index spaces once disagreed about what "device 1" meant, which is
+// harmless with one device and wrong with two. Ids fixed the disagreement but
+// not the resolution: RtMidi welds the port index onto every WinMM port name,
+// so the name half of an id carried the very number it existed to outlive, and
+// a device that had gone away resolved to whichever port was left.
+void PortResolutionTests() {
+    const std::vector<std::wstring> present{L"MIDI 0", L"loopMIDI Port 1"};
+
+    // RtMidi's suffix comes off; a number that belongs to the device stays on.
+    Require(StripRtMidiPortIndex(L"loopMIDI Port 1") == L"loopMIDI Port", "the port index comes off the name");
+    Require(StripRtMidiPortIndex(L"Digital Piano 2 3") == L"Digital Piano 2", "only the last number is RtMidi's");
+    Require(StripRtMidiPortIndex(L"MIDI") == L"MIDI", "a name without a suffix is unchanged");
+    Require(StripRtMidiPortIndex(L"88") == L"88", "a name that is only digits is not a suffix");
+    Require(StripRtMidiPortIndex(L"") == L"", "an empty name survives");
+
+    Require(ResolveWinMMPort(L"winmm:1|loopMIDI Port", present) == 1, "an id opens the port it names");
+    Require(ResolveWinMMPort(L"winmm:0|MIDI", present) == 0, "and so does the other one");
+
+    // The case the ids were introduced for. Unplugging the first device shifts
+    // the second down, and RtMidi renames it as it goes.
+    const std::vector<std::wstring> renumbered{L"loopMIDI Port 0"};
+    Require(ResolveWinMMPort(L"winmm:1|loopMIDI Port", renumbered) == 0,
+            "renumbering does not lose the device, even though its name changed with it");
+
+    // The bug worth having a test for: the wanted device is gone and the other
+    // one is still there. Opening that instead is silent and wrong.
+    Require(ResolveWinMMPort(L"winmm:0|MIDI", renumbered) == -1,
+            "a device that is not present is not substituted with one that is");
+    Require(ResolveWinMMPort(L"winmm:0|MIDI", {}) == -1, "no ports at all is not port zero");
+
+    // Two keyboards of the same model report the same name, which is what
+    // RtMidi's suffix was for. The index is the tie-break, not the answer.
+    const std::vector<std::wstring> twins{L"Digital Piano 0", L"Digital Piano 1"};
+    Require(ResolveWinMMPort(L"winmm:1|Digital Piano", twins) == 1, "the index picks between identical names");
+    Require(ResolveWinMMPort(L"winmm:0|Digital Piano", twins) == 0, "and picks the other one when asked");
+    // With one of the twins gone the index no longer means anything, so the
+    // remaining one is the only honest answer.
+    Require(ResolveWinMMPort(L"winmm:1|Digital Piano", {L"Digital Piano 0"}) == 0,
+            "a stale index falls back to the name, not to nothing");
+
+    // Ids from before names were recorded, and ids that are not ours at all.
+    Require(ResolveWinMMPort(L"winmm:1", present) == 1, "an id with only an index still opens that port");
+    Require(ResolveWinMMPort(L"winmm:9", present) == -1, "an index past the end is not clamped into range");
+    Require(ResolveWinMMPort(L"", present) == -1, "an empty id names nothing");
+    Require(ResolveWinMMPort(L"\\\\?\\SWD#MMDEVAPI#MIDIU_KSA", present) == -1, "a WinRT id is not a WinMM id");
+    Require(ResolveWinMMPort(L"wooting:analog", present) == -1, "a Wooting id is not a WinMM id");
+    Require(ResolveWinMMPort(L"winmm:x|MIDI", present) == -1, "a malformed index is refused, not read as zero");
+
+    // A name carrying the separator keeps every character of it.
+    Require(ResolveWinMMPort(L"winmm:0|A|B", {L"A|B 0"}) == 0, "a bar inside a name is part of the name");
+
+    // The machine this runs on. Every id the enumerator hands out has to open
+    // the row it came from, and no two rows may land on the same port. With
+    // two ports present that is exactly the case ids were introduced for, so
+    // it is checked rather than assumed.
+    auto winmm = CreateMidiInput(MidiBackend::WinMM);
+    const auto rows = winmm->enumerate();
+    std::vector<std::wstring> live;
+    for (const auto& row : rows) live.push_back(row.name);
+    std::set<int> taken;
+    for (const auto& row : rows) {
+        const int port = ResolveWinMMPort(row.id, live);
+        Require(port >= 0 && static_cast<size_t>(port) < live.size(), "an enumerated port must resolve to itself");
+        Require(taken.insert(port).second, "two rows must never resolve to the same port");
+    }
+    std::cout << "PASS WinMM port resolution across renumbering, duplicates and absent devices\n";
+}
+
+// Two devices present at once has never actually been confirmed, only designed
+// for. It needs two inputs, so it runs when this machine has them and says so
+// when it does not: the suite as a whole must not require MIDI hardware.
+// Two loopMIDI ports reproduce it without a second piano.
+void TwoDeviceTests() {
+    std::vector<MidiInputDevice> ports;
+    for (const auto& device : EnumerateMidiInputs())
+        if (device.backend != MidiBackend::WootingAnalog) ports.push_back(device);
+
+    if (ports.size() < 2) {
+        std::cout << "SKIP two MIDI devices at once: " << ports.size()
+                  << " input present, needs 2 (create a second loopMIDI port)\n";
+        return;
+    }
+
+    const auto silent = [](uint64_t, const uint8_t*, size_t) {};
+    std::set<std::wstring> ids;
+    for (const auto& device : ports) {
+        Require(ids.insert(device.id).second, "every enumerated device needs its own id");
+        auto input = CreateMidiInput(device.backend);
+        Require(input->open(device.id, silent), "an enumerated device must open by its own id");
+        Require(input->openedDeviceId() == device.id, "the port opened is the port that was asked for");
+        input->close();
+        Require(!input->isOpen(), "closing releases the port");
+    }
+
+    // The case three disagreeing index spaces used to get wrong: both open,
+    // at the same time, each on the device it was given.
+    auto first = CreateMidiInput(ports[0].backend);
+    auto second = CreateMidiInput(ports[1].backend);
+    Require(first->open(ports[0].id, silent), "the first of two opens");
+    Require(second->open(ports[1].id, silent), "the second opens alongside it rather than replacing it");
+    Require(first->isOpen() && second->isOpen(), "both stay open");
+    Require(first->openedDeviceId() == ports[0].id && second->openedDeviceId() == ports[1].id,
+            "two open devices are not the same device twice");
+    first->close();
+    Require(second->isOpen(), "closing one device leaves the other alone");
+    second->close();
+
+    std::cout << "PASS two MIDI devices open at once, each on the port it was given ("
+              << ports.size() << " inputs present)\n";
+}
+
 // The three controls wooting-analog-midi exposes and this backend did not.
 // Their absence is why a Wooting here played one fixed layout of white keys at
 // one fixed sensitivity, so the defaults are that app's and a number carried
@@ -409,6 +521,8 @@ int wmain() {
         VelocityTelemetryTests();
         WootingMapTests();
         WootingSettingsTests();
+        PortResolutionTests();
+        TwoDeviceTests();
         ModelTests(fixture);
         MappingPersistenceTests(directory / L"config.json");
         ReleaseTests(directory / L"config.json");

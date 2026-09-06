@@ -60,3 +60,21 @@ std::vector<MidiInputDevice> EnumerateMidiInputs();
 
 // Which backend produced this id. Defaults to WinRT for empty or unknown ids.
 MidiBackend BackendForDeviceId(const std::wstring& deviceId);
+
+// RtMidi appends " <index>" to every WinMM port name, so that two keyboards of
+// the same model are still told apart. That puts the index inside the name,
+// which is the one half of a WinMM id meant to outlive renumbering: unplug a
+// device and every port after it shifts down, the stored name stops matching,
+// and resolution falls back to the index that just moved. Names are therefore
+// compared, and stored in ids, with that suffix removed. A device genuinely
+// named "Piano 2" keeps its number, because RtMidi's own suffix is always the
+// last token and only one token is taken.
+std::wstring StripRtMidiPortIndex(const std::wstring& name);
+
+// The port index a WinMM device id names, or -1 when that device is not
+// present. Exposed for tests: the resolution is the part that goes wrong with
+// two devices, and the loop around it needs the hardware.
+//
+// It never guesses. Opening a different keyboard from the one asked for is
+// worse than opening nothing, because nothing is visible and wrong is not.
+int ResolveWinMMPort(const std::wstring& deviceId, const std::vector<std::wstring>& portNames);
