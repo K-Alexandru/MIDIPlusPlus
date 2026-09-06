@@ -84,7 +84,9 @@ port; the latest entry supersedes earlier implementation-status statements.
 
 `skin-system.html` is the spec. It is an operable mockup, not a picture: open it
 and press things. Its measurements are real and were taken from the rendered
-page, so build against them rather than guessing.
+page, so build against them rather than guessing. `docs/design/README.md` is the
+way in: committed screenshots of every skin and window mode, a loopback server
+for the live page, and where in the source the exact geometry lives.
 
 - Classic is 1090 x 635 px with the velocity editor collapsed, Modern 1090 x 728.
 - The primary strip is 81 px.
@@ -266,11 +268,35 @@ Remaining limits for this follow-up:
 - **Browser comparison:** automatic browser approval review rejected the local
   `file:` URL. This run read the HTML/CSS and the handoff measurements, and
   inspected native PNGs, but did not interact with the mockup in a browser or
-  complete the requested direct rendered-page comparison.
+  complete the requested direct rendered-page comparison. Unblocked by the
+  entry below; the comparison itself is still to be made.
 - **Hardware/native host:** live curve reconnection under physical playing,
   game delivery, native full/mini resizing, and physical mixed-DPI monitor moves
   remain unverified. The render and interaction harnesses use ImGui IO and DX11,
   not native window automation.
+
+Completed 2026-09-05, mockup reference (`docs/design/`):
+
+- **Unblocked the browser comparison.** The rejection above was of the `file:`
+  URL, not of the mockup. `tools/serve-mockup.ps1` serves the repository root
+  read-only on `http://127.0.0.1:8756`, which browser tooling accepts. It is a
+  raw `TcpListener`: `HttpListener` wants a URL ACL reservation and fails with
+  access denied unelevated, and there is no Python or Node on this machine.
+- **Deep links.** `skin-system.html` now reads `?skin=`, `?mode=`, `?keys=`,
+  `?frame=` and `?only=`, so a case can be opened rather than described.
+  Unknown values are ignored. `frame=1` hides the page prose and matches the
+  document theme to the skin, which is what the capture script screenshots.
+  Both additions are inert without the parameters; nothing the spec already
+  showed has changed.
+- **Committed screenshots.** `tools/capture-mockup.ps1` renders all four skins,
+  both mini modes and both key mapping windows to `docs/design/` through
+  headless Edge, 540 KB for ten PNGs. Regenerate after editing the mockup.
+  `docs/design/README.md` is the index, and says which of the three routes into
+  the spec answers which kind of question.
+
+The screenshots are of the spec. `build/render-tests/` holds the equivalent
+PNGs of the real shell, and comparing the two folders is the comparison the
+entry above could not make.
 
 `ShellEngine` owns the player and command queue. Construction, loading,
 play/stop, key cleanup and destruction run on its worker, and scheduling keeps
@@ -284,8 +310,9 @@ The native file picker opens; completing its modal dialog remains unverified
 because the desktop automation tool could not target its controls reliably.
 
 Next: expose incoming velocities for the graph through the input-path owner,
-then validate live curve reconnection and native window resizing. Complete the
-browser comparison when the mockup is available through an allowed browser URL.
+then validate live curve reconnection and native window resizing. The browser
+comparison is now runnable: `tools/serve-mockup.ps1`, then compare against
+`docs/design/` and `build/render-tests/`.
 The velocity design decisions in `HANDOFF.md` still apply. Keep Tracks visible
 and retain the real device ids and measurement boundaries.
 

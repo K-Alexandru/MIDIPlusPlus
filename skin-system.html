@@ -543,6 +543,18 @@ section{margin:0 0 48px;}
 .scale-tbl .mono{font-family:var(--mono);font-size:12.5px;}
 footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--rule);font-size:13px;
   color:var(--ink-3);max-width:72ch;}
+
+/* ---- capture mode -------------------------------------------------------
+   ?frame=1 strips the page furniture so a screenshot carries the window and
+   nothing else. tools/capture-mockup.ps1 uses it; the prose sections below
+   are still there without the parameter. */
+body.frame .wrap{max-width:none;padding:0;}
+body.frame .wrap>*:not(section){display:none;}
+body.frame section:not(:first-of-type){display:none;}
+body.frame section>h2,body.frame .controls,body.frame .meta-line{display:none;}
+body.frame section{margin:0;}
+body.frame .desk{background:var(--ground);padding:24px;min-height:100vh;}
+body.only-keys #winFull{display:none!important;}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;}}
 </style>
 
@@ -1713,6 +1725,28 @@ footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--rule);font-si
   paintTracks();
   paintTransport();
   renderPiano();
+  /* ---- deep links ---------------------------------------------------------
+     ?skin=modern-dark&mode=live&keys=0&frame=1&only=keys puts the mockup in
+     one state without clicking, so a screenshot or a second pair of eyes can
+     be pointed at exactly the case under discussion. Unknown values are
+     ignored rather than throwing, because a stale link should still open. */
+  (function(){
+    var q=new URLSearchParams(location.search);
+    if(names[q.get("skin")])skin=q.get("skin");
+    if(sizes[q.get("mode")])mode=q.get("mode");
+    if(q.has("keys"))keysOpen=q.get("keys")!=="0";
+    Array.prototype.forEach.call(document.querySelectorAll("#skinSeg button"),function(b){
+      b.setAttribute("aria-pressed",String(b.dataset.skin===skin));});
+    Array.prototype.forEach.call(document.querySelectorAll("#modeSeg button"),function(b){
+      b.setAttribute("aria-pressed",String(b.dataset.mode===mode));});
+    if(q.get("only")==="keys")document.body.classList.add("only-keys");
+    if(q.get("frame")==="1"){
+      /* The page's own light/dark is independent of the window skin. A capture
+         of a dark skin on a light page is a comparison nobody asked for. */
+      document.documentElement.setAttribute("data-theme",isDark()?"dark":"light");
+      document.body.classList.add("frame");
+    }
+  })();
   apply();
 })();
 </script>
