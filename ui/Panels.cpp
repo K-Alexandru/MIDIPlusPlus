@@ -1265,11 +1265,18 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
           ImGui::TableNextRow(ImGuiTableRowFlags_Headers);
           for (int column = 0; column < 7; ++column) {
               ImGui::TableSetColumnIndex(column);
-              ImGui::TableHeader(column < 5 ? ImGui::TableGetColumnName(column) : "");
+              // Always the column's own name, never "". An empty label takes
+              // its ID from the parent, so the two icon columns collided with
+              // each other and ImGui said so on screen.
+              // The mute and solo names begin with ## and so draw nothing;
+              // MUTE SOLO is painted across both of them below.
+              ImGui::TableHeader(ImGui::TableGetColumnName(column));
           } }
         const auto* table = ImGui::GetCurrentTable();
-        muteSoloMin = ImVec2(table->Columns[5].MinX, table->RowPosY1 + s.spacing.s1);
-        muteSoloMax = ImVec2(table->Columns[6].MaxX, muteSoloMin.y + 24 * dpi);
+        // The real header row, not a 24px guess offset by a spacing step: that
+        // put MUTE SOLO on a different baseline from the five headers beside it.
+        muteSoloMin = ImVec2(table->Columns[5].MinX, table->RowPosY1);
+        muteSoloMax = ImVec2(table->Columns[6].MaxX, muteSoloMin.y + ImGui::TableGetHeaderRowHeight());
         const bool anySolo = AnySolo(state->rows);
         ImGuiListClipper tracks;
         tracks.Begin(static_cast<int>(state->rows.size()), s.metric.controlHeight + 2 * s.spacing.s1);
@@ -1313,7 +1320,8 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
           const float textWidth = ImGui::CalcTextSize("MUTE SOLO").x;
           auto* headers = ImGui::GetWindowDrawList();
           headers->PushClipRect(muteSoloMin, muteSoloMax, false);
-          headers->AddText(ImVec2(muteSoloMin.x + (muteSoloMax.x - muteSoloMin.x - textWidth) / 2, muteSoloMin.y),
+          headers->AddText(ImVec2(muteSoloMin.x + (muteSoloMax.x - muteSoloMin.x - textWidth) / 2,
+                                  muteSoloMin.y + (muteSoloMax.y - muteSoloMin.y - ImGui::GetTextLineHeight()) / 2),
                            Colour(s.ink.secondary), "MUTE SOLO");
           headers->PopClipRect(); }
         ImGui::EndTable();
