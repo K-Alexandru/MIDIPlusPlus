@@ -889,27 +889,34 @@ void VirtualPianoPlayer::restart_song() {
 // velocity protocol is unchanged; there are simply two fewer events and one
 // fewer call. getVelocityKey() only ever returns a character from
 // "1234567890qwertyuiopasdfghjklzxc", so no shift handling is needed here.
-void VirtualPianoPlayer::send_velocity_key(char velocityKey) noexcept {
+// Four events is the least a browser game can be told a velocity with. ALT down
+// and the key down are the modified keypress it listens for; the two ups exist
+// so the note that follows is not typed with ALT still held. Anything shorter
+// needs the game to accept something other than a modified keypress, which is
+// the game's protocol and not ours to change.
+size_t VirtualPianoPlayer::build_velocity_tap(char velocityKey, INPUT* out) noexcept {
     constexpr WORD ALT_SCAN = 0x38;
     const WORD scan = SCAN_TABLE_AUTO[static_cast<unsigned char>(velocityKey)];
-    if (scan == 0) return;
-    INPUT events[4] = {};
-    for (auto& event : events) event.type = INPUT_KEYBOARD;
-    events[0].ki.wScan = ALT_SCAN; events[0].ki.dwFlags = KEYEVENTF_SCANCODE;
-    events[1].ki.wScan = scan;     events[1].ki.dwFlags = KEYEVENTF_SCANCODE;
-    events[2].ki.wScan = scan;     events[2].ki.dwFlags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP;
-    events[3].ki.wScan = ALT_SCAN; events[3].ki.dwFlags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP;
-    input_latency::send(4, events, sizeof(INPUT));
+    if (scan == 0) return 0;
+    for (size_t i = 0; i < VELOCITY_TAP_INPUTS; ++i) {
+        out[i] = {};
+        out[i].type = INPUT_KEYBOARD;
+    }
+    out[0].ki.wScan = ALT_SCAN; out[0].ki.dwFlags = KEYEVENTF_SCANCODE;
+    out[1].ki.wScan = scan;     out[1].ki.dwFlags = KEYEVENTF_SCANCODE;
+    out[2].ki.wScan = scan;     out[2].ki.dwFlags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP;
+    out[3].ki.wScan = ALT_SCAN; out[3].ki.dwFlags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP;
+    return VELOCITY_TAP_INPUTS;
+}
+
+static const KeySequence& cachedSequence(const std::string& keyStr) {
+    auto it = g_keyCache.find(keyStr);
+    if (it == g_keyCache.end()) it = g_keyCache.emplace(keyStr, computeKeySequence(keyStr)).first;
+    return it->second;
 }
 
 void VirtualPianoPlayer::KeyPress(std::string_view key, bool press) {
-    std::string keyStr(key);
-    auto it = g_keyCache.find(keyStr);
-    if (it == g_keyCache.end()) {
-        KeySequence seq = computeKeySequence(keyStr);
-        it = g_keyCache.emplace(std::move(keyStr), std::move(seq)).first;
-    }
-    const auto& seq = it->second;
+    const auto& seq = cachedSequence(std::string(key));
     const auto& events = press ? seq.events_press : seq.events_release;
     if (!events.empty()) {
         input_latency::send(static_cast<UINT>(events.size()),
@@ -1003,24 +1010,41 @@ void VirtualPianoPlayer::releaseKey(WORD vk) {
     sendVirtualKey(vk, false);
 }
 
-void VirtualPianoPlayer::press_key(std::string_view note) noexcept {
+void VirtualPianoPlayer::press_key(std::string_view note, char velocityKey) noexcept {
     std::string actual = ENABLE_OUT_OF_RANGE_TRANSPOSE
                          ? transpose_note(note)
                          : std::string(note);
     const std::string& key = (eightyEightKeyModeActive
                               ? full_key_mappings[actual]
                               : limited_key_mappings[actual]);
-    if (!key.empty()) {
-        // if it wasn't already pressed, press it
-        if (!pressed_keys[actual].exchange(true, std::memory_order_relaxed)) {
-            KeyPress(key, true);
-        }
-        else {
-            // If it was already pressed, do a quick release/re-press
-            KeyPress(key, false);
-            KeyPress(key, true);
-        }
+    if (key.empty()) return;
+
+    // The velocity tap and the note it describes go out as one batch. SendInput
+    // inserts a batch serially and puts nothing else between its events, so a
+    // note can no longer be separated from the velocity it was sent with. Split
+    // across two calls it could be, and then the note carries whatever velocity
+    // the thing in the gap left behind. The events and their order are exactly
+    // what the two calls sent.
+    INPUT batch[32];
+    size_t count = velocityKey ? build_velocity_tap(velocityKey, batch) : 0;
+
+    const KeySequence& seq = cachedSequence(key);
+    // A key that is already down is released and struck again, which is how a
+    // repeated note is heard at all rather than held.
+    const bool again = pressed_keys[actual].exchange(true, std::memory_order_relaxed);
+    const size_t needed = count + (again ? seq.events_release.size() : 0) + seq.events_press.size();
+    if (needed > std::size(batch)) {
+        // Not reachable with any mapping this app accepts, and a truncated
+        // batch would leave a key down, so fall back rather than trim.
+        if (count) input_latency::send(static_cast<UINT>(count), batch, sizeof(INPUT));
+        if (again) KeyPress(key, false);
+        KeyPress(key, true);
+        return;
     }
+    if (again)
+        for (const auto& event : seq.events_release) batch[count++] = event;
+    for (const auto& event : seq.events_press) batch[count++] = event;
+    if (count) input_latency::send(static_cast<UINT>(count), batch, sizeof(INPUT));
 }
 
 void VirtualPianoPlayer::release_key(std::string_view note) noexcept {
@@ -1846,16 +1870,17 @@ void VirtualPianoPlayer::execute_note_event(const NoteEvent& event) noexcept {
             if (enable_volume_adjustment.load(std::memory_order_relaxed)) {
                 AdjustVolumeBasedOnVelocity(event.velocity);
             }
+            char velocityTap = 0;
             if (enable_velocity_keypress.load(std::memory_order_relaxed) &&
                 event.velocity != 0)
             {
                 std::string velocityKey = "alt+" + getVelocityKey(event.velocity);
                 if (velocityKey != lastPressedKey) {
-                    send_velocity_key(velocityKey.back());
+                    velocityTap = velocityKey.back();
                     lastPressedKey = velocityKey;
                 }
             }
-            press_key(event.note);
+            press_key(event.note, velocityTap);
         }
         else {
             const auto note = track_note_owners.find(std::string(event.note));

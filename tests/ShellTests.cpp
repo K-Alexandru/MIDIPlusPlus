@@ -8,6 +8,7 @@
 #include <atomic>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <thread>
 #include <vector>
 #include <set>
@@ -16,11 +17,16 @@ using namespace std::chrono_literals;
 namespace {
 void Require(bool ok, const char* message) { if (!ok) throw std::runtime_error(message); }
 std::mutex capturedMutex;
-struct Captured { INPUT input; DWORD thread; };
+// batch is which injection call the event arrived in. Without it the harness
+// cannot tell one call of five events from two calls of four and one, which is
+// the only difference the velocity batching makes to what is sent.
+struct Captured { INPUT input; DWORD thread; uint64_t batch; };
 std::vector<Captured> captured;
+uint64_t capturedBatches = 0;
 UINT __fastcall Capture(ULONG count, LPINPUT inputs, int) {
     std::lock_guard lock(capturedMutex);
-    for (ULONG i = 0; i < count; ++i) captured.push_back({inputs[i], GetCurrentThreadId()});
+    const uint64_t batch = ++capturedBatches;
+    for (ULONG i = 0; i < count; ++i) captured.push_back({inputs[i], GetCurrentThreadId(), batch});
     return count;
 }
 std::vector<Captured> TakeCaptured() {
@@ -74,6 +80,76 @@ void ModelTests(const std::filesystem::path& fixture) {
     try { (void)parser.parse(shell::Utf8(fixture) + ":stream"); } catch (...) { rejected = true; }
     Require(rejected, "alternate data streams remain rejected");
     std::cout << "PASS real MIDI parsing, Unicode absolute paths, track indices, programs, drums and solo semantics\n";
+}
+
+// A note whose velocity bucket changed used to be two injection calls: the
+// four-event ALT tap, then the note. SendInput puts nothing between the events
+// of one call and makes no promise at all between two, so anything landing in
+// that gap took the velocity the tap had just set. Now it is one call.
+//
+// Four events is still four events. That is the least a modified keypress can
+// be, and shortening it means the game accepting something other than a
+// modified keypress, which is not ours to change.
+void VelocityBatchTests(const std::filesystem::path& config) {
+    VirtualPianoPlayer player(false, config);
+    InjectInput = Capture;
+    player.enable_velocity_keypress = true;
+    player.legit_mode_active = false;
+    player.eightyEightKeyModeActive = true;
+    player.trackMuted.push_back(std::make_shared<std::atomic<bool>>(false));
+    player.trackSoloed.push_back(std::make_shared<std::atomic<bool>>(false));
+    // Two notes far enough apart in velocity to land in different buckets, so
+    // each one has a tap to send.
+    player.note_events = {
+        {0ns, "C4", EventType::Press, 20, 0},
+        {80ms, "C4", EventType::Release, 0, 0},
+        {160ms, "E4", EventType::Press, 120, 0},
+        {240ms, "E4", EventType::Release, 0, 0},
+    };
+    TakeCaptured();
+    player.restart_song();
+
+    constexpr WORD ALT_SCAN = 0x38;
+    std::vector<Captured> all;
+    const auto drain = [&] { for (auto& event : TakeCaptured()) all.push_back(event); };
+    // Counting note presses would not do: IsNotePress counts any key down that
+    // is not a modifier, and the velocity key is one, so one note would look
+    // like two. Count the calls that open with ALT instead, which is one per
+    // note whose bucket changed.
+    const auto tapCalls = [&] {
+        std::set<uint64_t> ids;
+        for (const auto& event : all)
+            if (event.input.ki.wScan == ALT_SCAN && !(event.input.ki.dwFlags & KEYEVENTF_KEYUP))
+                ids.insert(event.batch);
+        return ids.size();
+    };
+    Await([&] { drain(); return tapCalls() >= 2; }, "both notes did not send a velocity tap");
+    drain();
+
+    std::map<uint64_t, std::vector<Captured>> batches;
+    for (const auto& event : all) batches[event.batch].push_back(event);
+    int taps = 0;
+    for (const auto& [id, events] : batches) {
+        const bool opensWithAlt = !events.empty() && events[0].input.ki.wScan == ALT_SCAN &&
+                                  !(events[0].input.ki.dwFlags & KEYEVENTF_KEYUP);
+        if (!opensWithAlt) continue;
+        ++taps;
+        // The regression this exists for: a batch of exactly the four tap
+        // events is the tap travelling on its own again.
+        Require(events.size() > 4, "the velocity tap must not be an injection call of its own");
+        Require(events[1].input.ki.wScan == events[2].input.ki.wScan &&
+                !(events[1].input.ki.dwFlags & KEYEVENTF_KEYUP) &&
+                (events[2].input.ki.dwFlags & KEYEVENTF_KEYUP),
+                "the tap still strikes and releases one velocity key");
+        Require(events[3].input.ki.wScan == ALT_SCAN && (events[3].input.ki.dwFlags & KEYEVENTF_KEYUP),
+                "the tap still releases ALT, so the note that follows is not typed with it held");
+        Require(IsNotePress(events.back()),
+                "the note press rides in the same call as the tap that describes it");
+        Require(events.back().input.ki.wScan != events[1].input.ki.wScan,
+                "the note is a different key from the velocity it was sent with");
+    }
+    Require(taps >= 2, "both velocity buckets should have sent a tap");
+    std::cout << "PASS the velocity tap and its note reach the system as one injection\n";
 }
 
 void ReleaseTests(const std::filesystem::path& config) {
@@ -525,6 +601,7 @@ int wmain() {
         TwoDeviceTests();
         ModelTests(fixture);
         MappingPersistenceTests(directory / L"config.json");
+        VelocityBatchTests(directory / L"config.json");
         ReleaseTests(directory / L"config.json");
         ControllerTests(directory / L"config.json", fixture);
         std::cout << "PASS all shell tests (injection captured in process)\n";

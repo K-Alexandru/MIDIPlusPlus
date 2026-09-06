@@ -22,7 +22,6 @@ static void setThreadToRealTime() {
         }
     }
 }
-alignas(64) INPUT MIDI2Key::m_velocityInputs[4] = {};
 alignas(64) INPUT MIDI2Key::m_sustainInput[2] = {};
 alignas(64) char  MIDI2Key::m_lastVelocityKey = '\0';
 static __forceinline INPUT makeKeybdInput(WORD wScan, DWORD dwFlags) {
@@ -444,16 +443,25 @@ void MIDI2Key::ProcessMidiMessage(uint64_t timestampQpc, const uint8_t* bytes, s
     if (cmd == 0x90 && bytes[2] > 0) {
         uint8_t note = bytes[1];
         uint8_t velocity = bytes[2];
+
+        // Composed here and sent with the note press below, never on its own.
+        // The buffer is a local: it used to be a static member, so two callback
+        // threads wrote the same four INPUTs and each could send the other's
+        // velocity. That is the bug 269c2f2 fixed in MIDIConnect by making its
+        // batch a local, and MIDI2Key kept the shared one.
+        INPUT batch[24];
+        size_t batchCount = 0;
+        bool batchSent = false;
         if (p.enable_velocity_keypress.load(std::memory_order_relaxed)) {
             char newVelKey = g_velocityMapping[velocity];
             if (newVelKey != m_lastVelocityKey) {
                 m_lastVelocityKey = newVelKey;
                 WORD sc = SCAN_TABLE[(unsigned char)newVelKey];
-                m_velocityInputs[0] = makeKeybdInput(0x38, KEYEVENTF_SCANCODE);                // Alt down
-                m_velocityInputs[1] = makeKeybdInput(sc, KEYEVENTF_SCANCODE);                  // Key down
-                m_velocityInputs[2] = makeKeybdInput(sc, KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP); // Key up
-                m_velocityInputs[3] = makeKeybdInput(0x38, KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP); // Alt up
-                input_latency::send(4, m_velocityInputs, sizeof(INPUT));
+                batch[0] = makeKeybdInput(0x38, KEYEVENTF_SCANCODE);                // Alt down
+                batch[1] = makeKeybdInput(sc, KEYEVENTF_SCANCODE);                  // Key down
+                batch[2] = makeKeybdInput(sc, KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP); // Key up
+                batch[3] = makeKeybdInput(0x38, KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP); // Alt up
+                batchCount = 4;
             }
         }
         if (p.enable_volume_adjustment.load(std::memory_order_relaxed)) {
@@ -495,7 +503,19 @@ void MIDI2Key::ProcessMidiMessage(uint64_t timestampQpc, const uint8_t* bytes, s
                 }
                 short cnt = scancodeCount[sc].load(std::memory_order_relaxed);
                 if (cnt == 0) {
-                    input_latency::send((UINT)evPtr->pressCount, evPtr->press.data(), sizeof(INPUT));
+                    if (batchCount + evPtr->pressCount <= std::size(batch)) {
+                        for (size_t i = 0; i < evPtr->pressCount; ++i)
+                            batch[batchCount + i] = evPtr->press[i];
+                        input_latency::send((UINT)(batchCount + evPtr->pressCount), batch, sizeof(INPUT));
+                        batchSent = true;
+                    }
+                    else {
+                        // Cannot happen with any mapping this app accepts, and a
+                        // trimmed batch would leave a key down.
+                        if (batchCount) input_latency::send((UINT)batchCount, batch, sizeof(INPUT));
+                        input_latency::send((UINT)evPtr->pressCount, evPtr->press.data(), sizeof(INPUT));
+                        batchSent = true;
+                    }
                     scancodeOwner[sc] = evPtr;
                     scancodeCount[sc].store(1, std::memory_order_relaxed);
                 }
@@ -504,6 +524,9 @@ void MIDI2Key::ProcessMidiMessage(uint64_t timestampQpc, const uint8_t* bytes, s
                 }
             }
         }
+        // A note that sends no press of its own still has to send its tap, or
+        // m_lastVelocityKey now claims a velocity the game was never told.
+        if (batchCount && !batchSent) input_latency::send((UINT)batchCount, batch, sizeof(INPUT));
     }
     // Handle Note Off (0x80 or 0x90 with velocity == 0)
     else if ((cmd == 0x90 && bytes[2] == 0) || cmd == 0x80) {

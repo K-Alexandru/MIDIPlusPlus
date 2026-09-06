@@ -52,7 +52,6 @@ private:
     VirtualPianoPlayer* m_player; // copy 
 
     // Key injection buffers
-    alignas(64) static INPUT m_velocityInputs[4];
     alignas(64) static INPUT m_sustainInput[2];
     alignas(64) static char m_lastVelocityKey;
 

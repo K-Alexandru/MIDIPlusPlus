@@ -226,7 +226,12 @@ public:
     void setVelocityCurveIndex(size_t index);
     std::string getVelocityCurveName(midi::VelocityCurveType curveType);
     std::string getVelocityKey(int targetVelocity);
-    void send_velocity_key(char velocityKey) noexcept;
+    // Writes the four-event ALT tap for a velocity key into out and returns how
+    // many events it wrote, or 0 for a key with no scancode. It writes rather
+    // than sends so the tap can travel in the same batch as the note it
+    // describes: see press_key.
+    static size_t build_velocity_tap(char velocityKey, INPUT* out) noexcept;
+    static constexpr size_t VELOCITY_TAP_INPUTS = 4;
 
     // Sustain settings
     SustainMode currentSustainMode{ SustainMode::IG };
@@ -314,7 +319,10 @@ private:
     void sendVirtualKey(WORD vk, bool is_press);
     void pressKey(WORD vk);
     void releaseKey(WORD vk);
-    void press_key(std::string_view note) noexcept;
+    // velocityKey is the character of the ALT tap to send in front of the note,
+    // or 0 for none. It is a parameter rather than a separate call because the
+    // two have to reach the system as one batch.
+    void press_key(std::string_view note, char velocityKey = 0) noexcept;
     void release_key(std::string_view note) noexcept;
     std::string transpose_note(std::string_view note);
     int note_name_to_midi(std::string_view note_name);
