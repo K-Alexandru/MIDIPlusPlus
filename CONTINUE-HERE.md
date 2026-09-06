@@ -380,6 +380,26 @@ the tests cover the table, but no Wooting was in the loop here. The remaining
 suspect if notes are still wrong is the SDK's own keycode mode: the backend
 asks for Set 1 scancodes and trusts what comes back.
 
+Closed 2026-09-06, the Roblox clip toast:
+
+- **It stopped, and nothing on our side changed.** The "Saving clip" toast that
+  prompted `tools/record-keys.ps1` no longer fires with either build, a day
+  later, with the same config and the same passages. The cause was never
+  identified, so treat the three culprits ruled out in `cebfa28` as still ruled
+  out and start from the recorder if it comes back.
+- **What was established while it lasted:** Roblox binds Alt+1 to screenshot and
+  Alt+C to clip, and those are the first and last of the 32 velocity keys
+  `1234567890qwertyuiopasdfghjklzxc`. Only the experience developer can switch
+  the shortcuts off, with
+  `game.StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Captures, false)`.
+  There is no player-side setting.
+- **Not a reason to reserve velocity keys.** Reserving `1` and `c` was proposed,
+  vetoed, and reverted. Velocity stays on ALT and stays 32 levels.
+- **The one real question it left open** is whether upstream's
+  `NtUserSendInput` syscall thunk, removed in `e678893`, made our keystrokes
+  more visible to other applications' shortcut handling than upstream's are.
+  That was never measured either way. It is item 5 below.
+
 `ShellEngine` owns the player and command queue. Construction, loading,
 play/stop, key cleanup and destruction run on its worker, and scheduling keeps
 the inherited playback threads. The legacy hotkey listener is disabled only in
