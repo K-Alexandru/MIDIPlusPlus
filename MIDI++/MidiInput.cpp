@@ -240,20 +240,49 @@ private:
 std::unique_ptr<IMidiInput> CreateMidiInput(MidiBackend backend) {
     if (backend == MidiBackend::WootingAnalog) return CreateWootingAnalogInput();
     if (backend == MidiBackend::WinMM) return std::make_unique<WinMMMidiInput>();
+    if (backend == MidiBackend::KernelStreaming) return CreateKernelStreamingInput();
     return std::make_unique<WinRTMidiInput>();
 }
 
 std::vector<MidiInputDevice> EnumerateMidiInputs() {
     WinRTMidiInput winrtInput;
     auto devices = winrtInput.enumerate();
-    if (devices.empty()) {
-        WinMMMidiInput winmmInput;
-        devices = winmmInput.enumerate();
+
+    // WinMM is listed as well as WinRT, not only when WinRT finds nothing.
+    //
+    // It used to be a fallback, which meant that on any machine where WinRT
+    // works -- every machine the app supports -- no WinMM device was ever in
+    // the list. Settings offers a backend radio, and the WinMM entry could
+    // therefore never be picked: the choice was drawn but not offered. The two
+    // are different transports for the same socket, and which one a given
+    // driver behaves better on is exactly the thing a user needs to be able to
+    // try, so both are listed and the choice is real.
+    const size_t winrtCount = devices.size();
+    WinMMMidiInput winmmInput;
+    for (auto& device : winmmInput.enumerate()) {
+        // Almost every port shows up on both transports, so say which one this
+        // row is, rather than showing the same piano twice with one name.
+        const bool alsoOnWinRT = std::any_of(devices.begin(), devices.begin() + winrtCount,
+            [&](const MidiInputDevice& other) { return other.name == device.name; });
+        if (alsoOnWinRT) device.name += L" (WinMM)";
+        devices.push_back(std::move(device));
     }
 
     // The Wooting keyboard is a real input source, not a MIDI port, so it is
     // listed alongside the ports rather than instead of them. Picking it skips
     // the separate bridge app and the virtual MIDI driver entirely.
+    // Kernel Streaming is a third transport for the same sockets, not a
+    // replacement for either, so it is listed alongside them. A machine whose
+    // driver exposes no MIDI pin simply contributes nothing here and the
+    // Settings radio stays disabled, which is the honest state.
+    {
+        auto kernel = CreateKernelStreamingInput();
+        for (auto& device : kernel->enumerate()) {
+            device.name += L" (KS)";
+            devices.push_back(std::move(device));
+        }
+    }
+
     if (WootingAnalogAvailable()) {
         auto wooting = CreateWootingAnalogInput();
         for (auto& device : wooting->enumerate()) devices.push_back(std::move(device));
@@ -290,6 +319,7 @@ int ResolveWinMMPort(const std::wstring& deviceId, const std::vector<std::wstrin
 }
 
 MidiBackend BackendForDeviceId(const std::wstring& deviceId) {
+    if (KernelStreamingIdentifies(deviceId)) return MidiBackend::KernelStreaming;
     const size_t winmmPrefix = wcslen(kWinMMPrefix);
     if (deviceId.size() >= winmmPrefix && deviceId.compare(0, winmmPrefix, kWinMMPrefix) == 0) {
         return MidiBackend::WinMM;

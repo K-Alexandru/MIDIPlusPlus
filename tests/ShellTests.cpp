@@ -5,6 +5,7 @@
 #include "../MIDI++/WootingAnalog.hpp"
 #include "../MIDI++/MidiInput.hpp"
 #include "../MIDI++/SheetExport.hpp"
+#include "../MIDI++/MidiStreamSplit.hpp"
 #include "../MIDI++/config.hpp"
 #include <atomic>
 #include <fstream>
@@ -656,6 +657,103 @@ void SheetExportTests() {
 // not the resolution: RtMidi welds the port index onto every WinMM port name,
 // so the name half of an id carried the very number it existed to outlive, and
 // a device that had gone away resolved to whichever port was left.
+// A Kernel Streaming pin hands over bytes, not messages, because that is what
+// the wire carries. WinMM and WinRT both hand over messages, and everything
+// above IMidiInput is written for messages, so the KS backend cuts the stream
+// up. These are the three cases a real keyboard will not produce on demand.
+void MidiStreamSplitTests() {
+    std::vector<std::vector<uint8_t>> out;
+    midi_stream::Splitter splitter;
+    const auto feed = [&](std::vector<uint8_t> bytes) {
+        out.clear();
+        splitter.feed(bytes.data(), bytes.size(),
+                      [&](const uint8_t* m, size_t n) { out.emplace_back(m, m + n); });
+        return out;
+    };
+
+    auto plain = feed({0x90, 0x3C, 0x64, 0x80, 0x3C, 0x00});
+    Require(plain.size() == 2, "two whole messages come out as two");
+    Require(plain[0] == std::vector<uint8_t>({0x90, 0x3C, 0x64}), "note on is delivered entire");
+    Require(plain[1] == std::vector<uint8_t>({0x80, 0x3C, 0x00}), "and so is note off");
+
+    // Running status: the status byte is sent once and the data pairs that
+    // follow are all the same kind of message. A keyboard playing a chord does
+    // this constantly, and reading it wrong turns notes into silence.
+    splitter.reset();
+    auto running = feed({0x90, 0x3C, 0x64, 0x40, 0x50, 0x43, 0x55});
+    Require(running.size() == 3, "running status yields one message per data pair");
+    Require(running[1] == std::vector<uint8_t>({0x90, 0x40, 0x50}) &&
+            running[2] == std::vector<uint8_t>({0x90, 0x43, 0x55}), "and repeats the held status");
+
+    // A realtime byte may arrive between any two bytes of another message and
+    // must disturb neither it nor running status.
+    splitter.reset();
+    auto interrupted = feed({0x90, 0x3C, 0xF8, 0x64});
+    Require(interrupted.size() == 2, "the clock byte and the note it split are both delivered");
+    Require(interrupted[0] == std::vector<uint8_t>({0xF8}), "the clock comes out on its own");
+    Require(interrupted[1] == std::vector<uint8_t>({0x90, 0x3C, 0x64}), "and the note is still whole");
+
+    // A message split across two reads is one message, not two halves.
+    splitter.reset();
+    Require(feed({0x90, 0x3C}).empty(), "half a message emits nothing yet");
+    auto completed = feed({0x64});
+    Require(completed.size() == 1 && completed[0] == std::vector<uint8_t>({0x90, 0x3C, 0x64}),
+            "and completes on the byte that finishes it, across reads");
+
+    // System exclusive is dropped rather than delivered in fragments the
+    // callers have nowhere to put, and must not swallow what follows it.
+    splitter.reset();
+    auto sysex = feed({0xF0, 0x7E, 0x00, 0x06, 0x01, 0xF7, 0x90, 0x3C, 0x64});
+    Require(sysex.size() == 1 && sysex[0] == std::vector<uint8_t>({0x90, 0x3C, 0x64}),
+            "sysex is skipped and the next real message still arrives");
+
+    // System Common cancels running status: a data byte after one is not the
+    // start of another note.
+    splitter.reset();
+    feed({0x90, 0x3C, 0x64});
+    auto afterCommon = feed({0xF6, 0x40, 0x50});
+    Require(afterCommon.size() == 1 && afterCommon[0] == std::vector<uint8_t>({0xF6}),
+            "tune request cancels running status rather than borrowing it");
+
+    // Two-byte and one-byte channel messages are counted by their own status.
+    splitter.reset();
+    auto program = feed({0xC0, 0x07, 0xD0, 0x40});
+    Require(program.size() == 2 && program[0].size() == 2 && program[1].size() == 2,
+            "program change and channel pressure carry one data byte each");
+
+    std::cout << "PASS MIDI byte stream split into messages: running status, realtime, sysex and partial reads\n";
+}
+
+// Every id a backend produces must route back to that backend, or the app opens
+// the wrong device -- the bug this whole interface exists to prevent. Machines
+// without a KS MIDI pin enumerate nothing, and an empty list is a pass: there
+// is nothing to assert about a transport that is not there.
+void KernelStreamingIdentityTests() {
+    auto kernel = CreateKernelStreamingInput();
+    Require(kernel != nullptr, "the Kernel Streaming backend can be constructed");
+    Require(kernel->backend() == MidiBackend::KernelStreaming, "and reports itself");
+    Require(!kernel->isOpen() && kernel->openedDeviceId().empty(), "a fresh backend holds nothing open");
+
+    size_t pins = 0;
+    for (const auto& device : kernel->enumerate()) {
+        ++pins;
+        Require(device.backend == MidiBackend::KernelStreaming, "an enumerated pin says which backend it came from");
+        Require(BackendForDeviceId(device.id) == MidiBackend::KernelStreaming,
+                "and its id routes back to that backend rather than the WinRT default");
+        Require(!device.name.empty(), "a pin offered to the user has a name");
+    }
+
+    // An id naming a device that is not there fails, rather than opening a
+    // different pin. Same rule the WinMM and WinRT backends are held to.
+    Require(!kernel->open(L"ks:0|\\?\nothing#is#here", [](uint64_t, const uint8_t*, size_t) {}),
+            "an id that names nothing opens nothing");
+    Require(!kernel->open(L"winmm:0|Piano", [](uint64_t, const uint8_t*, size_t) {}),
+            "and another backend's id is refused rather than guessed at");
+    Require(!kernel->isOpen(), "a refused open leaves nothing open");
+
+    std::cout << "PASS Kernel Streaming enumeration, id routing and refusal (" << pins << " MIDI pins present)\n";
+}
+
 void PortResolutionTests() {
     const std::vector<std::wstring> present{L"MIDI 0", L"loopMIDI Port 1"};
 
@@ -910,6 +1008,8 @@ int wmain() {
         WootingMapTests();
         WootingSettingsTests();
         WootingPollTests();
+        MidiStreamSplitTests();
+        KernelStreamingIdentityTests();
         PortResolutionTests();
         SheetExportTests();
         TwoDeviceTests();

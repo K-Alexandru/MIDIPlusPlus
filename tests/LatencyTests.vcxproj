@@ -17,6 +17,7 @@
     <ClCompile Include="..\MIDI++\InputLatency.cpp" />
     <ClCompile Include="..\MIDI++\InputLatencyWindow.cpp" />
     <ClCompile Include="..\MIDI++\InputInjector.cpp" />
+    <ClCompile Include="..\MIDI++\KernelStreamingInput.cpp" />
     <ClCompile Include="..\MIDI++\MidiInput.cpp" />
     <ClCompile Include="..\MIDI++\WootingAnalog.cpp" />
     <ClCompile Include="..\MIDI++\RtMidi.cpp" />

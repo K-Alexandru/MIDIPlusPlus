@@ -292,9 +292,17 @@ the required renderer's PNGs remain in `build/render-tests/`.
 
 Remaining limits for this follow-up:
 
-- **Transport comparison and buffers:** no Kernel Streaming backend exists,
-  and the timing collector starts after transport. Settings states that Kernel
-  Streaming is unavailable and supplies no fictitious buffer controls or figures.
+- **Transport comparison and buffers:** narrowed 2026-09-06. A Kernel Streaming
+  backend now exists (`MIDI++/KernelStreamingInput.cpp`), so all three
+  transports can be compared on the same socket. WinMM is also enumerated
+  alongside WinRT rather than only as a fallback, which it had been since it was
+  written: on any machine where WinRT works, no WinMM device was ever listed and
+  the Settings radio for it could never be picked. Device count on this machine
+  went from 2 to 4 with that one change.
+
+  Still true: the timing collector starts after transport, so it measures the
+  tail of the path rather than all of it, and there are no buffer controls
+  because a KS MIDI pin has no ring to size. See HANDOFF §10.
 - **Browser comparison:** the repository Edge capture and an in-app browser
   session now cover the rendered mockup. Settings, backend choice, Play,
   file filtering and mini transpose were exercised with no console errors.

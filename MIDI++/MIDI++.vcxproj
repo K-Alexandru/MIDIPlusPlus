@@ -151,6 +151,7 @@
     <ClCompile Include="MIDIConnect.cpp" />
     <ClCompile Include="MIDIDeviceUI.cpp" />
     <ClCompile Include="WootingAnalog.cpp" />
+    <ClCompile Include="KernelStreamingInput.cpp" />
     <ClCompile Include="MidiInput.cpp" />
     <ClCompile Include="MIDIParser.cpp" />
     <ClCompile Include="PlaybackCore.cpp" />

@@ -442,10 +442,26 @@ fonts under different names.
   Same shape as the WinRT regression in §3 - R5_Rel kept the shell and lost the
   substance. §12 has the re-add, built 2026-09-04 at dispatch rather than at
   parse; see `LEGIT-MODE.md`.
-- **There is no Kernel Streaming backend anywhere in MIDI++.** `MidiBackend` is
-  `WinRT | WinMM | WootingAnalog` and always has been. KS appears only in the
-  third-party app's screenshots above and in our own mockup, where it is a
-  planned option, not a present one.
+- ~~**There is no Kernel Streaming backend anywhere in MIDI++.**~~ True until
+  2026-09-06. `MidiBackend` is now
+  `WinRT | WinMM | KernelStreaming | WootingAnalog`, and
+  `MIDI++/KernelStreamingInput.cpp` opens the KS filter pin directly:
+  `SetupDi` over `KSCATEGORY_CAPTURE`, pins filtered by dataflow and a
+  music/MIDI data range, `KsCreatePin`, `ACQUIRE`/`PAUSE`/`RUN`, and an
+  overlapped `IOCTL_KS_READ_STREAM` loop on its own thread. It enumerates two
+  MIDI pins on the development machine.
+
+  What is still true, and is the part the mockup gets wrong: **there are no
+  buffer size or buffer count controls, because a KS MIDI capture pin has no
+  ring to size.** `KSMUSICFORMAT` events arrive into whatever buffer the read
+  supplied. Those two steppers in the third-party app's screenshots would be
+  wired to nothing here, so they are not drawn. Latency on this path is
+  measured by `input_latency`, not chosen.
+
+  KS is a third transport for the same sockets, not a replacement: it is listed
+  alongside WinRT and WinMM, its rows are suffixed `(KS)`, and a machine whose
+  driver exposes no MIDI pin contributes nothing and leaves the Settings radio
+  disabled.
 
 ---
 

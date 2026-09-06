@@ -20,6 +20,7 @@
 enum class MidiBackend {
     WinRT,   // Windows.Devices.Midi, Windows 10+
     WinMM,   // legacy midiIn*, through the vendored RtMidi
+    KernelStreaming, // the KS filter pin the other two are built on
     WootingAnalog // analog key depth read straight from the Wooting SDK
 };
 
@@ -50,6 +51,11 @@ public:
     virtual bool isOpen() const noexcept = 0;
     virtual const std::wstring& openedDeviceId() const noexcept = 0;
 };
+
+// Implemented in KernelStreamingInput.cpp, which is the only translation unit
+// that includes the KS headers.
+std::unique_ptr<IMidiInput> CreateKernelStreamingInput();
+bool KernelStreamingIdentifies(const std::wstring& deviceId);
 
 std::unique_ptr<IMidiInput> CreateMidiInput(MidiBackend backend);
 
