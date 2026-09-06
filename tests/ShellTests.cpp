@@ -83,14 +83,6 @@ void ModelTests(const std::filesystem::path& fixture) {
     std::cout << "PASS real MIDI parsing, Unicode absolute paths, track indices, programs, drums and solo semantics\n";
 }
 
-// A note whose velocity bucket changed used to be two injection calls: the
-// four-event ALT tap, then the note. SendInput puts nothing between the events
-// of one call and makes no promise at all between two, so anything landing in
-// that gap took the velocity the tap had just set. Now it is one call.
-//
-// Four events is still four events. That is the least a modified keypress can
-// be, and shortening it means the game accepting something other than a
-// modified keypress, which is not ours to change.
 // release_all_keys used to inject a key-up for every one of the 88 mappings
 // whatever was actually down, into whatever window had focus at the time. A
 // file load calls it, usually for a score nobody has played a note of, so the
@@ -102,7 +94,6 @@ void ModelTests(const std::filesystem::path& fixture) {
 // exactly that one key, and a second call releases nothing again.
 void ReleaseAllKeysTests(const std::filesystem::path& config) {
     VirtualPianoPlayer player(false, config);
-    InjectInput = Capture;
     player.eightyEightKeyModeActive = true;
     player.enable_velocity_keypress = false;
     const auto noteUps = [](const std::vector<Captured>& events) {
@@ -144,9 +135,16 @@ void ReleaseAllKeysTests(const std::filesystem::path& config) {
     std::cout << "PASS release_all_keys releases only the keys that are down\n";
 }
 
+// A note whose velocity bucket changed used to be two injection calls: the
+// four-event ALT tap, then the note. SendInput puts nothing between the events
+// of one call and makes no promise at all between two, so anything landing in
+// that gap took the velocity the tap had just set. Now it is one call.
+//
+// Four events is still four events. That is the least a modified keypress can
+// be, and shortening it means the game accepting something other than a
+// modified keypress, which is not ours to change.
 void VelocityBatchTests(const std::filesystem::path& config) {
     VirtualPianoPlayer player(false, config);
-    InjectInput = Capture;
     player.enable_velocity_keypress = true;
     player.legit_mode_active = false;
     player.eightyEightKeyModeActive = true;
@@ -208,7 +206,6 @@ void VelocityBatchTests(const std::filesystem::path& config) {
 
 void ReleaseTests(const std::filesystem::path& config) {
     VirtualPianoPlayer player(false, config);
-    InjectInput = Capture; // Captures all keystrokes; nothing reaches Windows.
     player.enable_velocity_keypress = false;
     player.legit_mode_active = false;
     player.trackMuted.push_back(std::make_shared<std::atomic<bool>>(false));
@@ -345,7 +342,7 @@ void ControllerTests(const std::filesystem::path& config, const std::filesystem:
     if (!state->error.empty()) throw std::runtime_error(state->error);
     Require(shell::SilentTracks(state->rows) == 3, "auto Solo Piano on load");
     const auto generation = state->generation;
-    InjectInput = Capture;
+
     engine.Send({shell::ShellEngine::Action::Velocity, {}, 0, 0, false});
     Await([&] { return !engine.Snapshot()->velocity; }, "velocity command not consumed");
     TakeCaptured();
@@ -883,6 +880,19 @@ void VelocityTelemetryTests() {
 }
 
 int wmain() {
+    // Before anything constructs a player, not partway through the run.
+    //
+    // InjectInput defaults to the real SendInput, and four tests used to
+    // install this hook a few lines into themselves. Everything before the
+    // first of those injected into whatever window had focus: MappingPersistence
+    // and Controller both build a ShellEngine, and Action::Load and the engine
+    // teardown both call stopPlayback(), which releases keys. So the suite typed
+    // into the desktop, and CONTINUE-HERE.md said it did not.
+    //
+    // Made a process-wide invariant instead, so no test can leak by being added
+    // in the wrong order or by forgetting the line. LatencyTests is a separate
+    // executable and still exercises the real path on purpose.
+    InjectInput = Capture;
     try {
         const auto directory = std::filesystem::current_path();
         const auto fixture = directory / L"tracks-\u97f3\u4e50.mid";

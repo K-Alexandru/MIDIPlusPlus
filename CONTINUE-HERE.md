@@ -77,7 +77,12 @@ pass its path on the command line. Folder scans are not recursive.
 This checks synthetic MIDI parsing, track controls, actual engine dispatch with
 an in-process injection recorder, and the real DX11 renderer. PNGs are written
 to `build\render-tests\`. It requires no MIDI hardware and sends no keystrokes
-to other applications.
+to other applications: `wmain` points `InjectInput` at the in-process recorder
+before anything constructs a player, so that is an invariant of the executable
+rather than a promise. It was a promise until 2026-09-06, and a false one —
+four tests installed the recorder partway into themselves, and everything before
+the first of them typed into whatever window had focus. Do not move that
+assignment back into the individual tests.
 
 ```powershell
 & .\tests\run-native-tests.ps1
