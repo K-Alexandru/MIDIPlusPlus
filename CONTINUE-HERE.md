@@ -349,6 +349,29 @@ bucket, and `last` as the live dot when it is non-zero. Call
 piece rather than the session. Until that field exists the caption has to keep
 saying the graph is a pointer preview: do not describe a live dot that is not
 being fed.
+Completed 2026-09-05, first Wooting session:
+
+- **A Wooting played the wrong notes**, and the cause was the analog backend's
+  own scancode-to-note table having the virtual-piano layout upside down: the
+  bottom letter row first, the number row last. The shipped `KEY_MAPPINGS.FULL`
+  is the other way round, so "1" sounded A5 rather than C2 and a run of 1 2 3
+  crossed an octave between 2 and 3.
+- **`SetWootingScancodeNoteMap` was dead API.** Nothing called it, so the
+  invented table was the only thing a Wooting could play.
+  `WootingScancodeNoteMapFrom` now builds the map from the user's own
+  `KEY_MAPPINGS.FULL`, and `MIDI2Key::OpenDevice` feeds it in whenever a
+  Wooting id is opened, so a remap is picked up on the next open.
+- **Black keys stay unmapped, deliberately.** Their bindings are shifted
+  characters, and a shifted key is two physical keys to the analog SDK, so
+  there is no one scancode to attach the note to. A Wooting therefore plays the
+  36 unshifted white keys, C2 to C7, and nothing else. That is a real limit,
+  not an oversight, and it is the next thing to solve if analog playing matters.
+
+Still unverified: this was fixed from the code and the reported symptom, and
+the tests cover the table, but no Wooting was in the loop here. The remaining
+suspect if notes are still wrong is the SDK's own keycode mode: the backend
+asks for Set 1 scancodes and trusts what comes back.
+
 `ShellEngine` owns the player and command queue. Construction, loading,
 play/stop, key cleanup and destruction run on its worker, and scheduling keeps
 the inherited playback threads. The legacy hotkey listener is disabled only in
