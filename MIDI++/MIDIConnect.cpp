@@ -30,6 +30,14 @@ namespace {
     }
 }
 
+// 245479a replaced m_noteMapping[128][128][10] with one 128-entry table used
+// twice, on the grounds that a 6.5MB member guarantees a cache miss on the
+// injection path. Nothing in the type system stopped it growing back, and the
+// only evidence it had not was a comment. The whole object is now around 21KB,
+// so this fails long before anything approaching the old size can return.
+static_assert(sizeof(MIDIConnect) < 32 * 1024,
+              "MIDIConnect is back to carrying a table too large to stay in cache");
+
 HANDLE MIDIConnect::s_mmcssHandle = NULL;
 DWORD MIDIConnect::s_mmcssTaskIndex = 0;
 DWORD_PTR MIDIConnect::s_originalAffinity = 0;

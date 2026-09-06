@@ -183,14 +183,32 @@ concurrent callbacks cannot collide and nothing has to be dropped.
   syscall"*. Unfixed. Means the UI architecture is itself a latency factor.
   Hard requirement: injection must never share a thread with the message loop.
   (The Wooting backend already polls on its own thread for this reason.)
-- **`MIDIConnect` 6.5MB table.** `m_noteMapping[128][128][10]` of `INPUT` as a
-  class member, built in a 16384-iteration constructor, every entry differing
-  only in two scancodes. Guarantees cache misses on the hot path.
-- **`InputInjector.cpp` syscall stub.** Hand-built thunk to `NtUserSendInput`.
-  Its speed benefit has not been measured. The syscall number is scraped from
-  the current build's stub and the initial function
-  pointer is a stub returning `69`, so any init failure silently no-ops every
-  keystroke. Recommend reverting to `SendInput`.
+
+### The MIDIConnect table and the syscall stub: fixed, and the list was stale
+
+Both were listed as still present until 2026-09-06, long after they were done,
+which is how a session gets spent rediscovering that there is nothing to do.
+
+`MIDIConnect`'s `m_noteMapping[128][128][10]` of `INPUT` was 6.5MB of class
+member built by a 16384-iteration constructor, guaranteeing a cache miss on the
+injection path. `245479a` collapsed it: every entry was the same two-input
+prefix, a quad selected by note and a quad selected by value, and both quads
+came from one formula, so the table was one 128-entry table crossed with
+itself. Keeping only the factor is about 21KB and stays in cache.
+`MIDIConnect.cpp` now asserts `sizeof(MIDIConnect) < 32 * 1024`, because the
+only thing previously stopping it growing back was a comment.
+
+`InputInjector.cpp` assembled a thunk to `NtUserSendInput`: it read the syscall
+number out of win32u's prologue and wrote a stub into an RWX page, and its
+uninitialised function pointer returned `69`, so any failure to build it
+silently no-opped every keystroke. `c8b3d57` gave it a `SendInput` fallback and
+`e678893` measured the thunk at 0 to 2 ns and deleted it. The latency suite
+asserts that injection routes through `SendInput` with no stub to initialise.
+
+One question the thunk left behind is still open and was never measured: the
+two paths were compared for speed, never for whether they are equally visible
+to other applications' shortcut handling. See the clip toast entry in
+`CONTINUE-HERE.md`.
 
 ### Twenty-second startup: fixed 2026-09-04
 

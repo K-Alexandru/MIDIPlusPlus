@@ -519,6 +519,26 @@ covered by the resolver's tests and not by a live two-port open. Both inputs
 were loopMIDI ports; a real piano alongside a virtual port was not tried, and
 nothing here sent or received an actual note through two devices at once.
 
+Closed 2026-09-06, item 5, which was already done:
+
+- **Both halves were finished and nobody updated the list.** `245479a`
+  collapsed `MIDIConnect`'s `m_noteMapping[128][128][10]`, and `e678893`
+  removed the `NtUserSendInput` thunk after measuring it at 0 to 2 ns. Item 5
+  and `HANDOFF.md` section 4 both still described them as present, which is how
+  a session gets spent rediscovering that there is nothing to do.
+- **Verified rather than believed.** The evidence for the table was a comment
+  saying it was gone. `sizeof(MIDIConnect)` is now asserted under 32KB in
+  `MIDIConnect.cpp`, where the class is complete, so the member cannot grow
+  back quietly. The old layout was 6.5MB and the object is about 21KB.
+- **The stub is genuinely gone**, not merely unused: nothing under `MIDI++/`
+  allocates an RWX page or reads a syscall number, only comments recording why,
+  and the existing latency suite already asserts that injection routes through
+  `SendInput` with no stub to initialise.
+
+Still open from that section of `HANDOFF.md`, and untouched here: the ALT
+velocity preamble is still four events where one might do, and removing it
+needs the target game's protocol established first rather than guessed at.
+
 `ShellEngine` owns the player and command queue. Construction, loading,
 play/stop, key cleanup and destruction run on its worker, and scheduling keeps
 the inherited playback threads. The legacy hotkey listener is disabled only in
@@ -580,9 +600,10 @@ From `HANDOFF.md` section 15, and they are not stylistic preferences:
 4. **Two MIDI devices at once.** Closed 2026-09-06; see the entry above. The
    ids from `269c2f2` were right and their WinMM resolution was not. What is
    left is playing through two devices for real, rather than opening two.
-5. **`MIDIConnect`'s 6.5MB table** and **the `NtUserSendInput` syscall stub**,
-   both described in `HANDOFF.md` section 4. The stub is the riskier of the two:
-   its uninitialised state returns 69, which silently no-ops every keystroke.
+5. **Closed, and it was closed before this list said so.** Both halves were
+   done and the list was never updated: `245479a` collapsed `MIDIConnect`'s
+   table and `e678893` removed the syscall stub. Confirmed 2026-09-06 and now
+   held by a `static_assert` and a test. See the entry above.
 6. **YouTube to MIDI pipeline.** Lowest coupling, can happen anytime.
 
 ## Repository note
