@@ -662,6 +662,33 @@ the keycode mode really returns Set 1 scancodes, and how any of it feels to
 play. The panel owner reports the device enumerates and opens, which is further
 than this has been before.
 
+Fixed 2026-09-06, the frame rate while using Key Mapping:
+
+- **The app called itself backgrounded whenever you used its second window.**
+  `ui/Shell.cpp` paced the loop with
+  `MsgWaitForMultipleObjectsEx(..., GetForegroundWindow() == hwnd ? 16 : 80, ...)`.
+  Viewports are enabled and Key Mapping is a separate top-level window, so that
+  test is false for as long as the Key Mapping window has focus, which is
+  exactly while you are remapping keys. It now asks whether the foreground
+  window belongs to this process, which covers every window the app owns
+  including any added later.
+- **Measured, before and after, with the Key Mapping window focused:** 66.5 ms a
+  frame and 15 fps before, 16.3 ms and 61 fps after. The main window focused was
+  62 fps either way, which is why this never showed up in a screenshot.
+- **What it is not.** Loading the largest file in the owner's folder, a 117 KB
+  score, costs 22 ms end to end on the worker: 1.4 ms of parsing, 11 ms of
+  `process_tracks`, the rest stop and publish. Clicking a file is not waiting on
+  that work. The 80 ms idle pace beside a game is deliberate and unchanged.
+
+Verified: the Release shell build and `tests/run-shell-tests.ps1 -Render` across
+all four skins. The measurement used a temporary frame counter and a script that
+finds the Key Mapping window by title and focuses it; neither is committed.
+
+Still unverified: whether this is the whole of what the owner calls laggy. The
+file list is inside the main window, which measured 62 fps throughout, so if
+clicking a file still feels slow after this, the cause is somewhere the frame
+rate and the load time have both now been ruled out of.
+
 `ShellEngine` owns the player and command queue. Construction, loading,
 play/stop, key cleanup and destruction run on its worker, and scheduling keeps
 the inherited playback threads. The legacy hotkey listener is disabled only in
