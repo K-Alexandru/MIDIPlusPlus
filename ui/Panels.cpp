@@ -177,28 +177,33 @@ bool StatePill(const char* label, bool on, const Fonts& fonts, const skin::Skin&
     auto s = skin::ScaleGeometry(design, dpi);
     FontScope font(fonts, design, design.type.body * SpecFontScale(design), on ? Weight::Semibold : Weight::Regular);
     const auto min = ImGui::GetCursorScreenPos();
-    const ImVec2 size(ImGui::CalcTextSize(label).x + 2 * padding + 2 * dpi, s.metric.controlHeight);
+    const ImVec2 text = ImGui::CalcTextSize(label);
+    const ImVec2 size(text.x + 2 * padding + 2 * dpi, s.metric.controlHeight);
     if (on) s.border.hairline = s.accent.okBorder;
+
+    // One drawing path for every pill, interactive or not. Splitting them
+    // between ImGui::Button and a hand-placed AddText put the semibold on
+    // labels two pixels lower than the regular off ones, which read as the
+    // text sitting unevenly inside the pill.
+    bool clicked = false;
+    if (enabled) clicked = ImGui::InvisibleButton(label, size);
+    else ImGui::Dummy(size);
+    const bool hovered = enabled && ImGui::IsItemHovered();
+    const bool held = enabled && ImGui::IsItemActive();
+
+    ImU32 fill = on ? OpaqueTint(s.accent.okSoft, s.surface.structure) : Colour(s.surface.elevated);
+    if (held) fill = Colour(s.surface.recessed);
+    else if (hovered) fill = Colour(on ? s.accent.okSoft : s.surface.elevatedHot);
     // CSS clips the outside shadow at the control edge. Composite the tint
     // first so our stacked shadow cannot darken the translucent on surface.
-    skin::RaisedRect(ImGui::GetWindowDrawList(), min, ImVec2(min.x + size.x, min.y + size.y),
-                     s.radius.control, s, on ? OpaqueTint(s.accent.okSoft, s.surface.structure) : Colour(s.surface.elevated));
-    ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(0, 0, 0, 0));
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, Colour(on ? s.accent.okSoft : s.surface.elevatedHot));
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, Colour(s.surface.recessed));
-    ImGui::PushStyleColor(ImGuiCol_Text, Colour(on ? s.accent.okInk : s.ink.primary));
-    bool clicked = false;
-    if (enabled) clicked = ImGui::Button(label, size);
-    else {
-        ImGui::Dummy(size);
-        ImGui::GetWindowDrawList()->AddText(ImVec2(min.x + (size.x - ImGui::CalcTextSize(label).x) / 2,
-            min.y + (size.y - ImGui::GetTextLineHeight()) / 2), ImGui::GetColorU32(ImGuiCol_Text), label);
-    }
-    ImGui::PopStyleColor(4);
-    // An inset underline makes the on state readable without colour, without
-    // adding a status dot or changing the measured pill width.
-    if (on) ImGui::GetWindowDrawList()->AddLine(ImVec2(min.x + padding, min.y + size.y - 4 * dpi),
-        ImVec2(min.x + size.x - padding, min.y + size.y - 4 * dpi), Colour(s.accent.okInk), dpi);
+    auto* dl = ImGui::GetWindowDrawList();
+    skin::RaisedRect(dl, min, ImVec2(min.x + size.x, min.y + size.y), s.radius.control, s, fill);
+    dl->AddText(ImVec2(min.x + (size.x - text.x) / 2, min.y + (size.y - text.y) / 2),
+                Colour(on ? s.accent.okInk : s.ink.primary), label);
+
+    // No underline under the label: at pill width it read as text decoration
+    // rather than as a state. The on state is still not carried by colour
+    // alone, because an on pill is semibold where an off pill is regular.
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
         ImGui::SetTooltip("%s: %s%s%s", label, on ? "On" : "Off", tip ? "\n" : "", tip ? tip : "");
     return clicked;
