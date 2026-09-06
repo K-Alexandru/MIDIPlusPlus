@@ -811,7 +811,25 @@ void VirtualPianoPlayer::toggleSustainMode() {
     }
 }
 
-void VirtualPianoPlayer::release_all_keys() {
+// Release the keys that are down, not every key that could be.
+//
+// This used to inject a key-up for all 88 mappings whatever was actually held.
+// Every transport action goes through here -- load, pause, seek, skip, rewind,
+// restart -- so pausing a song mid-game sent the game 88 key-ups when three
+// notes were down. Measured at 9ms a call, and a load made two of them.
+//
+// pressed_keys is authoritative, which is the same invariant release_key() and
+// the dropped-press path at the top of the playback loop already rely on: a
+// press that never went out leaves the flag false, so nothing it names can
+// still be held.
+void VirtualPianoPlayer::release_all_keys() { release_keys(false); }
+
+// The panic path. emergency_exit() is the button you hit when something is
+// stuck, so it cannot be the one call that trusts our record of what is stuck.
+// It runs once and exits, so the 88 key-ups cost nothing that matters.
+void VirtualPianoPlayer::release_every_mapped_key() { release_keys(true); }
+
+void VirtualPianoPlayer::release_keys(bool everyMapping) {
     std::lock_guard lock(dispatch_mutex);
     track_note_owners.clear();
     sustain_owners.clear();
@@ -819,25 +837,21 @@ void VirtualPianoPlayer::release_all_keys() {
         releaseKey(sustain_key_code);
         isSustainPressed = false;
     }
-    // Release the keys that are down, not every key that could be.
-    //
-    // This used to inject a key-up for all 88 mappings whatever was actually held, and
-    // it is called twice for every file you click. Measured at 9ms a call: 18 of
-    // the 20ms a load spends in the engine were spent sending 176 key-ups that
-    // released nothing, into whatever window had focus at the time.
-    //
-    // pressed_keys is authoritative, which is the same invariant release_key()
-    // and the dropped-press path at the top of the playback loop already rely
-    // on: a press that never went out leaves the flag false, so nothing it
-    // names can still be held.
     const auto& mappings = (eightyEightKeyModeActive ? full_key_mappings
                                                      : limited_key_mappings);
-    for (auto& [note, state] : pressed_keys) {
-        if (!state.exchange(false, std::memory_order_relaxed)) continue;
-        const auto mapping = mappings.find(note);
-        if (mapping != mappings.end() && !mapping->second.empty()) KeyPress(mapping->second, false);
+    if (everyMapping) {
+        for (const auto& [note, key] : mappings) KeyPress(key, false);
+        for (auto& [note, state] : pressed_keys) state.store(false, std::memory_order_relaxed);
+    } else {
+        for (auto& [note, state] : pressed_keys) {
+            if (!state.exchange(false, std::memory_order_relaxed)) continue;
+            const auto mapping = mappings.find(note);
+            if (mapping != mappings.end() && !mapping->second.empty()) KeyPress(mapping->second, false);
+        }
     }
-    // Release alt/ctrl if pressed
+    // Alt and ctrl unconditionally, on both paths. They are two events, and a
+    // modifier left down in a game is worse than any note: it changes what
+    // every later keystroke means, including the user's own.
     releaseKey(VK_MENU);
     releaseKey(VK_CONTROL);
 }
@@ -1840,7 +1854,7 @@ void VirtualPianoPlayer::hotkey_listener() {
 void VirtualPianoPlayer::emergency_exit() {
     std::cout << "[EMERGENCY] Emergency exit triggered. Stopping playback and exiting.\n";
     should_stop.store(true, std::memory_order_release);
-    release_all_keys();
+    release_every_mapped_key();
     signalPlayback();
     std::exit(1);
 }

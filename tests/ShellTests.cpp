@@ -132,7 +132,16 @@ void ReleaseAllKeysTests(const std::filesystem::path& config) {
 
     player.release_all_keys();
     Require(noteUps(TakeCaptured()).empty(), "a key already released is not released twice");
-    std::cout << "PASS release_all_keys releases only the keys that are down\n";
+
+    // The panic path is deliberately the opposite, and the distinction is the
+    // point: emergency_exit() is the button you hit when a key is stuck, so it
+    // cannot be the one caller that trusts our record of what is stuck. It runs
+    // once and exits, so the cost that mattered on the transport path does not
+    // matter here.
+    player.release_every_mapped_key();
+    const auto swept = noteUps(TakeCaptured());
+    Require(swept.size() > 40, "the panic path releases every mapped key, held or not");
+    std::cout << "PASS release_all_keys releases only the keys that are down, and the panic path releases all of them\n";
 }
 
 // A note whose velocity bucket changed used to be two injection calls: the

@@ -185,7 +185,14 @@ public:
     void toggle_legit_mode();
     int  toggle_transpose_adjustment();
     // Other operations
+    //
+    // Two paths, and the difference is whether our own bookkeeping is trusted.
+    // release_all_keys() releases the keys pressed_keys says are down, which is
+    // every transport action: load, pause, seek, skip, rewind, restart.
+    // release_every_mapped_key() releases all 88 whatever we believe, for the
+    // panic key, where the bookkeeping being wrong is the thing being escaped.
     void release_all_keys();
+    void release_every_mapped_key();
     void calibrate_volume();
     void process_tracks(const MidiFile& midi_file);
 
@@ -315,6 +322,7 @@ private:
     void reset_volume();
     void initializeKeyCache();
     void KeyPress(std::string_view key, bool press);
+    void release_keys(bool everyMapping);
     int stringToVK(std::string_view keyName);
     void sendVirtualKey(WORD vk, bool is_press);
     void pressKey(WORD vk);

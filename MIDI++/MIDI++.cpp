@@ -1915,7 +1915,10 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                     std::cout << "[MIDI->QWERTY] ENABLED\n";
                     std::cout << "[WARNING] DO NOT use MIDI2Key with spam / black MIDIs or similar\n";
                     FocusRobloxWindow();
-                    g_player->release_all_keys();
+                    // The sweep, not the fast path. This one is not clearing our own
+                    // notes -- none are down -- it is starting the game clean
+                    // after focusing it, including anything the user left held.
+                    g_player->release_every_mapped_key();
                 }
                 else {
                     if (g_midi2key) {
