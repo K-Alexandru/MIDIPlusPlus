@@ -5,6 +5,7 @@
 #include "../MIDI++/WootingAnalog.hpp"
 #include "../MIDI++/config.hpp"
 #include <atomic>
+#include <fstream>
 #include <iostream>
 #include <thread>
 #include <vector>
@@ -148,6 +149,60 @@ void ReleaseTests(const std::filesystem::path& config) {
     SetEvent(player.command_event); player.playback_cv.notify_all();
     player.playback_thread->join(); player.playback_thread.reset();
     std::cout << "PASS note-off after mute/solo change, shared-pitch ownership and inverted pedal release\n";
+}
+
+// Saving a keybind used to reparse and rewrite the whole config, then wait on
+// the physical disk, for every single keystroke. That wait is what made
+// remapping feel slow, so the write now settles instead. What must not have
+// changed with it: the binding applies at once, every binding in a quick run
+// still lands, the rest of the config survives, and a crash cannot leave a
+// half-written file behind.
+void MappingPersistenceTests(const std::filesystem::path& source) {
+    const auto config = source.parent_path() / L"config-remap.json";
+    std::filesystem::copy_file(source, config, std::filesystem::copy_options::overwrite_existing);
+    const auto read = [&] {
+        std::ifstream input(config);
+        return nlohmann::json::parse(input);
+    };
+    const auto before = read();
+    const auto binding = [](const nlohmann::json& j, const char* note) {
+        return j.at("KEY_MAPPINGS").at("FULL").at(note).get<std::string>();
+    };
+
+    {
+        shell::ShellEngine engine(config);
+        // C4, D4 and E4 are 60, 62 and 64. Three in a row, sent as fast as the
+        // queue takes them, is the case a debounce could swallow.
+        engine.Send({shell::ShellEngine::Action::Remap, {}, 0, 60, false, 0, "z"});
+        engine.Send({shell::ShellEngine::Action::Remap, {}, 0, 62, false, 0, "x"});
+        engine.Send({shell::ShellEngine::Action::Remap, {}, 0, 64, false, 0, "c"});
+        Await([&] { return engine.Snapshot()->mappingRevision >= 3; }, "remaps did not reach the snapshot");
+        const auto applied = engine.Snapshot();
+        Require(applied->keyMappings.at("C4") == "z" && applied->keyMappings.at("E4") == "c",
+                "a binding is applied without waiting for the file");
+        Require(applied->error.empty(), "remapping reported an error");
+
+        // The file catches up on its own, without the engine being destroyed.
+        Await([&] {
+            try { return binding(read(), "E4") == "c"; } catch (const std::exception&) { return false; }
+        }, "the settled write never reached the file");
+        const auto after = read();
+        Require(binding(after, "C4") == "z" && binding(after, "D4") == "x" && binding(after, "E4") == "c",
+                "every remap in a quick run is saved, not just the last");
+        Require(after.at("VOLUME_SETTINGS") == before.at("VOLUME_SETTINGS") &&
+                after.at("HOTKEY_SETTINGS") == before.at("HOTKEY_SETTINGS"),
+                "saving a binding preserves the rest of the config");
+        Require(!std::filesystem::exists(std::filesystem::path(config).concat(L".shell-tmp")),
+                "the temporary file is renamed away, never left beside the config");
+
+        // A remap sent just before shutdown has not settled yet, so the
+        // destructor is the only thing that can still write it.
+        engine.Send({shell::ShellEngine::Action::Remap, {}, 0, 65, false, 0, "v"});
+        Await([&] { return engine.Snapshot()->mappingRevision >= 4; }, "final remap did not reach the snapshot");
+    }
+    Require(binding(read(), "F4") == "v", "a binding still settling at shutdown is written on the way out");
+    std::filesystem::remove(config);
+    std::cout << "PASS keybind saves settle, survive shutdown and preserve the config\n";
 }
 
 void ControllerTests(const std::filesystem::path& config, const std::filesystem::path& fixture) {
@@ -355,6 +410,7 @@ int wmain() {
         WootingMapTests();
         WootingSettingsTests();
         ModelTests(fixture);
+        MappingPersistenceTests(directory / L"config.json");
         ReleaseTests(directory / L"config.json");
         ControllerTests(directory / L"config.json", fixture);
         std::cout << "PASS all shell tests (injection captured in process)\n";

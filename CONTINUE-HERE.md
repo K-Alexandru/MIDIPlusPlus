@@ -374,6 +374,8 @@ Completed 2026-09-05, first Wooting session:
   there is no one scancode to attach the note to. A Wooting therefore plays the
   36 unshifted white keys, C2 to C7, and nothing else. That is a real limit,
   not an oversight, and it is the next thing to solve if analog playing matters.
+  Solved by the shift amount in the 2026-09-06 entry below, which is how the
+  upstream app reaches them too.
 
 Still unverified: this was fixed from the code and the reported symptom, and
 the tests cover the table, but no Wooting was in the loop here. The remaining
@@ -399,6 +401,75 @@ Closed 2026-09-06, the Roblox clip toast:
   `NtUserSendInput` syscall thunk, removed in `e678893`, made our keystrokes
   more visible to other applications' shortcut handling than upstream's are.
   That was never measured either way. It is item 5 below.
+
+Completed 2026-09-06, Wooting parity and the two lags:
+
+- **The black-key limit was the missing shift amount, not a missing table.**
+  wooting-analog-midi maps white keys only as well: its default layout runs
+  N1-N0, Q-P, A-L, Z-M straight up the whites, exactly as ours does. Holding
+  Left Shift adds Shift Amount semitones to every key, so with the owner's
+  setting of 1 the shift is the sharp. Building a black-key scancode table
+  would have been the wrong fix for a problem the upstream app solves with an
+  offset.
+- **The three controls now exist**, under `WOOTING_ANALOG` in the config, named
+  and defaulted as upstream names and defaults them so a number carried over
+  means the same thing: `TRIGGER_THRESHOLD` (its Note Trigger Threshold, 0.5),
+  `SHIFT_AMOUNT` (its Shift Amount, 12) and `VELOCITY_SCALE` (its Velocity
+  Scale, 5.0, applied as `rate * scale / 100`). `RELEASE_FRACTION` has no
+  upstream counterpart: upstream releases at its single threshold and a key
+  resting there stutters, so ours keeps the gap it always had and expresses it
+  as a fraction of the trigger.
+- **Two behaviour changes fall out of matching those defaults.** The trigger
+  moves from 0.35 to 0.50 and the velocity scale from an implicit 4.0 to 5.0.
+  Anyone who liked the old feel writes 0.35 and 4.0 into the config.
+- **A held key remembers the note it sounded.** The backend tracked a bool per
+  scancode and recomputed the note to release. With a shift that can be let go
+  while the key is still down, that would have released a pitch nobody was
+  holding and left the real one stuck down in the game. It now stores the note
+  actually sent. Upstream does the same thing and for the same reason: a shift
+  change does not retune a note that is already sounding.
+- **A shift past the MIDI range plays nothing** rather than wrapping to a pitch
+  nobody asked for.
+- **Changing a keybind no longer waits on the disk.** Every remap reparsed the
+  whole `config.json`, reserialised it, and replaced it with
+  `MOVEFILE_WRITE_THROUGH`, which waits for the physical disk. Per keystroke.
+  The parsed config is now held in memory, the binding applies and publishes at
+  once, and the file settles 400 ms later through the same atomic rename
+  without the write-through. A curve commit still writes immediately, because
+  it happens on a slider release rather than per keystroke and its documented
+  behaviour is that a failed save reports and leaves the applied response alone.
+- **A config that failed to parse is never written back.** It is held as JSON
+  null, and the earlier code would have rebuilt an object around a single
+  binding and replaced the user's settings with it.
+- **Superseded commands are dropped from the queue.** `Load`, `Seek`, `Speed`
+  and `Transpose` all carry an absolute target, so when a newer one of the same
+  kind is already queued the older cannot still matter. Clicking through a
+  folder no longer parses every score passed on the way to the one wanted.
+
+Not the cause, though it was the first guess: the 6.5MB `MIDIConnect` table is
+not built on the first file click. `ensurePlayer` already runs at engine start,
+so the `VirtualPianoPlayer` construction inside `Action::Load` is a defensive
+branch that never fires. What is left of the click is the parse itself plus
+`process_tracks`, which is real work on a worker with `busy` published and
+"Loading..." already shown.
+
+Verified: the shell Release build, the original solution build, the full
+`tests/run-shell-tests.ps1` with and without `-Render` across all four skins at
+100/150/200%, and the existing legit-mode suite. New coverage drives the
+velocity formula and its scale directly, the settings round trip, the config
+block's optional fields and every rejected range, and a live `ShellEngine`
+proving three rapid remaps all reach the file, that unrelated config sections
+survive, that no temporary file is left beside the config, and that a remap
+still settling at shutdown is written on the way out.
+
+Still unverified: no Wooting was in the loop, again. The poll loop's own shift
+handling needs the hardware, so what is tested is the velocity conversion, the
+settings and the config, not the loop that reads the SDK buffer. Nobody has
+measured the remap latency before and after either; the write-through wait and
+the per-keystroke reparse are gone by construction, but no number was taken.
+There is no UI for the three settings: they are config-only, and adding one
+means an `EngineSnapshot` field and `ShellEngine::Action` entries, which belong
+to whoever owns the panel.
 
 `ShellEngine` owns the player and command queue. Construction, loading,
 play/stop, key cleanup and destruction run on its worker, and scheduling keeps
@@ -453,7 +524,11 @@ From `HANDOFF.md` section 15, and they are not stylistic preferences:
    noise, while human microtiming has long-range 1/f correlation and follows
    musical structure. Start there.
 3. **Wooting analog playing.** The backend has never been exercised with the
-   hardware. The owner has a Wooting, so this is testable.
+   hardware. The owner has a Wooting, so this is testable. Trigger, shift
+   amount and velocity scale exist as of 2026-09-06 and are config-only; the
+   panel owner is the one who can give them a UI. Still absent against
+   wooting-analog-midi: polyphonic aftertouch from continuous key depth, a
+   per-key note map edited in the app, and a MIDI channel selector.
 4. **Two MIDI devices at once.** The id-based opening in `269c2f2` is meant to
    fix this and has not been confirmed with two inputs present. Two loopMIDI
    ports reproduce it without a second piano.

@@ -61,11 +61,41 @@ void ShellEngine::Run(std::stop_token stop) {
     uint64_t liveMappings = 0;
     int liveTranspose = 0;
     std::vector<std::chrono::nanoseconds> scoreTimes;
+    // config.json is parsed once and held here. Every reader below reads this
+    // copy and every writer edits it, because reparsing and rewriting the whole
+    // file per edit is most of what made changing a keybind feel slow.
+    nlohmann::json configJson;
+    bool configDirty = false;
+    std::chrono::steady_clock::time_point configDue{};
+    // Long enough that a run of remaps becomes a single write, short enough
+    // that the file is current by the time anyone goes to look at it.
+    constexpr auto configSettle = 400ms;
     try {
         std::ifstream stream(config_);
-        const auto json = nlohmann::json::parse(stream);
-        state.keyMappings = json.at("KEY_MAPPINGS").at("FULL").get<decltype(state.keyMappings)>();
+        configJson = nlohmann::json::parse(stream);
+        state.keyMappings = configJson.at("KEY_MAPPINGS").at("FULL").get<decltype(state.keyMappings)>();
     } catch (const std::exception& error) { state.error = error.what(); }
+    const auto touchConfig = [&] {
+        configDirty = true;
+        configDue = std::chrono::steady_clock::now() + configSettle;
+    };
+    // Runs on the settle deadline, before anything that reads config.json from
+    // disk again, and once more on shutdown. MOVEFILE_REPLACE_EXISTING is still
+    // an atomic rename, so the file is never seen half written. What was
+    // dropped is WRITE_THROUGH, which waited on the physical disk while the
+    // keystroke that caused it went unacknowledged.
+    const auto flushConfig = [&] {
+        if (!configDirty) return;
+        // A config that failed to parse is held as null. Writing that back
+        // would replace every saved setting with an empty file.
+        if (!configJson.is_object()) throw std::runtime_error("The configuration was not loaded, so it cannot be saved.");
+        auto temporary = config_; temporary += L".shell-tmp";
+        { std::ofstream output(temporary); output << configJson.dump(4) << '\n'; output.flush();
+          if (!output) throw std::runtime_error("Cannot save the configuration."); }
+        if (!MoveFileExW(temporary.c_str(), config_.c_str(), MOVEFILE_REPLACE_EXISTING))
+            throw std::runtime_error("Cannot replace the saved configuration.");
+        configDirty = false;
+    };
     Publish(state);
     const auto stopPlayback = [&] {
         if (!player) return;
@@ -117,6 +147,9 @@ void ShellEngine::Run(std::stop_token stop) {
     // settings come from the config, not from the score.
     const auto ensurePlayer = [&] {
         if (!player) {
+            // The player parses config.json itself, so a pending edit has to
+            // reach the disk before it looks.
+            flushConfig();
             player = std::make_unique<VirtualPianoPlayer>(false, config_);
             state.keyMappings = player->full_key_mappings;
             player->enable_velocity_keypress = state.velocity;
@@ -154,10 +187,8 @@ void ShellEngine::Run(std::stop_token stop) {
         }
         for (const auto& custom : midi::Config::getInstance().playback.customVelocityCurves)
             state.curves.push_back({custom.name, custom.velocityValues});
-        std::ifstream input(config_);
-        const auto json = nlohmann::json::parse(input);
-        if (json.contains("SHELL_VELOCITY")) {
-            const auto& saved = json.at("SHELL_VELOCITY");
+        if (configJson.contains("SHELL_VELOCITY")) {
+            const auto& saved = configJson.at("SHELL_VELOCITY");
             state.curve.preset = std::min(saved.value("preset", size_t{1}), state.curves.size() - 1);
             state.curve.sensitivity = std::clamp(saved.value("sensitivity", 0.f), -50.f, 50.f);
             state.curve.contrast = std::clamp(saved.value("contrast", 0.f), 0.f, 100.f);
@@ -179,21 +210,20 @@ void ShellEngine::Run(std::stop_token stop) {
         state.error = error.what();
     }
     Publish(state);
+    // A curve is committed on a slider release, not per keystroke, and the
+    // documented behaviour is that a failed save reports and leaves the applied
+    // response alone. So this one still writes immediately, and gives up only
+    // the wait on the physical disk.
     const auto saveCurves = [&](const EngineSnapshot& next) {
-        std::ifstream input(config_);
-        auto json = nlohmann::json::parse(input); input.close();
-        json["CUSTOM_VELOCITY_CURVES"] = nlohmann::json::array();
+        configJson["CUSTOM_VELOCITY_CURVES"] = nlohmann::json::array();
         for (size_t i = 5; i < next.curves.size(); ++i)
-            json["CUSTOM_VELOCITY_CURVES"].push_back({{"name", next.curves[i].name}, {"values", next.curves[i].thresholds}});
-        auto& saved = json["SHELL_VELOCITY"];
+            configJson["CUSTOM_VELOCITY_CURVES"].push_back({{"name", next.curves[i].name}, {"values", next.curves[i].thresholds}});
+        auto& saved = configJson["SHELL_VELOCITY"];
         saved = {{"preset", next.curve.preset}, {"sensitivity", next.curve.sensitivity},
                  {"contrast", next.curve.contrast}, {"sustainCutoff", next.sustainCutoff}};
         if (next.curve.manual) saved["samples"] = next.curve.samples;
-        auto temporary = config_; temporary += L".shell-tmp";
-        { std::ofstream output(temporary); output << json.dump(4) << '\n'; output.flush();
-          if (!output) throw std::runtime_error("Cannot save velocity response."); }
-        if (!MoveFileExW(temporary.c_str(), config_.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
-            throw std::runtime_error("Cannot replace the velocity response config.");
+        touchConfig();
+        flushConfig();
     };
     const auto applyTracks = [&] {
         if (!player) return;
@@ -209,12 +239,25 @@ void ShellEngine::Run(std::stop_token stop) {
             std::unique_lock lock(mutex_);
             const auto ready = [&] { return stop.stop_requested() || !commands_.empty(); };
             if (state.playing) wake_.wait_for(lock, 25ms, ready);
+            else if (configDirty) wake_.wait_until(lock, configDue, ready);
             else wake_.wait(lock, ready);
             if (stop.stop_requested()) break;
-            if (!commands_.empty()) {
+            // Clicking a file is one Load and a Load parses a whole score, so
+            // clicking through a folder otherwise parses every file passed on
+            // the way to the one wanted. Only the last of a run of the same
+            // command can still matter: these four all carry an absolute
+            // target, never a relative step.
+            while (!commands_.empty()) {
                 command = std::move(commands_.front());
                 commands_.pop_front();
+                const bool overtaken =
+                    (command.action == Action::Load || command.action == Action::Seek ||
+                     command.action == Action::Speed || command.action == Action::Transpose) &&
+                    std::any_of(commands_.begin(), commands_.end(),
+                                [&](const Command& queued) { return queued.action == command.action; });
+                if (overtaken) continue;
                 hasCommand = true;
+                break;
             }
         }
         try {
@@ -341,18 +384,15 @@ void ShellEngine::Run(std::stop_token stop) {
                     if (key.size() != 1 || std::string("1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!@#$%^&*()").find(key[0]) == std::string::npos)
                         throw std::runtime_error("Use a letter, number, or shifted number for this mapping.");
                     stopPlayback();
-                    // Preserve every other config field, including settings owned
-                    // by the live-input host. Commit the file before publishing.
-                    std::ifstream input(config_);
-                    auto json = nlohmann::json::parse(input);
-                    input.close();
+                    // The binding is applied and published now and the file
+                    // catches up when the edits settle, because a remap is one
+                    // keystroke and a keystroke should not wait on a disk. Every
+                    // other config field survives because this edits the parsed
+                    // config in place, including the fields the live-input host
+                    // owns.
                     const auto note = NoteName(static_cast<int>(command.track));
-                    json["KEY_MAPPINGS"]["FULL"][note] = command.key;
-                    auto temporary = config_; temporary += L".shell-tmp";
-                    { std::ofstream output(temporary); output << json.dump(4) << '\n'; output.flush();
-                      if (!output) throw std::runtime_error("Cannot save key mapping."); }
-                    if (!MoveFileExW(temporary.c_str(), config_.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
-                        throw std::runtime_error("Cannot replace the saved key mapping config.");
+                    configJson["KEY_MAPPINGS"]["FULL"][note] = command.key;
+                    touchConfig();
                     state.keyMappings[note] = command.key;
                     ++state.mappingRevision;
                     applyMappings();
@@ -540,8 +580,16 @@ void ShellEngine::Run(std::stop_token stop) {
             state.busy = false;
         }
         state.playedVelocities = velocity_telemetry::snapshot();
+        if (configDirty && std::chrono::steady_clock::now() >= configDue) {
+            try { flushConfig(); }
+            catch (const std::exception& error) { state.error = error.what(); }
+        }
         Publish(state);
     }
     stopPlayback();
+    // Last chance to write a settling edit. The window is already going, so
+    // there is nowhere left to report a failure to; the rename is atomic, so a
+    // failure leaves the previous config intact rather than a damaged one.
+    try { flushConfig(); } catch (const std::exception&) {}
 }
 }
