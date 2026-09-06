@@ -88,7 +88,12 @@ because it drives ImGui IO in process and never sends a window message:
 `WM_GETMINMAXINFO`, `WM_SIZE` and `ResizeBuffers`, `WM_DPICHANGED`, `WM_CLOSE`,
 and a physical click at a physical pixel landing on the control drawn there. It
 drives the real cursor and fronts a window, so it owns the desktop for about
-half a minute; do not click anything while it runs. It works in
+half a minute; do not click anything while it runs, and do not start it while
+someone is using the machine for something else. Nor should
+`run-latency-tests.ps1`, which sends real `SendInput` and will type into
+whatever has focus. `run-shell-tests.ps1` is the safe one: it swaps the
+injection entry point for an in-process recorder and sends nothing to the
+desktop, so it can run at any time. It works in
 `build\native-tests\`, so it never touches the settings, config or MIDI folder
 in use. `tests/NativeShell.ps1` is the reusable half, for one-off measurement
 rather than only for this suite.
