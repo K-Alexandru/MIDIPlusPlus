@@ -807,6 +807,60 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
     }
     ImGui::SameLine();
     if (IconButton("##scan-midi", Icon::Refresh, "Scan MIDI inputs", s, dpi)) engine.Send({ShellEngine::Action::LiveScan});
+    const bool wootingSelected = state->liveDevice == L"wooting:analog" &&
+        BackendForDeviceId(state->liveDevice) == MidiBackend::WootingAnalog;
+    if (wootingSelected) {
+        ImGui::Separator();
+        section("WOOTING ANALOG");
+        const std::array<float, 3> current{
+            static_cast<float>(state->wootingTriggerThreshold),
+            static_cast<float>(state->wootingShiftAmount),
+            static_cast<float>(state->wootingVelocityScale)};
+        const auto closeEnough = [](float a, float b) { return std::abs(a - b) < .001f; };
+        for (size_t i = 0; i < current.size(); ++i) {
+            if (wootingPending_[i] && closeEnough(current[i], wootingPreview_[i])) wootingPending_[i] = false;
+            if (!wootingEditing_[i] && !wootingPending_[i]) wootingPreview_[i] = current[i];
+        }
+        const auto setting = [&](size_t index, const char* label, const char* id, float low, float high, float step,
+                                 ShellEngine::Action action, const char* format) {
+            ImGui::TextUnformatted(label);
+            ImGui::SameLine();
+            const float rounded = std::clamp(std::round(wootingPreview_[index] / step) * step, low, high);
+            char text[32]; snprintf(text, sizeof(text), format, rounded);
+            ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowContentRegionMax().x - ImGui::CalcTextSize(text).x));
+            ImGui::TextUnformatted(text);
+            float value = wootingPreview_[index];
+            const bool changed = Groove(id, &value, low, high, ImGui::GetContentRegionAvail().x,
+                                        22 * dpi, s, dpi, true);
+            value = std::clamp(std::round(value / step) * step, low, high);
+            if (changed) {
+                wootingPreview_[index] = value;
+                ShellEngine::Command command{action}; command.amount = value;
+                command.value = !ImGui::IsItemActive();
+                engine.Send(std::move(command));
+                wootingEditing_[index] = ImGui::IsItemActive();
+                wootingPending_[index] = !wootingEditing_[index];
+            }
+            if (wootingEditing_[index] && ImGui::IsItemDeactivatedAfterEdit()) {
+                ShellEngine::Command command{action}; command.amount = wootingPreview_[index]; command.value = true;
+                engine.Send(std::move(command));
+                wootingEditing_[index] = false;
+                wootingPending_[index] = true;
+            }
+        };
+        setting(0, "Note trigger threshold", "##wooting-trigger", .01f, 1.f, .01f,
+                ShellEngine::Action::WootingTriggerThreshold, "%.2f");
+        setting(1, "Shift amount", "##wooting-shift", -127.f, 127.f, 1.f,
+                ShellEngine::Action::WootingShiftAmount, "%+.0f semitones");
+        { FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
+          ImGui::TextWrapped("Set this to 1 and hold Left Shift to play a black key."); }
+        setting(2, "Velocity scale", "##wooting-velocity", .1f, 20.f, .1f,
+                ShellEngine::Action::WootingVelocityScale, "%.1f");
+        ImGui::Separator();
+    } else {
+        wootingEditing_.fill(false);
+        wootingPending_.fill(false);
+    }
     bool active = state->liveActive;
     ImGui::BeginDisabled(state->liveDevice.empty());
     if (ImGui::Checkbox("Midi2Key", &active)) engine.Send({ShellEngine::Action::LiveActive, {}, 0, 0, active});

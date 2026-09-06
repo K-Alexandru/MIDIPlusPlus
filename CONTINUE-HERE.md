@@ -539,6 +539,38 @@ Still open from that section of `HANDOFF.md`, and untouched here: the ALT
 velocity preamble is still four events where one might do, and removing it
 needs the target game's protocol established first rather than guessed at.
 
+Completed 2026-09-06, Wooting Settings panel:
+
+- **The three upstream controls are no longer config-only.** Settings shows
+  Note trigger threshold, Shift amount and Velocity scale only when the exact
+  selected input is `wooting:analog` and its backend is Wooting analog. A MIDI
+  port gets none of those controls or their layout space. `RELEASE_FRACTION`
+  remains config-only and is preserved when any visible setting is saved.
+- **Dragging is live and saving is settled.** `EngineSnapshot` carries the
+  values and three `ShellEngine::Action` cases apply them on the worker to
+  `midi::Config::getInstance().wooting`, the locked analog backend and the
+  retained `configJson`. Drag previews are coalesced and call `touchConfig()`;
+  release calls `flushConfig()` through the existing atomic rename. No second
+  config parser or write-through path was added.
+- **The ranges and upstream defaults are the UI contract.** Trigger is 0.01 to
+  1.00 in 0.01 steps, shift is -127 to +127 semitones in whole steps, and
+  velocity scale is 0.1 to 20.0 in 0.1 steps. Defaults are 0.50, 12 and 5.0.
+  The shift row says to set it to 1 and hold Left Shift to play a black key.
+
+Verified in software: the Release x64 shell build and
+`tests/run-shell-tests.ps1 -Render` pass. An ignored engine harness covered
+defaults, range clamps, backend preview, release-time file commit, unrelated
+config retention, the untouched release fraction and restart persistence. An
+ignored DX11 input harness found and dragged the real ImGui controls, switched
+to a WinRT row and confirmed the Wooting controls disappeared, then rendered
+and inspected Settings in all four skins at 100/150/200 percent and back to
+100. The connected Wooting enumerated and opened during that harness.
+
+Still unverified: no physical Wooting key was pressed, so trigger feel, the
+poll loop's held-Left-Shift path, strike velocity under real playing and game
+delivery remain hardware checks for the owner. Nothing under `MIDI++/` or
+`tests/` was edited for this panel.
+
 `ShellEngine` owns the player and command queue. Construction, loading,
 play/stop, key cleanup and destruction run on its worker, and scheduling keeps
 the inherited playback threads. The legacy hotkey listener is disabled only in
@@ -591,12 +623,13 @@ From `HANDOFF.md` section 15, and they are not stylistic preferences:
    is what is wrong, not the code: three uniform draws with no memory make
    noise, while human microtiming has long-range 1/f correlation and follows
    musical structure. Start there.
-3. **Wooting analog playing.** The backend has never been exercised with the
-   hardware. The owner has a Wooting, so this is testable. Trigger, shift
-   amount and velocity scale exist as of 2026-09-06 and are config-only; the
-   panel owner is the one who can give them a UI. Still absent against
-   wooting-analog-midi: polyphonic aftertouch from continuous key depth, a
-   per-key note map edited in the app, and a MIDI channel selector.
+3. **Wooting analog playing.** The connected device now enumerates, opens, and
+   has conditional Settings controls for trigger, shift amount and velocity
+   scale. Physical key travel, held-Left-Shift black keys, velocity feel and
+   game delivery still need the owner to play it. The three remaining gaps
+   against wooting-analog-midi stay out of scope by design: polyphonic
+   aftertouch from continuous key depth, a second per-key note map, and a MIDI
+   channel selector.
 4. **Two MIDI devices at once.** Closed 2026-09-06; see the entry above. The
    ids from `269c2f2` were right and their WinMM resolution was not. What is
    left is playing through two devices for real, rather than opening two.

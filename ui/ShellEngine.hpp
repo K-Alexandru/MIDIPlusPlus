@@ -45,6 +45,9 @@ struct EngineSnapshot {
     uint64_t curveRevision = 0;
     int sustainCutoff = 64;
     velocity_telemetry::Snapshot playedVelocities;
+    double wootingTriggerThreshold = 0.5;
+    int wootingShiftAmount = 12;
+    double wootingVelocityScale = 5.0;
     std::string ActiveVelocityName() const {
         return comparingCurve ? previousPreset.name + (VelocityEdited(previousCurve) ? " (edited)" : "") : VelocityName(curves, curve);
     }
@@ -56,7 +59,8 @@ public:
                         Pause, TogglePlayPause, Restart, Back10, Forward10, Seek, Speed, Transpose, Remap,
                         LiveScan, LiveOpen, LiveActive, LiveChannel,
                         CurveSelect, CurveAdjust, CurveStep, CurveCompare, CurveNew,
-                        CurveDuplicate, CurveRename, SustainCutoff, CurveSteps };
+                        CurveDuplicate, CurveRename, SustainCutoff, CurveSteps,
+                        WootingTriggerThreshold, WootingShiftAmount, WootingVelocityScale };
     struct Command {
         Action action;
         std::filesystem::path path;

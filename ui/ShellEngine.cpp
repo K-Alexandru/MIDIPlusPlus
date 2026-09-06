@@ -1,6 +1,7 @@
 #include "ShellEngine.hpp"
 #include "PlaybackSystem.hpp"
 #include "MIDI2Key.hpp"
+#include "WootingAnalog.hpp"
 #include <fstream>
 #include <cmath>
 #include <intrin.h>
@@ -157,6 +158,16 @@ void ShellEngine::Run(std::stop_token stop) {
             player->eightyEightKeyModeActive = true;
         }
     };
+    const auto applyWootingSettings = [&] {
+        const auto& configured = midi::Config::getInstance().wooting;
+        state.wootingTriggerThreshold = configured.TRIGGER_THRESHOLD;
+        state.wootingShiftAmount = configured.SHIFT_AMOUNT;
+        state.wootingVelocityScale = configured.VELOCITY_SCALE;
+        SetWootingAnalogSettings({static_cast<float>(configured.TRIGGER_THRESHOLD),
+                                  static_cast<float>(configured.RELEASE_FRACTION),
+                                  configured.SHIFT_AMOUNT,
+                                  static_cast<float>(configured.VELOCITY_SCALE)});
+    };
     const auto applyCurve = [&] {
         if (!player || state.curves.empty()) return;
         auto& custom = midi::Config::getInstance().playback.customVelocityCurves;
@@ -175,6 +186,7 @@ void ShellEngine::Run(std::stop_token stop) {
     // avoids a second set of preset constants drifting from the injector.
     try {
         ensurePlayer();
+        applyWootingSettings();
         const std::string keys = "1234567890qwertyuiopasdfghjklzxc";
         for (size_t i = 0; i < 5; ++i) {
             VelocityPreset preset{player->getVelocityCurveName(static_cast<midi::VelocityCurveType>(i))};
@@ -252,7 +264,10 @@ void ShellEngine::Run(std::stop_token stop) {
                 commands_.pop_front();
                 const bool overtaken =
                     (command.action == Action::Load || command.action == Action::Seek ||
-                     command.action == Action::Speed || command.action == Action::Transpose) &&
+                     command.action == Action::Speed || command.action == Action::Transpose ||
+                     command.action == Action::WootingTriggerThreshold ||
+                     command.action == Action::WootingShiftAmount ||
+                     command.action == Action::WootingVelocityScale) &&
                     std::any_of(commands_.begin(), commands_.end(),
                                 [&](const Command& queued) { return queued.action == command.action; });
                 if (overtaken) continue;
@@ -431,6 +446,36 @@ void ShellEngine::Run(std::stop_token stop) {
                     state.liveChannel = std::clamp(static_cast<int>(command.amount), -1, 15);
                     if (live) live->SetMidiChannel(state.liveChannel);
                     break;
+                case Action::WootingTriggerThreshold:
+                case Action::WootingShiftAmount:
+                case Action::WootingVelocityScale: {
+                    if (!std::isfinite(command.amount)) break;
+                    if (!configJson.is_object())
+                        throw std::runtime_error("The configuration was not loaded, so it cannot be saved.");
+                    auto& configured = midi::Config::getInstance().wooting;
+                    const char* field = nullptr;
+                    if (command.action == Action::WootingTriggerThreshold) {
+                        configured.TRIGGER_THRESHOLD = std::clamp(std::round(command.amount * 100.0) / 100.0, 0.01, 1.0);
+                        field = "TRIGGER_THRESHOLD";
+                        configJson["WOOTING_ANALOG"][field] = configured.TRIGGER_THRESHOLD;
+                    } else if (command.action == Action::WootingShiftAmount) {
+                        configured.SHIFT_AMOUNT = static_cast<int>(std::round(std::clamp(command.amount, -127.0, 127.0)));
+                        field = "SHIFT_AMOUNT";
+                        configJson["WOOTING_ANALOG"][field] = configured.SHIFT_AMOUNT;
+                    } else {
+                        configured.VELOCITY_SCALE = std::clamp(std::round(command.amount * 10.0) / 10.0, 0.1, 20.0);
+                        field = "VELOCITY_SCALE";
+                        configJson["WOOTING_ANALOG"][field] = configured.VELOCITY_SCALE;
+                    }
+                    configured.validate();
+                    applyWootingSettings();
+                    touchConfig();
+                    // Dragging previews through the backend and lets disk I/O
+                    // settle. Releasing commits the last value immediately so
+                    // a save failure can be shown in Settings.
+                    if (command.value) flushConfig();
+                    break;
+                }
                 case Action::Stop:
                     stopPlayback();
                     state.position = 0;

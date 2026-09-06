@@ -63,6 +63,9 @@ private:
     float stepValue_ = 0;
     bool cutoffEditing_ = false;
     float cutoffPreview_ = 64;
+    std::array<float, 3> wootingPreview_{0.5f, 12.f, 5.f};
+    std::array<bool, 3> wootingEditing_{};
+    std::array<bool, 3> wootingPending_{};
     bool scannedLive_ = false;
     bool measuring_ = false;
     int timingSource_ = 0;
