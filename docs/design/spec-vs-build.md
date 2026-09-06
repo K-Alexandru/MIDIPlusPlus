@@ -121,13 +121,9 @@ outside this pass. The native host was verified separately in the previous
 session.
 
 The velocity editor now has both sides: `mode-1` through `mode-3` on the build,
-`classic-velocity*.png` and `modern-velocity*.png` on the spec. They were not
-read against each other in this pass.
-
-One thing the spec side settles: its histogram is labelled "Your playing this
-session". `MIDI++/VelocityTelemetry.hpp` now records exactly that, and the
-build can draw it as soon as the panel owner carries the field into
-`EngineSnapshot`. CONTINUE-HERE.md has the field and what to draw with it.
+`classic-velocity*.png` and `modern-velocity*.png` on the spec. They were read
+against each other in the 2026-09-06 follow-up after the native histogram and
+live dot were wired.
 
 ## Reproducing
 
@@ -165,6 +161,17 @@ Settings, each at four skins and 100/150/200%.
   by hand. That is what finally fixed the piano, and it retires the whole class
   of finding that produced items 1 and 12.
 
-Still open, and deliberate: the search field stays in the file list because it
-earns its place on large folders, and the mini transpose stepper has no
-equivalent in the spec's mini, which shows the value alone.
+Final rendered reconciliation, 2026-09-06:
+
+- The useful native search field now appears in the spec beside real open-file
+  and open-folder icons, and filtering was exercised in the live page.
+- Mini mode now shows the real five-pill strip and transpose stepper. Compact
+  pill spacing keeps MidiConnect on the same row at the specified 540px width.
+- Settings now describes the implemented WinRT, WinMM and Wooting Analog input
+  paths. It states that Kernel Streaming is unavailable and omits invented
+  figures and buffer controls.
+- The native velocity graph now consumes `VelocityTelemetry`: 32 session
+  buckets normalised to their largest value, no bars when total is zero, and a
+  live accent dot when the last velocity is non-zero.
+- Edge captures were regenerated, and the native seven-mode and key-mapping
+  harnesses were inspected at 100, 150 and 200 percent across all four skins.

@@ -614,6 +614,24 @@ void Panels::DrawVelocity(const Fonts& fonts, const skin::Skin& design, float dp
     { FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
       draw->AddText(ImVec2(graphMin.x + 12 * dpi, graphMin.y + 8 * dpi), Colour(s.ink.secondary), "32 game steps"); }
     const ImVec2 plotMin(graphMin.x + 12 * dpi, graphMin.y + 40 * dpi), plotMax(graphMax.x - 12 * dpi, graphMax.y - 28 * dpi);
+    if (histogramRevision_ != state->playedVelocities.revision) {
+        histogramRevision_ = state->playedVelocities.revision;
+        const auto largest = *std::max_element(state->playedVelocities.buckets.begin(),
+                                               state->playedVelocities.buckets.end());
+        histogramVisible_ = state->playedVelocities.total != 0 && largest != 0;
+        for (size_t i = 0; i < histogramHeights_.size(); ++i)
+            histogramHeights_[i] = largest ? static_cast<float>(state->playedVelocities.buckets[i]) / largest : 0.f;
+    }
+    if (histogramVisible_) {
+        const float barWidth = (plotMax.x - plotMin.x) / histogramHeights_.size();
+        for (size_t i = 0; i < histogramHeights_.size(); ++i) {
+            const float height = histogramHeights_[i] * (plotMax.y - plotMin.y) * .32f;
+            if (height <= 0) continue;
+            draw->AddRectFilled(ImVec2(plotMin.x + i * barWidth + dpi, plotMax.y - height),
+                                ImVec2(plotMin.x + (i + 1) * barWidth - dpi, plotMax.y),
+                                Colour(s.accent.accentSoft), 1.5f * dpi);
+        }
+    }
     for (int i = 1; i < 4; ++i) {
         const float x = plotMin.x + (plotMax.x - plotMin.x) * i / 4;
         const float y = plotMin.y + (plotMax.y - plotMin.y) * i / 4;
@@ -635,18 +653,18 @@ void Panels::DrawVelocity(const Fonts& fonts, const skin::Skin& design, float dp
     DrawCurveLine(draw, preset, shown, plotMin, plotMax, Colour(s.accent.accent), 2 * dpi);
     ImGui::SetCursorScreenPos(plotMin);
     ImGui::InvisibleButton("##curve-graph", ImVec2(plotMax.x - plotMin.x, plotMax.y - plotMin.y));
-    const bool preview = ImGui::IsItemHovered();
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
-        ImGui::SetTooltip("Pointer preview. Incoming note velocities are not exposed by the current engine snapshot.");
     { FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
-      if (preview) {
-          const int input = std::clamp(static_cast<int>(std::round((ImGui::GetIO().MousePos.x - plotMin.x) / (plotMax.x - plotMin.x) * 127)), 1, 127);
+      if (state->playedVelocities.last != 0) {
+          const int input = state->playedVelocities.last;
           const int output = VelocityBucket(thresholds, input);
-          char readout[64]; snprintf(readout, sizeof(readout), "Preview %d > step %d", input, output + 1);
+          char readout[64]; snprintf(readout, sizeof(readout), "%d played > step %d", input, output + 1);
           draw->AddText(ImVec2(graphMax.x - 12 * dpi - ImGui::CalcTextSize(readout).x, graphMin.y + 8 * dpi), Colour(s.ink.primary), readout);
-          const ImVec2 dot(plotMin.x + input / 127.f * (plotMax.x - plotMin.x), plotMax.y - output / 31.f * (plotMax.y - plotMin.y));
-          draw->AddCircleFilled(dot, 5 * dpi, Colour(s.surface.card));
-          draw->AddCircle(dot, 5 * dpi, Colour(s.accent.accent), 16, 2 * dpi);
+          const float response = VelocityShape(preset, shown, input / 127.f);
+          const ImVec2 dot(plotMin.x + input / 127.f * (plotMax.x - plotMin.x),
+                           plotMax.y - response * (plotMax.y - plotMin.y));
+          draw->AddCircleFilled(dot, 7 * dpi, Colour(s.surface.card));
+          draw->AddCircle(dot, 7 * dpi, Colour(s.accent.accent), 20, 2 * dpi);
+          draw->AddCircleFilled(dot, 2.7f * dpi, Colour(s.accent.accent));
       }
       draw->AddText(ImVec2(plotMin.x, graphMax.y - 20 * dpi), Colour(s.ink.tertiary), "Gentle");
       const char* label = "How hard you play";

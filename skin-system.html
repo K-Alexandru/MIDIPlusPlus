@@ -191,9 +191,8 @@ section{margin:0 0 48px;}
   padding:0 var(--sp-3);background:var(--s2);border:1px solid var(--bd);
   border-radius:var(--r-ctl);box-shadow:var(--sh-1),var(--hl);font-weight:500;white-space:nowrap;}
 
-/* Transport chooser, inside Settings. One row per backend, each carrying its own
-   figure, so the comparison is on screen at the moment of choosing rather than
-   one number that changes after you commit. */
+/* Available MIDI backends, inside Settings. The shipped app chooses a device id
+   from the scan and shows its backend; it has no transport latency comparison. */
 .apiopts{display:flex;flex-direction:column;gap:2px;padding:var(--sp-1);
   background:var(--sunk);border:1px solid var(--bd);border-radius:var(--r-ctl);
   box-shadow:var(--sh-in);}
@@ -206,31 +205,16 @@ section{margin:0 0 48px;}
 .apiopt.on{background:var(--s3);color:var(--t1);border-color:var(--bd);
   box-shadow:var(--sh-1),var(--hl);font-weight:600;}
 .apiopt:focus-visible{outline:2px solid var(--acc);outline-offset:-2px;}
-.apiopt b{flex:none;font-size:var(--f-body);font-weight:600;
-  font-variant-numeric:tabular-nums;color:var(--t2);}
-.apiopt.on b{color:var(--t1);}
-/* One caption for whichever row is selected, rather than the same sentence
-   repeated three times in a panel that has to fit inside the window. */
+.apiopt:disabled{cursor:default;opacity:.48;}
+/* One caption for whichever available backend is selected. */
 .apinote{margin:0;padding:0 var(--sp-2);font-size:var(--f-meta);line-height:1.4;
   color:var(--t2);}
 
-/* Buffers belong to Kernel Streaming alone. Inside a popover that is already
-   free to change height, they can sit inline instead of nesting a second layer. */
-.ks-rows{display:grid;gap:var(--sp-2);padding:var(--sp-2) var(--sp-2) 0;}
-.ks-row{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-3);}
-.stepper{display:inline-flex;align-items:center;gap:var(--sp-2);}
-.stepper-val{min-width:56px;text-align:center;font-variant-numeric:tabular-nums;
-  font-size:var(--f-body);color:var(--t1);}
-
-/* the breakdown for whichever backend is selected */
-.lat{display:flex;align-items:center;gap:var(--sp-2);height:var(--h-ctl);
-  padding:0 var(--sp-3);background:var(--s2);border:1px solid var(--bd);
-  border-radius:var(--r-ctl);box-shadow:var(--sh-1),var(--hl);white-space:nowrap;}
-.lat b{font-size:var(--f-body);font-weight:600;font-variant-numeric:tabular-nums;
-  min-width:52px;text-align:right;}
-.lat-bar{display:flex;flex:1;min-width:84px;height:6px;border-radius:99px;overflow:hidden;
-  background:var(--sunk);border:1px solid var(--bd);box-shadow:var(--sh-in);}
-.lat-bar i{height:100%;}
+.device-row,.file-tools{display:flex;align-items:center;gap:var(--sp-2);}
+.device-row .combo,.file-tools input{flex:1;min-width:0;}
+.file-tools input{height:var(--h-ctl);padding:0 var(--sp-3);background:var(--sunk);
+  color:var(--t1);border:1px solid var(--bd);border-radius:var(--r-ctl);
+  box-shadow:var(--sh-in);font:400 var(--f-body)/1 var(--ff);}
 
 /* grouping inside Settings */
 .setgrp{display:flex;flex-direction:column;gap:var(--sp-2);}
@@ -468,6 +452,7 @@ section{margin:0 0 48px;}
 .win.mini{max-width:480px;}
 .win.tool{max-width:840px;}
 .mini-body,.tool-body{padding:var(--pad-win);display:flex;flex-direction:column;gap:var(--sp-3);}
+.win.mini .tog,.win.mini .tog.big{padding:0 var(--sp-2);}
 .modesw{display:inline-flex;align-items:center;gap:var(--sp-1);height:var(--h-ctl);
   padding:var(--sp-1);background:var(--sunk);border:1px solid var(--bd);
   border-radius:var(--r-ctl);box-shadow:var(--sh-in);}
@@ -486,7 +471,8 @@ section{margin:0 0 48px;}
    showing it never reflows the strip. */
 .pop{position:absolute;z-index:8;top:calc(100% + var(--sp-2));right:0;min-width:344px;
   display:flex;flex-direction:column;gap:var(--sp-2);padding:var(--sp-3);background:var(--s2);
-  border:1px solid var(--bd-2);border-radius:var(--r-card);box-shadow:var(--sh-2);}
+  border:1px solid var(--bd-2);border-radius:var(--r-card);box-shadow:var(--sh-2);
+  max-height:calc(100vh - 112px);overflow-y:auto;}
 .pop-hd{font-size:var(--f-meta);font-weight:600;color:var(--t2);}
 .opt{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-3);
   padding:var(--sp-2);border-radius:var(--r-el);background:transparent;border:0;width:100%;
@@ -607,6 +593,8 @@ body.only-keys #winFull{display:none!important;}
         <symbol id="i-chev-left" viewBox="0 0 24 24"><path d="m14.5 6-6 6 6 6"/></symbol>
         <symbol id="i-minus" viewBox="0 0 24 24"><path d="M6 12h12"/></symbol>
         <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 6v12M6 12h12"/></symbol>
+        <symbol id="i-folder" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></symbol>
+        <symbol id="i-open" viewBox="0 0 24 24"><path d="M11.65 22H18a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v10.35"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M8 20v-7l3 1.474"/><circle cx="6" cy="20" r="2"/></symbol>
       </defs></svg>
 
       <div class="win" id="winFull" data-skin="classic">
@@ -631,43 +619,36 @@ body.only-keys #winFull{display:none!important;}
                 <div class="setgrp">
                   <span class="pop-sub">MIDI input</span>
                   <div class="apiopts" id="apiSeg" role="radiogroup" aria-label="MIDI transport">
-                    <button class="apiopt on" type="button" role="radio" aria-checked="true" data-api="ks">
-                      <span>Kernel Streaming</span><b>3.8 ms</b>
-                    </button>
-                    <button class="apiopt" type="button" role="radio" aria-checked="false" data-api="winrt">
-                      <span>WinRT</span><b>4.7 ms</b>
+                    <button class="apiopt on" type="button" role="radio" aria-checked="true" data-api="winrt">
+                      <span>WinRT</span>
                     </button>
                     <button class="apiopt" type="button" role="radio" aria-checked="false" data-api="winmm">
-                      <span>WinMM</span><b>5.9 ms</b>
+                      <span>WinMM</span>
+                    </button>
+                    <button class="apiopt" type="button" role="radio" aria-checked="false" data-api="wooting">
+                      <span>Wooting Analog</span>
                     </button>
                   </div>
-                  <p class="apinote" id="apiNote">Opens the driver pin directly. Lowest overhead, and the only one with buffers to tune.</p>
-                  <div class="ks-rows" id="ksBuf">
-                    <div class="ks-row">
-                      <span class="lbl">Buffer size</span>
-                      <span class="stepper">
-                        <button class="btn icon ghost" type="button" aria-label="Smaller buffer"><svg><use href="#i-minus"/></svg></button>
-                        <span class="stepper-val" id="ksSize">64</span>
-                        <button class="btn icon ghost" type="button" aria-label="Larger buffer"><svg><use href="#i-plus"/></svg></button>
-                      </span>
-                    </div>
-                    <div class="ks-row">
-                      <span class="lbl">Buffer count</span>
-                      <span class="stepper">
-                        <button class="btn icon ghost" type="button" aria-label="Fewer buffers"><svg><use href="#i-minus"/></svg></button>
-                        <span class="stepper-val" id="ksCount">4</span>
-                        <button class="btn icon ghost" type="button" aria-label="More buffers"><svg><use href="#i-plus"/></svg></button>
-                      </span>
-                    </div>
+                  <p class="apinote">Kernel Streaming: unavailable</p>
+                  <p class="apinote" id="apiNote">The device scan prefers WinRT, with WinMM as fallback.</p>
+                  <div class="device-row">
+                    <button class="combo" id="deviceChoice" type="button"><span>Casio PX-160</span>
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6.5 9.5 5.5 5.5 5.5-5.5"/></svg></button>
+                    <button class="btn icon" type="button" aria-label="Scan MIDI inputs"><svg><use href="#i-restart"/></svg></button>
                   </div>
-                  <div class="lat">
-                    <span class="lbl">Selected</span><b id="statusLatency">3.8 ms</b>
-                    <span class="lat-bar" role="img" aria-label="Latency breakdown">
-                      <i id="latOk" title="Device to app"></i>
-                      <i id="latAcc" title="Parse and inject"></i>
-                      <i id="latWarn" title="Windows input pipeline"></i>
-                    </span>
-                  </div>
+                  <button class="opt" type="button" data-tog="midi2key" aria-pressed="true">
+                    <span>Midi2Key<small>Types incoming MIDI notes using the current key mapping</small></span>
+                    <span class="switch"><i></i></span>
+                  </button>
+                  <span class="combo"><span>Every channel</span>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6.5 9.5 5.5 5.5 5.5-5.5"/></svg></span>
+                  <button class="opt" type="button" data-setting="measureTiming" aria-pressed="false">
+                    <span>Measure keyboard timing<small>Collects note observations while Settings is open</small></span>
+                    <span class="switch"><i></i></span>
+                  </button>
+                  <span class="combo"><span>Live input</span>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6.5 9.5 5.5 5.5 5.5-5.5"/></svg></span>
+                  <p class="apinote">Starts after the MIDI transport and ends at the keyboard hook, before the game.</p>
                 </div>
                 <div class="pop-div"></div>
                 <span class="pop-sub">Behaviour</span>
@@ -704,6 +685,11 @@ body.only-keys #winFull{display:none!important;}
                   <button class="btn ghost" type="button">Name &#8595;</button>
                   <button class="btn ghost" type="button">Refresh</button>
                 </span>
+              </div>
+              <div class="file-tools">
+                <input id="fileSearch" type="search" placeholder="Search MIDI files" aria-label="Search MIDI files">
+                <button class="btn icon" type="button" aria-label="Open MIDI file"><svg><use href="#i-open"/></svg></button>
+                <button class="btn icon" type="button" aria-label="Choose MIDI folder"><svg><use href="#i-folder"/></svg></button>
               </div>
               <div class="flist" id="fileList">
                 <div class="frow sel"><span>Mipha's Court.mid</span><span>21 KB</span></div>
@@ -864,7 +850,7 @@ body.only-keys #winFull{display:none!important;}
         <div class="sb">
           <span>Ready</span><span class="sep"></span>
           <span>Events/note <span class="k" id="statusEvents">1.4</span></span>
-          <span class="sep"></span><span>Curve <span class="k" id="statusCurveName">Linear Fine</span></span><span class="sep"></span><span>Input <span class="k" id="statusApi">Kernel Streaming</span></span>
+          <span class="sep"></span><span>Curve <span class="k" id="statusCurveName">Linear Fine</span></span><span class="sep"></span><span>Input <span class="k" id="statusApi">WinRT</span></span>
           <span class="mla" id="statusSummary">2 of 4 tracks muted &middot; 88-key</span>
         </div>
       </div>
@@ -904,16 +890,20 @@ body.only-keys #winFull{display:none!important;}
         </div>
         <div class="mini-body">
           <div class="row">
-            <span class="tog on big">Midi2Key</span>
-            <span class="tog on">Velocity</span>
-            <span class="tog on">Sustain</span>
-            <span class="tog on">88</span>
+            <button class="tog on big" type="button" data-tog="midi2key" aria-pressed="true">Midi2Key</button>
+            <button class="tog on" type="button" data-tog="velocity" aria-pressed="true">Velocity</button>
+            <button class="tog on" type="button" data-tog="sustain" aria-pressed="true">Sustain</button>
+            <button class="tog on" type="button" data-tog="keys88" aria-pressed="true">88 Keys</button>
+            <button class="tog" type="button" data-tog="midiconnect" aria-pressed="false">MidiConnect</button>
           </div>
           <div class="row" data-live-only>
             <span class="lbl">Curve</span>
             <span class="combo"><span id="miniCurveName">Linear Fine</span>
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6.5 9.5 5.5 5.5 5.5-5.5"/></svg></span>
-            <span class="lbl">Transpose</span><span class="num">+0</span>
+            <span class="lbl">Transpose</span>
+            <button class="btn icon" id="miniTransposeDown" type="button" aria-label="Transpose down"><svg><use href="#i-minus"/></svg></button>
+            <span class="num" id="miniTransposeText">+0</span>
+            <button class="btn icon" id="miniTransposeUp" type="button" aria-label="Transpose up"><svg><use href="#i-plus"/></svg></button>
           </div>
           <div class="auto-stack" data-auto-only>
             <div class="row">
@@ -931,7 +921,7 @@ body.only-keys #winFull{display:none!important;}
           </div>
         </div>
         <div class="sb"><span>Events/note <span class="k">1.4</span></span>
-          <span class="mla">Kernel Streaming &middot; 88-key</span></div>
+          <span class="mla">WinRT &middot; 88-key</span></div>
       </div>
     </div>
   </section>
@@ -940,7 +930,7 @@ body.only-keys #winFull{display:none!important;}
     <div class="notes">
       <div class="note">
         <h3>Strip</h3>
-        <p>Toggles switch. <b>Sustain</b> cycles the fork's three states rather than two, because <code>SustainMode</code> is IG, SPACE_DOWN, SPACE_UP. <b>88 Keys</b> changes the status bar to 61-key. The gear opens <b>Settings</b>, where the MIDI input chooser now lives: pick a backend and the status bar renames the active input, the breakdown bar redraws, and the buffer steppers appear for Kernel Streaming alone.</p>
+        <p>Toggles switch. <b>Sustain</b> cycles the fork's three states rather than two, because <code>SustainMode</code> is IG, SPACE_DOWN, SPACE_UP. <b>88 Keys</b> changes the status bar to 61-key. The gear opens <b>Settings</b>, where the real WinRT, WinMM and Wooting choices, device selector, channel and keyboard timing controls live.</p>
       </div>
       <div class="note">
         <h3>Tracks</h3>
@@ -1006,7 +996,7 @@ body.only-keys #winFull{display:none!important;}
   </section>
 
   <section>
-    <h2>Velocity response — a musical decision, not a graphing exercise</h2>
+    <h2>Velocity response: a musical decision, not a graphing exercise</h2>
     <div class="notes">
       <div class="note">
         <h3>Start with how you really play</h3>
@@ -1014,7 +1004,7 @@ body.only-keys #winFull{display:none!important;}
       </div>
       <div class="note">
         <h3>See cause and effect live</h3>
-        <p>Each incoming note travels along the curve and reports both values — for example, <b>72 played → 84 to game</b>. Move across the graph in this mockup to try different input strengths.</p>
+        <p>Each incoming note travels along the curve and reports both values. For example, <b>72 played → 84 to game</b>. Move across the graph in this mockup to try different input strengths.</p>
       </div>
       <div class="note">
         <h3>Two decisions cover most players</h3>
@@ -1036,7 +1026,7 @@ body.only-keys #winFull{display:none!important;}
   </section>
 
   <section>
-    <h2>Solo Piano — the feature, and why it's nearly free</h2>
+    <h2>Solo Piano: the feature, and why it's nearly free</h2>
     <div class="notes">
       <div class="note">
         <h3>The data already exists</h3>
@@ -1068,9 +1058,9 @@ body.only-keys #winFull{display:none!important;}
         <tr><td>The settings icon looks like a sun</td><td>It was a spoked circle, which is a sun. Users would read it as a theme switch.</td><td>A real toothed gear. The sun is now the theme button, where it belongs, and it becomes a moon in dark mode.</td></tr>
         <tr><td>The demo is basically a screenshot</td><td>Fair. Only the transport picker, the curve editor and the two windows did anything.</td><td>Everything in the main window now works: toggles including the tri-state sustain, per-track mute and solo, Solo Piano and Unmute All, play and seek and speed and transpose, file selection, the settings panel, key remapping and the theme switch. The status bar recomputes from that state rather than being typed in.</td></tr>
         <tr><td>Classic latency bar is invisible</td><td>The empty part of the bar was <span class="mono">--grid</span> (#e9ecf0) sitting on a status bar of #eceef1. Two values apart on an OLED, invisible on anything else.</td><td>The bar is a recessed track with its own border and inner shadow, so the unfilled part reads as a groove rather than nothing.</td></tr>
-        <tr><td>The user should not have to pick a MIDI API</td><td>A three-way transport picker and its latency bar held the best row in the window for a control you touch once, if ever. Two of the three options exist only to be worse than the third.</td><td>Both left the strip. Settings opens on <b>MIDI input</b>: Kernel Streaming selected by default, one row per backend, each carrying its own figure so the comparison is on screen at the moment of choosing. The strip keeps the device name, which you do change. The status bar names the active input.</td></tr>
+        <tr><td>The user should not have to pick a MIDI API</td><td>A three-way transport picker and its latency bar held the best row in the window for a control you touch once, if ever.</td><td>Both left the strip. Settings shows the backends found by the device scan and selects the device by its opaque id. The strip keeps the device name, and the status bar names the active input.</td></tr>
         <tr><td>Transport at the top, latency at the bottom</td><td>You had to look at opposite edges of the window to see that changing the API changed the number.</td><td>Pass two put latency in the strip beside the picker. Pass three moved the pair into Settings together, on the same reasoning taken one step further: a reading you consult only while switching belongs next to the switch, not on the main surface.</td></tr>
-        <tr><td>Kernel Streaming pushes the UI around</td><td>Buffer and Count were inserted inline, so revealing them shifted every control to their right and wrapped Modern onto a second row.</td><td>Moot now. The buffers sit inline in the Settings popover, which is already free to change height, and nothing in the main window moves at all.</td></tr>
+        <tr><td>Kernel Streaming pushes the UI around</td><td>Buffer and Count were inserted inline, so revealing them shifted every control to their right and wrapped Modern onto a second row.</td><td>Removed. The fork has no Kernel Streaming backend or buffer controls, so the panel says it is unavailable.</td></tr>
         <tr><td>The settings icon looks terrible</td><td>It was the <span class="mono">&amp;#9881;</span> glyph, rendered by whatever font happened to have it.</td><td>Drawn icons on a shared 24px grid, one stroke weight: gear, keyboard, transport, speaker, headphones, chevrons.</td></tr>
         <tr><td>The design is missing depth</td><td>One background tone, one border colour, no shadows, no recessed surfaces. Everything sat on the same plane.</td><td>Four surface tiers plus a recessed tier, dual shadows with a top highlight, hairline borders, concentric radii. See the section above.</td></tr>
         <tr><td>Speed numbers are uneven</td><td><span class="mono">.num</span> was right-aligned with a min-width, so the gap after the value was smaller than the gap before it.</td><td>The value is a fixed-width centred cell between two icon buttons, on tabular figures, so the group stays symmetrical at any value.</td></tr>
@@ -1090,7 +1080,7 @@ body.only-keys #winFull{display:none!important;}
   </section>
 
   <footer>
-    Mockup, not a screenshot. Colours, corner radii, sustain states, track columns and control labels are taken from the fork at <code>D:\Dev\MIDIPlusPlus-modded</code>. Curve shapes and latency figures are illustrative. <b>Kernel Streaming is a planned backend, not a present one</b>: the fork's <code>MidiBackend</code> is WinRT, WinMM and Wooting analog, so shipping this panel as drawn means writing the KS backend first. The per-backend figures also need a measurement the fork does not yet have &mdash; the current instrumentation starts its clock at the backend callback, which is after the transport has already done its work. In ImGui the ambient shadow becomes two or three stacked translucent rounded rects, the contact shadow a one-pixel darker line under the surface, and the top highlight a one-pixel lighter line inside it, which is what a draw list renders cheaply.
+    Mockup, not a screenshot. Colours, corner radii, sustain states, track columns and control labels are taken from the fork at <code>D:\Dev\MIDIPlusPlus-modded</code>. Curve shapes are illustrative. The MIDI input panel shows the fork's real WinRT, WinMM and Wooting analog backends and states plainly that Kernel Streaming is unavailable. Keyboard timing starts after the transport, so it is not presented as a backend comparison. In ImGui the ambient shadow becomes two or three stacked translucent rounded rects, the contact shadow a one-pixel darker line under the surface, and the top highlight a one-pixel lighter line inside it, which is what a draw list renders cheaply.
   </footer>
 </div>
 
@@ -1351,30 +1341,17 @@ body.only-keys #winFull{display:none!important;}
   wire("skinSeg",function(b){skin=b.dataset.skin;});
   wire("modeSeg",function(b){mode=b.dataset.mode;});
 
-  /* Transport chooser, now inside Settings. Figures are illustrative. Each row
-     carries its own, so the three are comparable at the moment of choosing
-     instead of one number that only updates after you commit; the status bar
-     keeps the choice visible without spending strip space on it. */
+  /* Settings shows only the backends the fork can actually open. */
   var apiData={
-    ks:   {ms:"3.8 ms", ok:11, acc:9,  warn:21, buf:true,  name:"Kernel Streaming",
-           note:"Opens the driver pin directly. Lowest overhead, and the only one with buffers to tune."},
-    winrt:{ms:"4.7 ms", ok:16, acc:10, warn:26, buf:false, name:"WinRT",
-           note:"Windows.Devices.Midi. The modern system path, and what the fork uses today."},
-    winmm:{ms:"5.9 ms", ok:20, acc:10, warn:33, buf:false, name:"WinMM",
-           note:"Legacy midiIn*, through RtMidi. The fallback when a device reports nothing else."}
+    winrt:{name:"WinRT",note:"The device scan prefers WinRT, with WinMM as fallback."},
+    winmm:{name:"WinMM",note:"WinMM is the fallback for devices that are not available through WinRT."},
+    wooting:{name:"Wooting Analog",note:"Wooting Analog is available when the SDK reports a compatible keyboard."}
   };
-  var apiSeg=document.getElementById("apiSeg"), ksBuf=document.getElementById("ksBuf"),
-      statusLatency=document.getElementById("statusLatency"),
-      statusApi=document.getElementById("statusApi"),
-      apiNote=document.getElementById("apiNote"),
-      latOk=document.getElementById("latOk"), latAcc=document.getElementById("latAcc"),
-      latWarn=document.getElementById("latWarn");
+  var apiSeg=document.getElementById("apiSeg"),statusApi=document.getElementById("statusApi"),
+      apiNote=document.getElementById("apiNote");
   function paintApi(d){
-    statusLatency.textContent=d.ms;
     statusApi.textContent=d.name;
     apiNote.textContent=d.note;
-    latOk.style.width=d.ok+"%"; latAcc.style.width=d.acc+"%"; latWarn.style.width=d.warn+"%";
-    ksBuf.hidden=!d.buf;
   }
   apiSeg.addEventListener("click",function(e){
     var b=e.target.closest("button"); if(!b) return;
@@ -1384,10 +1361,7 @@ body.only-keys #winFull{display:none!important;}
       x.setAttribute("aria-checked",String(x===b));});
     paintApi(d);
   });
-  latOk.style.background="var(--ok)";
-  latAcc.style.background="var(--acc)";
-  latWarn.style.background="var(--warn)";
-  paintApi(apiData.ks);
+  paintApi(apiData.winrt);
 
 
   /* ===================================================================
@@ -1496,6 +1470,7 @@ body.only-keys #winFull{display:none!important;}
     byId("timeText").textContent = clock(position) + " / " + clock(duration);
     byId("speedVal").innerHTML = speed.toFixed(2) + "&times;";
     byId("transposeVal").textContent = (transpose >= 0 ? "+" : "") + transpose;
+    byId("miniTransposeText").textContent = (transpose >= 0 ? "+" : "") + transpose;
     var percent = (transpose + 12) / 24 * 100;
     byId("transposeFill").style.width = percent.toFixed(1) + "%";
     byId("transposeKnob").style.left = "calc(" + percent.toFixed(1) + "% - 6px)";
@@ -1520,6 +1495,8 @@ body.only-keys #winFull{display:none!important;}
   byId("fwd10").addEventListener("click", function(){ position = Math.min(duration, position + 10); paintTransport(); });
   byId("speedDown").addEventListener("click", function(){ speed = Math.max(0.25, +(speed - 0.05).toFixed(2)); paintTransport(); });
   byId("speedUp").addEventListener("click", function(){ speed = Math.min(3, +(speed + 0.05).toFixed(2)); paintTransport(); });
+  byId("miniTransposeDown").addEventListener("click", function(){ transpose = Math.max(-12, transpose - 1); paintTransport(); });
+  byId("miniTransposeUp").addEventListener("click", function(){ transpose = Math.min(12, transpose + 1); paintTransport(); });
   byId("seek").addEventListener("pointerdown", function(e){
     var rect = this.getBoundingClientRect();
     position = clamp((e.clientX - rect.left) / rect.width, 0, 1) * duration;
@@ -1560,9 +1537,15 @@ body.only-keys #winFull{display:none!important;}
     // The setting is not decoration: turning it off changes what happens here.
     if (settings.autoSolo) soloPiano();
   });
+  byId("fileSearch").addEventListener("input", function(){
+    var query=this.value.toLowerCase();
+    Array.prototype.forEach.call(byId("fileList").querySelectorAll(".frow"),function(row){
+      row.hidden=row.textContent.toLowerCase().indexOf(query)<0;
+    });
+  });
 
   /* ---- settings, theme -------------------------------------------- */
-  var settings = { autoSolo:true, velocityKeys:true, alwaysOnTop:false };
+  var settings = { autoSolo:true, velocityKeys:true, alwaysOnTop:false, measureTiming:false };
   var settingsPanel = byId("settingsPanel"), settingsBtn = byId("settingsBtn");
   settingsBtn.addEventListener("click", function(e){
     e.stopPropagation();

@@ -36,7 +36,13 @@ void ShellEngine::Send(Command command) {
 }
 
 std::shared_ptr<const EngineSnapshot> ShellEngine::Snapshot() const {
+    const auto played = velocity_telemetry::snapshot();
     std::lock_guard lock(mutex_);
+    if (played.revision != snapshot_->playedVelocities.revision) {
+        auto copy = std::make_shared<EngineSnapshot>(*snapshot_);
+        copy->playedVelocities = played;
+        snapshot_ = std::move(copy);
+    }
     return snapshot_;
 }
 
@@ -533,6 +539,7 @@ void ShellEngine::Run(std::stop_token stop) {
             state.error = error.what();
             state.busy = false;
         }
+        state.playedVelocities = velocity_telemetry::snapshot();
         Publish(state);
     }
     stopPlayback();

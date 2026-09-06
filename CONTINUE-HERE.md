@@ -1,8 +1,8 @@
 # Start here
 
 Entry point for whoever picks this up next, assistant or human. Written
-2026-09-04 at `input-path-r5`. Updated 2026-09-05 after the velocity editor,
-mini mode, input settings and CJK font fallback were pushed as `4d11a3f`.
+2026-09-04 at `input-path-r5`. Updated 2026-09-06 after live velocity telemetry
+and the final rendered spec comparison were completed.
 
 Read this first, then `HANDOFF.md` for the full brief. `LATENCY.md` and
 `LEGIT-MODE.md` cover the two subsystems built in this session.
@@ -34,9 +34,9 @@ fonts, DPI scaling, a MIDI library, Tracks, playback controls and key mapping. I
 Configured global hotkeys and live input were merged from
 `claude/global-hotkeys` through `cf9957b`. The velocity editor, mini mode,
 input settings and status bar now use the real shell state. Incoming velocity
-telemetry is still missing from the engine surface, so the curve graph currently
-provides a pointer preview, without a live dot or a playing histogram. The
-existing release executable is preserved.
+telemetry is carried through `EngineSnapshot`; the curve graph draws the
+session histogram and the last played velocity. The existing release executable
+is preserved.
 
 ## Build and run
 
@@ -259,17 +259,12 @@ the required renderer's PNGs remain in `build/render-tests/`.
 
 Remaining limits for this follow-up:
 
-- **Live velocity dot and histogram:** `EngineSnapshot` and MIDI2Key expose no
-  incoming note velocity stream. The graph is explicitly a pointer preview.
-  Implementing actual session data needs an observer in the owned input path.
 - **Transport comparison and buffers:** no Kernel Streaming backend exists,
   and the timing collector starts after transport. Settings states that Kernel
   Streaming is unavailable and supplies no fictitious buffer controls or figures.
-- **Browser comparison:** automatic browser approval review rejected the local
-  `file:` URL. This run read the HTML/CSS and the handoff measurements, and
-  inspected native PNGs, but did not interact with the mockup in a browser or
-  complete the requested direct rendered-page comparison. Unblocked by the
-  entry below; the comparison itself is still to be made.
+- **Browser comparison:** the repository Edge capture and an in-app browser
+  session now cover the rendered mockup. Settings, backend choice, Play,
+  file filtering and mini transpose were exercised with no console errors.
 - **Hardware/native host:** live curve reconnection under physical playing,
   game delivery, native full/mini resizing, and physical mixed-DPI monitor moves
   remain unverified. The render and interaction harnesses use ImGui IO and DX11,
@@ -331,24 +326,37 @@ backend seam to feed an `IMidiInput` from, so the decode was moved into
 `observe` where it can be driven directly, leaving that line with nothing to
 get wrong.
 
-**This is the producer only, and the consumer is not Claude's to write.**
-`EngineSnapshot` belongs to whoever owns the panel. What the shell needs is one
-field carried through the existing snapshot, no new `Action`:
+Completed 2026-09-06, velocity telemetry consumer and final rendered comparison:
 
-```cpp
-#include "../MIDI++/VelocityTelemetry.hpp"
-// in EngineSnapshot
-velocity_telemetry::Snapshot playedVelocities;
-// wherever the snapshot is published
-snapshot.playedVelocities = velocity_telemetry::snapshot();
-```
+- **The engine snapshot carries live playing data.** `EngineSnapshot` includes
+  `playedVelocities`. Normal worker publications copy the producer snapshot,
+  and `ShellEngine::Snapshot()` refreshes it by revision while the worker is
+  sleeping, so live playing can update the graph while autoplay is stopped.
+- **The graph is live.** The 32 buckets are normalised to the largest bucket and
+  drawn behind the curve. A zero total draws no bars. A non-zero `last` draws a
+  labelled accent dot on the smooth response curve. The old pointer preview
+  caption and hover dot are gone. Panel geometry is cached by telemetry revision.
+- **Reset semantics are session scoped.** Loading another file does not reset
+  the histogram. The mockup labels it as the user's playing this session, and
+  the producer records live input independently of the selected autoplay file.
+- **Rendered spec reconciliation is complete.** All full, expanded velocity,
+  advanced velocity, mini, Settings and key-mapping states were compared across
+  Classic, Classic Dark, Modern and Modern Dark. The native shell already held
+  the earlier panel fixes. The mockup was corrected to show the real file tools,
+  mini pills and transpose controls, and the real WinRT, WinMM and Wooting input
+  choices without invented Kernel Streaming figures or buffers.
+- **Verification passed.** Release x64, `tests/run-shell-tests.ps1 -Render`, the
+  ignored telemetry panel harness across seven modes and four skins at
+  100/150/200 percent and back to 100, and the refreshed key-mapping harness at
+  100/150/200 percent all passed. A synthetic live distribution confirmed 59
+  notes, last velocity 96, histogram rendering and the live dot. Zero-telemetry
+  runs confirmed that no histogram or dot is drawn.
 
-Then the graph draws `buckets` as its histogram, normalised by the largest
-bucket, and `last` as the live dot when it is non-zero. Call
-`velocity_telemetry::reset()` on load if the histogram should describe the
-piece rather than the session. Until that field exists the caption has to keep
-saying the graph is a pointer preview: do not describe a live dot that is not
-being fed.
+The work stayed inside `ui/`, `skin-system.html`, `docs/design/` and this handoff.
+Nothing under `MIDI++/` or `tests/` was changed. Physical live MIDI, real game
+delivery from the new shell, native window resizing and physical mixed-DPI
+monitor moves remain unverified.
+
 Completed 2026-09-05, first Wooting session:
 
 - **A Wooting played the wrong notes**, and the cause was the analog backend's
@@ -383,11 +391,9 @@ to `build/legacy-check/`. New-shell delivery into a game has not been tested.
 The native file picker opens; completing its modal dialog remains unverified
 because the desktop automation tool could not target its controls reliably.
 
-Next: the panel owner carries `playedVelocities` into `EngineSnapshot` and
-draws it, per the velocity telemetry entry above,
-then validate live curve reconnection and native window resizing. The browser
-comparison is now runnable: `tools/serve-mockup.ps1`, then compare against
-`docs/design/` and `build/render-tests/`.
+Next: validate live curve reconnection with physical MIDI and native window
+resizing. The rendered browser comparison is complete and reproducible with
+`tools/serve-mockup.ps1`, `docs/design/` and `build/render-tests/`.
 The velocity design decisions in `HANDOFF.md` still apply. Keep Tracks visible
 and retain the real device ids and measurement boundaries.
 

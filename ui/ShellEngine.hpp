@@ -1,6 +1,7 @@
 #pragma once
 #include "TrackModel.hpp"
 #include "VelocityModel.hpp"
+#include "../MIDI++/VelocityTelemetry.hpp"
 #include <condition_variable>
 #include <deque>
 #include <filesystem>
@@ -43,6 +44,7 @@ struct EngineSnapshot {
     bool hasPreviousCurve = false;
     uint64_t curveRevision = 0;
     int sustainCutoff = 64;
+    velocity_telemetry::Snapshot playedVelocities;
     std::string ActiveVelocityName() const {
         return comparingCurve ? previousPreset.name + (VelocityEdited(previousCurve) ? " (edited)" : "") : VelocityName(curves, curve);
     }
@@ -77,7 +79,7 @@ private:
     mutable std::mutex mutex_;
     std::condition_variable wake_;
     std::deque<Command> commands_;
-    std::shared_ptr<const EngineSnapshot> snapshot_ = std::make_shared<const EngineSnapshot>();
+    mutable std::shared_ptr<const EngineSnapshot> snapshot_ = std::make_shared<const EngineSnapshot>();
     std::jthread worker_; // Last member: every dependency is initialized before Run.
 };
 

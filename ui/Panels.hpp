@@ -54,6 +54,9 @@ private:
     uint64_t nameRevision_ = 0;
     uint64_t editorRevision_ = UINT64_MAX;
     uint64_t listRevision_ = UINT64_MAX;
+    uint64_t histogramRevision_ = UINT64_MAX;
+    std::array<float, velocity_telemetry::kBuckets> histogramHeights_{};
+    bool histogramVisible_ = false;
     VelocityEdit editor_;
     std::string editorError_;
     int editingStep_ = -1;
