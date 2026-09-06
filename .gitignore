@@ -15,3 +15,9 @@
 # Stray MSBuild output. A /p:OutDir given as a relative path resolves against
 # the project directory, not the repository root, which put a 20MB pdb here.
 /MIDI++/build/
+
+# Task prompts handed between the two assistants working this repo. They are
+# written to the repository root so the other one can actually read them, and
+# they are notes to a collaborator rather than part of the project.
+/sol-prompt*.md
+/claude-prompt*.md

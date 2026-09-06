@@ -176,8 +176,14 @@ concurrent callbacks cannot collide and nothing has to be dropped.
   either way, 1 on a repeated bucket. Modifier mappings and volume adjustment can
   still add more. **The ALT protocol itself is untouched** and is still four
   events where one would do; removing it needs the target game's protocol
-  checked first. These counts are verified; a dominant latency effect, or a
-  specific ALT cause for upstream #44, is not. That issue has only a title.
+  checked first, and four is the floor for a modified keypress, so "one" means
+  a different protocol rather than a shorter one. These counts are verified; a
+  dominant latency effect, or a specific ALT cause for upstream #44, is not.
+  That issue has only a title.
+  Fixed 2026-09-06: the tap was a separate `SendInput` call from the note it
+  described. One call's events are inserted with nothing between them and two
+  calls promise nothing, so anything landing in the gap took the velocity the
+  tap had just set. Same events, one call now.
 - **UI thread vs injection.** Upstream's R5 notes admit: *"Windows limitation
   causes UI window dragging (WndProc messages) to conflict with NtUserSendInput
   syscall"*. Unfixed. Means the UI architecture is itself a latency factor.
@@ -712,28 +718,36 @@ treats it as an ordinary input.
 - **Keycode mode is ScanCode1**, which is what the rest of the app already
   speaks, so the note map is scancode keyed.
 - **Poll thread at 1kHz**, `THREAD_PRIORITY_TIME_CRITICAL`, never the UI thread.
-- **Thresholds**: a key counts as struck at 0.35 depth and can only be struck
-  again after coming back through 0.20. The gap stops a key resting near the
-  threshold from stuttering.
+- **Thresholds are configurable** as of 2026-09-06, under `WOOTING_ANALOG` in
+  `config.json` and in Settings. A key counts as struck at `TRIGGER_THRESHOLD`,
+  default 0.50, and can be struck again after coming back through
+  `RELEASE_FRACTION` of it, default 0.6, so 0.30. The gap stops a key resting on
+  the trigger from stuttering, and wooting-analog-midi has no equivalent.
+  The earlier hardcoded 0.35 and 0.20 are gone.
 - **Velocity comes from press speed**, not depth. Depth cannot work on its own:
-  every key crosses the threshold at the same depth, so depth at that moment is
-  a constant. The current constant treats roughly 25 depth units per second as a
-  firm strike. Untuned; needs a real keyboard and a real ear.
-- **Default note map is white keys only**, C2 upward, following the row order
-  the app already types (`zxcvbnm`, `asdfghjkl`, `qwertyuiop`, `1234567890`).
-  Black keys are shifted characters in the app's own layout, and a shifted key
-  is a different physical key to the analog SDK, so guessing that mapping would
-  have been inventing behaviour. `SetWootingScancodeNoteMap()` exists to replace
-  the whole table once that decision is made.
+  every key crosses the trigger at the same depth, so depth at that moment is a
+  constant. The formula is wooting-analog-midi's own, `rate * VELOCITY_SCALE /
+  100`, so a number copied from that app means the same thing here. Still
+  untuned by ear; that needs a real keyboard.
+- **The note map follows the user's own `KEY_MAPPINGS.FULL`.**
+  `WootingScancodeNoteMapFrom()` builds it and `MIDI2Key::OpenDevice` feeds it
+  in on every open, so a remap is picked up on the next open. It was dead API
+  until `a827893`; before that an invented table was the only thing a Wooting
+  could play, with the number row at the top instead of the bottom, so "1"
+  sounded A5.
+- **Black keys are reached by holding Left Shift**, not by a second table. Only
+  unshifted single-character bindings have one scancode, so the map covers the
+  36 naturals; `SHIFT_AMOUNT` semitones are added to every key while shift is
+  held, and set to 1 the shift is the sharp. This is how wooting-analog-midi
+  does it, whose default layout is also naturals only.
 
 Verified: the SDK binds, reports a connected device, opens, polls and closes
-cleanly. **No note has been produced through it yet** — that needs someone at
-the keyboard.
+cleanly, and as of 2026-09-06 every decision the poll loop makes has tests that
+need no hardware. **No note has been produced through it yet**, and that still
+needs someone at the keyboard.
 
 Still open for §6:
 
-- Where the note map comes from: the app's own key mapping inverted, a dedicated
-  Wooting layout, or the key mapping window doing double duty.
 - Whether analog depth should also drive something continuous (aftertouch, or
   the volume keys) rather than only choosing a velocity at strike time.
 - Whether to auto-suggest a curve per input device, given the user reports

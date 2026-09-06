@@ -22,11 +22,13 @@ real game on 2026-09-04. That was the question the whole WinRT port was blocked
 on, so the port stays. Everything below it is settled:
 
 - `IMidiInput` fronts WinRT, WinMM and Wooting analog. Devices are opened by an
-  opaque id, never an index.
+  opaque id, never an index, and an id naming a device that is not present
+  fails rather than opening a different one. Two at once is confirmed.
 - Timing instrumentation exists and is honest about what it does not measure.
 - Legit mode exists, works mechanically, and sounds wrong. Demoted to a Config
   checkbox. See the verdict in `LEGIT-MODE.md`.
-- Autoplay and live input now send the identical four-event ALT velocity tap.
+- Autoplay and live input send the identical four-event ALT velocity tap, in
+  the same injection call as the note it describes.
 
 **The UI migration is in progress.** The separate ImGui executable now has real
 fonts, DPI scaling, a MIDI library, Tracks, playback controls and key mapping. It shares
@@ -671,8 +673,13 @@ to `build/legacy-check/`. New-shell delivery into a game has not been tested.
 The native file picker opens; completing its modal dialog remains unverified
 because the desktop automation tool could not target its controls reliably.
 
-Next: validate live curve reconnection with physical MIDI and native window
-resizing. The rendered browser comparison is complete and reproducible with
+Next: everything left needs the keyboard rather than the compiler. One session
+with the Wooting settles trigger feel, held-Left-Shift black keys, strike
+velocity and delivery into a game; a second device plus a piano settles playing
+through two at once; and live curve reconnection and native window resizing are
+the same kind of check. The panel owner's outstanding piece is a button for
+`MIDI++/SheetExport.hpp`, which is built and tested and has no caller. The
+rendered browser comparison is complete and reproducible with
 `tools/serve-mockup.ps1`, `docs/design/` and `build/render-tests/`.
 The velocity design decisions in `HANDOFF.md` still apply. Keep Tracks visible
 and retain the real device ids and measurement boundaries.
@@ -700,6 +707,13 @@ From `HANDOFF.md` section 15, and they are not stylistic preferences:
   `1234567890qwertyuiopasdfghjklzxc` and the piano mappings cover the same
   characters, so a bare velocity key would play a note. ALT is the only thing
   separating "set velocity" from "play a note". Closed.
+- **Four events is the floor for the tap.** ALT down and the key down are the
+  modified keypress the game listens for, and the two ups exist so the next
+  note is not typed with ALT held. `HANDOFF.md` calls it four where one would
+  do; one needs the game to accept something that is not a modified keypress,
+  which is the game's protocol. What was actually costly was sending it as a
+  separate injection call, and that is fixed. Do not go looking for a shorter
+  tap without first establishing what the game accepts.
 - **Do not apply legit mode at parse time.** `LEGIT-MODE.md` has the three
   reasons and the bugs the parse-time version had.
 - **Do not present the timing numbers as end-to-end latency.** They stop at the
