@@ -291,6 +291,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     }
 
     bool running = true;
+    bool appliedTopmost = false;
     while (running) {
         MSG msg;
         while (::PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
@@ -299,6 +300,12 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
             if (msg.message == WM_QUIT) running = false;
         }
         if (!running) break;
+        if (appliedTopmost != panels.preferences.alwaysOnTop) {
+            if (SetWindowPos(hwnd, panels.preferences.alwaysOnTop ? HWND_TOPMOST : HWND_NOTOPMOST,
+                0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE))
+                appliedTopmost = panels.preferences.alwaysOnTop;
+            else panels.preferences.alwaysOnTop = appliedTopmost;
+        }
         if (IsIconic(hwnd)) { WaitMessage(); continue; }
         const int active = panels.preferences.skin;
         const bool modeChanged = appliedMini != panels.miniMode;

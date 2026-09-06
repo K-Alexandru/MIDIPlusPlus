@@ -12,6 +12,7 @@ struct Preferences {
     int skin = 0;
     bool autoSolo = true;
     bool keyMappingOpen = true;
+    bool alwaysOnTop = false;
     std::filesystem::path folder;
 };
 class Panels {
@@ -29,6 +30,7 @@ public:
               float dpi, ShellEngine& engine);
 private:
     char search_[256]{};
+    bool descendingNames_ = false;
     std::shared_ptr<const std::vector<MidiEntry>> filteredFiles_;
     std::string filteredQuery_;
     std::vector<size_t> fileFilter_;

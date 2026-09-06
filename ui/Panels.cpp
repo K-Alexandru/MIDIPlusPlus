@@ -1,4 +1,5 @@
 #include "Panels.hpp"
+#include "imgui_internal.h"
 #include "json.hpp"
 #include <commdlg.h>
 #include <shobjidl.h>
@@ -9,12 +10,18 @@
 namespace shell {
 namespace {
 ImU32 Colour(skin::Argb c) { return IM_COL32((c >> 16) & 255, (c >> 8) & 255, c & 255, (c >> 24) & 255); }
+ImU32 OpaqueTint(skin::Argb tint, skin::Argb surface) {
+    const unsigned alpha = tint >> 24;
+    const auto channel = [&](int shift) { return (((tint >> shift) & 255) * alpha +
+        ((surface >> shift) & 255) * (255 - alpha) + 127) / 255; };
+    return IM_COL32(channel(16), channel(8), channel(0), 255);
+}
 // Browser CSS sizes use the font em. stb_truetype uses ascent minus descent.
 // Ratios from the shipped hhea/head tables: Segoe 2724/2048, Plex 1300/1000.
-// Keep this correction local to the two panels measured for this port.
+// Apply this correction wherever typography is measured against the spec.
 float SpecFontScale(const skin::Skin& s) { return s.type.family == "IBM Plex Sans" ? 1.3f : 2724.f / 2048.f; }
 enum class Icon { Folder, Open, Refresh, Settings, Sun, Moon, Play, Pause, Back, Forward,
-                  Minus, Plus, Left, Right, Down, Close, Keyboard, Speaker, Muted, Solo, Piano,
+                  Minus, Plus, Left, Right, Down, Up, Close, Keyboard, Speaker, Muted, Solo, Piano,
                   Mini, Expand, Copy, Rename, Check };
 
 void DrawIcon(ImDrawList* dl, Icon icon, ImVec2 min, float side, ImU32 ink, float dpi) {
@@ -51,11 +58,12 @@ void DrawIcon(ImDrawList* dl, Icon icon, ImVec2 min, float side, ImU32 ink, floa
     case Icon::Pause: rect(6, 4, 9, 20); rect(15, 4, 18, 20); break;
     case Icon::Back: line(12, 5, 4, 12); line(4, 12, 12, 19); line(21, 5, 13, 12); line(13, 12, 21, 19); break;
     case Icon::Forward: line(3, 5, 11, 12); line(11, 12, 3, 19); line(12, 5, 20, 12); line(20, 12, 12, 19); break;
-    case Icon::Plus: line(12, 5, 12, 19); [[fallthrough]];
-    case Icon::Minus: line(5, 12, 19, 12); break;
+    case Icon::Plus: line(12, 6, 12, 18); [[fallthrough]];
+    case Icon::Minus: line(6, 12, 18, 12); break;
     case Icon::Left: line(15, 5, 8, 12); line(8, 12, 15, 19); break;
     case Icon::Right: line(9, 5, 16, 12); line(16, 12, 9, 19); break;
     case Icon::Down: line(5, 9, 12, 16); line(12, 16, 19, 9); break;
+    case Icon::Up: line(6.5f, 14.5f, 12, 9); line(12, 9, 17.5f, 14.5f); break;
     case Icon::Mini: rect(3, 5, 21, 19); fill(12, 11, 18, 16); break;
     case Icon::Expand: line(3, 10, 3, 3); line(3, 3, 10, 3); line(14, 21, 21, 21); line(21, 21, 21, 14); break;
     case Icon::Copy: rect(7, 7, 21, 21); line(3, 17, 3, 3); line(3, 3, 17, 3); break;
@@ -156,9 +164,100 @@ void DrawEllipsis(const std::string& text, float width, ImVec2 min) {
 void Ellipsis(const std::string& text, float width) {
     const float height = ImGui::GetTextLineHeight();
     const float measured = ImGui::CalcTextSize(text.c_str()).x;
-    DrawEllipsis(text, width, ImGui::GetCursorScreenPos());
-    ImGui::Dummy(ImVec2(std::max(1.f, width), height));
+    auto min = ImGui::GetCursorScreenPos();
+    const float baseline = ImGui::GetCurrentWindow()->DC.CurrLineTextBaseOffset;
+    min.y += baseline;
+    DrawEllipsis(text, width, min);
+    ImGui::Dummy(ImVec2(std::max(1.f, width), height + baseline));
     if (measured > width && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", text.c_str());
+}
+
+bool StatePill(const char* label, bool on, const Fonts& fonts, const skin::Skin& design,
+               float dpi, float padding, bool enabled = true, const char* tip = nullptr) {
+    auto s = skin::ScaleGeometry(design, dpi);
+    FontScope font(fonts, design, design.type.body * SpecFontScale(design), on ? Weight::Semibold : Weight::Regular);
+    const auto min = ImGui::GetCursorScreenPos();
+    const ImVec2 size(ImGui::CalcTextSize(label).x + 2 * padding + 2 * dpi, s.metric.controlHeight);
+    if (on) s.border.hairline = s.accent.okBorder;
+    // CSS clips the outside shadow at the control edge. Composite the tint
+    // first so our stacked shadow cannot darken the translucent on surface.
+    skin::RaisedRect(ImGui::GetWindowDrawList(), min, ImVec2(min.x + size.x, min.y + size.y),
+                     s.radius.control, s, on ? OpaqueTint(s.accent.okSoft, s.surface.structure) : Colour(s.surface.elevated));
+    ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, Colour(on ? s.accent.okSoft : s.surface.elevatedHot));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, Colour(s.surface.recessed));
+    ImGui::PushStyleColor(ImGuiCol_Text, Colour(on ? s.accent.okInk : s.ink.primary));
+    bool clicked = false;
+    if (enabled) clicked = ImGui::Button(label, size);
+    else {
+        ImGui::Dummy(size);
+        ImGui::GetWindowDrawList()->AddText(ImVec2(min.x + (size.x - ImGui::CalcTextSize(label).x) / 2,
+            min.y + (size.y - ImGui::GetTextLineHeight()) / 2), ImGui::GetColorU32(ImGuiCol_Text), label);
+    }
+    ImGui::PopStyleColor(4);
+    // An inset underline makes the on state readable without colour, without
+    // adding a status dot or changing the measured pill width.
+    if (on) ImGui::GetWindowDrawList()->AddLine(ImVec2(min.x + padding, min.y + size.y - 4 * dpi),
+        ImVec2(min.x + size.x - padding, min.y + size.y - 4 * dpi), Colour(s.accent.okInk), dpi);
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        ImGui::SetTooltip("%s: %s%s%s", label, on ? "On" : "Off", tip ? "\n" : "", tip ? tip : "");
+    return clicked;
+}
+
+void StatePills(const Fonts& fonts, const skin::Skin& design, float dpi, ShellEngine& engine, bool compact) {
+    const auto state = engine.Snapshot();
+    const float pad = (compact ? 8.f : 12.f) * dpi;
+    if (StatePill("Midi2Key", state->liveActive, fonts, design, dpi, compact ? pad : 16 * dpi,
+                  !state->liveDevice.empty(), state->liveDevice.empty() ? "Select a MIDI input in Settings." : nullptr))
+        engine.Send({ShellEngine::Action::LiveActive, {}, 0, 0, !state->liveActive});
+    ImGui::SameLine();
+    if (StatePill("Velocity", state->velocity, fonts, design, dpi, pad))
+        engine.Send({ShellEngine::Action::Velocity, {}, 0, 0, !state->velocity});
+    ImGui::SameLine();
+    const bool sustainEnabled = !state->playing && !state->liveActive;
+    if (StatePill("Sustain", state->sustain, fonts, design, dpi, pad, sustainEnabled,
+                  sustainEnabled ? nullptr : "Stop playback and live input before changing sustain."))
+        engine.Send({ShellEngine::Action::Sustain, {}, 0, 0, !state->sustain});
+    ImGui::SameLine();
+    StatePill("88 Keys", true, fonts, design, dpi, pad, false, "The shell uses the 88-key mapping.");
+    ImGui::SameLine();
+    StatePill("MidiConnect", false, fonts, design, dpi, pad, false, "Unavailable in this shell.");
+}
+
+void DevicePill(const std::string& name, float maxWidth, const skin::Skin& s, float dpi) {
+    const auto min = ImGui::GetCursorScreenPos();
+    const float width = std::min(maxWidth, ImGui::CalcTextSize(name.c_str()).x + 26 * dpi);
+    skin::RaisedRect(ImGui::GetWindowDrawList(), min, ImVec2(min.x + width, min.y + s.metric.controlHeight),
+                     s.radius.control, s, Colour(s.surface.card));
+    DrawEllipsis(name, width - 24 * dpi, ImVec2(min.x + 12 * dpi,
+        min.y + (s.metric.controlHeight - ImGui::GetTextLineHeight()) / 2));
+    ImGui::Dummy(ImVec2(width, s.metric.controlHeight));
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("%s", name.c_str());
+}
+
+bool SettingSwitch(const char* label, bool& value, const char* description,
+                   const Fonts& fonts, const skin::Skin& design, float dpi) {
+    const auto s = skin::ScaleGeometry(design, dpi);
+    const auto min = ImGui::GetCursorScreenPos();
+    const float width = ImGui::GetContentRegionAvail().x;
+    ImGui::PushID(label);
+    ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_Border, IM_COL32(0, 0, 0, 0));
+    const bool clicked = ImGui::Button("##switch", ImVec2(width, s.metric.controlHeight));
+    ImGui::PopStyleColor(2);
+    if (clicked) value = !value;
+    auto* draw = ImGui::GetWindowDrawList();
+    DrawEllipsis(label, width - 44 * dpi, ImVec2(min.x, min.y + (s.metric.controlHeight - ImGui::GetTextLineHeight()) / 2));
+    const ImVec2 rail(min.x + width - 32 * dpi, min.y + (s.metric.controlHeight - 16 * dpi) / 2);
+    draw->AddRectFilled(rail, ImVec2(rail.x + 32 * dpi, rail.y + 16 * dpi), Colour(value ? s.accent.okSoft : s.surface.recessed), 8 * dpi);
+    draw->AddRect(rail, ImVec2(rail.x + 32 * dpi, rail.y + 16 * dpi), Colour(value ? s.accent.okBorder : s.border.strong), 8 * dpi, 0, dpi);
+    draw->AddCircleFilled(ImVec2(rail.x + (value ? 24 : 8) * dpi, rail.y + 8 * dpi), 5 * dpi, Colour(value ? s.accent.okInk : s.ink.secondary));
+    ImGui::PopID();
+    { FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
+      ImGui::PushStyleColor(ImGuiCol_Text, Colour(s.ink.secondary));
+      ImGui::TextWrapped("%s", description);
+      ImGui::PopStyleColor(); }
+    return clicked;
 }
 
 void BeginPanel(const char* id, ImVec2 min, ImVec2 max, const skin::Skin& s, ImGuiWindowFlags flags = 0) {
@@ -216,6 +315,7 @@ void Panels::LoadPreferences(const std::filesystem::path& path) {
         preferences.skin = std::clamp(json.value("skin", 0), 0, 3);
         preferences.autoSolo = json.value("autoSoloPiano", true);
         preferences.keyMappingOpen = json.value("keyMappingOpen", true);
+        preferences.alwaysOnTop = json.value("alwaysOnTop", false);
         const auto folder = json.value("midiFolder", std::string());
         preferences.folder = std::filesystem::path(std::u8string(folder.begin(), folder.end()));
     } catch (const std::exception&) { preferences = {}; }
@@ -223,7 +323,8 @@ void Panels::LoadPreferences(const std::filesystem::path& path) {
 
 void Panels::SavePreferences(const std::filesystem::path& path) const {
     nlohmann::json json{{"skin", preferences.skin}, {"autoSoloPiano", preferences.autoSolo},
-                        {"midiFolder", Utf8(preferences.folder)}, {"keyMappingOpen", preferences.keyMappingOpen}};
+                        {"midiFolder", Utf8(preferences.folder)}, {"keyMappingOpen", preferences.keyMappingOpen},
+                        {"alwaysOnTop", preferences.alwaysOnTop}};
     std::ofstream stream(path);
     if (stream) stream << json.dump(2) << '\n';
 }
@@ -350,7 +451,7 @@ void Panels::DrawKeyMapping(const Fonts& fonts, const skin::Skin& design, float 
             std::string label = found->second;
             const bool ctrl = label.starts_with("ctrl+");
             if (ctrl) label.erase(0, 5);
-            const auto ink = key.black ? IM_COL32(245, 239, 226, 255) : IM_COL32(51, 47, 41, 255);
+            const auto ink = key.black ? IM_COL32(221, 177, 106, 255) : IM_COL32(51, 47, 41, 255);
             const float center = (key.min.x + key.max.x) / 2;
             const float y = key.max.y - 8 * dpi - ImGui::GetTextLineHeight();
             draw->PushClipRect(key.min, key.max, true);
@@ -385,7 +486,7 @@ void Panels::DrawKeyMapping(const Fonts& fonts, const skin::Skin& design, float 
     ImGui::SetCursorScreenPos(at(pad, statusY + 8 * dpi));
     { FontScope font(fonts, design, design.type.meta * SpecFontScale(design));
       const std::string status = !state->error.empty() ? state->error :
-          "Layout 88-key     Range " + NoteName(whites.front()) + "-" + NoteName(whites.back());
+          "Layout 88-key     Range " + NoteName(whites.front()) + "\xe2\x80\x93" + NoteName(whites.back());
       Ellipsis(status, width - 2 * pad); }
     ImGui::PopFont();
     ImGui::GetStyle() = previousStyle;
@@ -452,14 +553,13 @@ void Panels::DrawVelocity(const Fonts& fonts, const skin::Skin& design, float dp
         ImGui::SameLine();
         CurveCombo("##collapsed-curve", std::max(100 * dpi, width - 430 * dpi), *state, engine);
     }
-    const float cutoffX = start.x + width - 228 * dpi;
+    const float cutoffX = start.x + width - 248 * dpi;
     ImGui::SetCursorScreenPos(ImVec2(cutoffX, start.y));
     { FontScope meta(fonts, design, design.type.meta * SpecFontScale(design)); ImGui::AlignTextToFramePadding(); ImGui::TextUnformatted("Sustain cutoff"); }
     ImGui::SameLine();
     // Commit on release, just like the macro sliders.
     float cutoff = cutoffEditing_ ? cutoffPreview_ : static_cast<float>(state->sustainCutoff);
-    ImGui::SetNextItemWidth(120 * dpi);
-    if (ImGui::SliderFloat("##sustain-cutoff", &cutoff, 0, 127, "%.0f", ImGuiSliderFlags_AlwaysClamp)) {
+    if (Groove("##sustain-cutoff", &cutoff, 0, 127, 120 * dpi, control, s, dpi, true)) {
         if (!ImGui::IsItemActive() || ImGui::IsItemDeactivatedAfterEdit())
             engine.Send({ShellEngine::Action::SustainCutoff, {}, 0, 0, false, std::round(cutoff)});
         cutoffPreview_ = cutoff; cutoffEditing_ = true;
@@ -468,6 +568,7 @@ void Panels::DrawVelocity(const Fonts& fonts, const skin::Skin& design, float dp
         engine.Send({ShellEngine::Action::SustainCutoff, {}, 0, 0, false, std::round(cutoffPreview_)});
         cutoffEditing_ = false;
     }
+    ImGui::SameLine(); ImGui::AlignTextToFramePadding(); ImGui::Text("%.0f", cutoff);
     if (!expanded || state->curves.empty()) { ImGui::PopStyleVar(); ImGui::PopFont(); ImGui::EndChild(); return; }
     if (editorRevision_ != state->curveRevision || (!state->error.empty() && state->error != editorError_)) {
         editor_ = state->curve; editorRevision_ = state->curveRevision;
@@ -653,7 +754,12 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
     const auto state = engine.Snapshot();
     const auto s = skin::ScaleGeometry(design, dpi);
     FontScope font(fonts, design, design.type.body * SpecFontScale(design));
-    ImGui::TextUnformatted("MIDI input");
+    const auto section = [&](const char* label) {
+        FontScope meta(fonts, design, design.type.meta * SpecFontScale(design), Weight::Semibold);
+        ImGui::PushStyleColor(ImGuiCol_Text, Colour(s.ink.secondary));
+        ImGui::TextUnformatted(label); ImGui::PopStyleColor();
+    };
+    section("MIDI INPUT");
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12 * dpi, (s.metric.controlHeight - ImGui::GetTextLineHeight()) / 2));
     // The list and every open command use the ids supplied by ShellEngine.
     for (const auto backend : {MidiBackend::WinRT, MidiBackend::WinMM, MidiBackend::WootingAnalog}) {
@@ -688,8 +794,10 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
     bool active = state->liveActive;
     ImGui::BeginDisabled(state->liveDevice.empty());
     if (ImGui::Checkbox("Midi2Key", &active)) engine.Send({ShellEngine::Action::LiveActive, {}, 0, 0, active});
-    ImGui::EndDisabled(); ImGui::SameLine();
-    ImGui::SetNextItemWidth(144 * dpi);
+    ImGui::EndDisabled();
+    { FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
+      ImGui::TextWrapped("Types incoming MIDI notes using the current key mapping."); }
+    ImGui::SetNextItemWidth(-1);
     const auto channel = state->liveChannel < 0 ? "Every channel" : "Channel " + std::to_string(state->liveChannel + 1);
     if (ImGui::BeginCombo("##live-channel", channel.c_str())) {
         for (int i = -1; i < 16; ++i) {
@@ -705,6 +813,8 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
         if (measure) { timing_ = input_latency::Collector{}; timingSummary_ = {}; measuring_ = input_latency::start(); }
         else { input_latency::stop(); measuring_ = false; timingSummary_ = {}; }
     }
+    { FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
+      ImGui::TextWrapped("Collects note observations while Settings is open."); }
     if (!measuring_ && input_latency::hookError()) ImGui::Text("Hook unavailable: %lu", input_latency::hookError());
     ImGui::SetNextItemWidth(-1);
     const char* sourceLabels[]{"Live input", "Autoplay"};
@@ -731,11 +841,20 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
     { FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
       ImGui::TextWrapped("Starts after the MIDI transport; ends at the keyboard hook, before the game. Autoplay starts at event dispatch."); }
     ImGui::Separator();
-    ImGui::TextUnformatted("Appearance");
+    section("BEHAVIOUR");
+    SettingSwitch("Solo piano tracks on load", preferences.autoSolo,
+        "Silences non-piano parts when a MIDI file opens.", fonts, design, dpi);
+    bool velocity = state->velocity;
+    if (SettingSwitch("Velocity hotkeys", velocity,
+        "Off skips the ALT velocity preamble for live input and autoplay.", fonts, design, dpi))
+        engine.Send({ShellEngine::Action::Velocity, {}, 0, 0, velocity});
+    SettingSwitch("Always on top", preferences.alwaysOnTop,
+        "Keeps the main window above other windows.", fonts, design, dpi);
+    ImGui::Separator();
+    section("APPEARANCE");
     if (ImGui::RadioButton("Classic", preferences.skin < 2)) preferences.skin %= 2;
     ImGui::SameLine();
     if (ImGui::RadioButton("Modern", preferences.skin >= 2)) preferences.skin = 2 + preferences.skin % 2;
-    ImGui::Checkbox("Solo piano tracks on load", &preferences.autoSolo);
     if (ImGui::CollapsingHeader("About")) {
         ImGui::TextWrapped("Based on Zephkek/MIDIPlusPlus (GPLv3)");
         ImGui::TextWrapped("Dear ImGui and RtMidi (MIT)");
@@ -753,20 +872,35 @@ void Panels::DrawStatus(const Fonts& fonts, const skin::Skin& design, float dpi,
     draw->AddLine(min, ImVec2(min.x + width, min.y), Colour(s.border.hairline), dpi);
     FontScope font(fonts, design, design.type.meta * SpecFontScale(design));
     const ImVec2 text(min.x + s.spacing.windowPad, min.y + (height - ImGui::GetTextLineHeight()) / 2);
-    std::string summary;
-    if (!state.error.empty()) summary = state.error;
-    else if (state.busy) summary = "Loading...";
+    std::vector<std::string> fields;
+    if (!state.error.empty()) fields.push_back(state.error);
+    else if (state.busy) fields.push_back("Loading...");
     else {
-        summary = state.playing ? "Playing" : state.liveActive ? "Live" : "Ready";
-        summary += " | Curve " + state.ActiveVelocityName();
-        summary += " | Input ";
-        summary += state.liveDevice.empty() ? "None" : BackendName(BackendForDeviceId(state.liveDevice));
-        if (!state.liveDevice.empty() && !state.liveActive) summary += " (off)";
-        if (!stopHotkeyAvailable) summary += " | Stop hotkey unavailable";
+        fields.push_back(state.playing ? "Playing" : state.liveActive ? "Live" : "Ready");
+        fields.push_back("Curve " + state.ActiveVelocityName());
+        std::string input = "Input ";
+        input += state.liveDevice.empty() ? "None" : BackendName(BackendForDeviceId(state.liveDevice));
+        if (!state.liveDevice.empty() && !state.liveActive) input += " (off)";
+        fields.push_back(input);
+        if (!stopHotkeyAvailable) fields.push_back("Stop hotkey unavailable");
     }
-    const auto tracks = std::to_string(SilentTracks(state.rows)) + " of " + std::to_string(state.rows.size()) + " tracks silent | 88-key";
+    const auto tracks = std::to_string(SilentTracks(state.rows)) + " of " + std::to_string(state.rows.size()) + " tracks silent \xc2\xb7 88-key";
     const float suffix = miniMode ? 0 : ImGui::CalcTextSize(tracks.c_str()).x + 24 * dpi;
-    DrawEllipsis(summary, width - 2 * s.spacing.windowPad - suffix, text);
+    const float end = min.x + width - s.spacing.windowPad - suffix;
+    float x = text.x;
+    std::string summary;
+    for (const auto& field : fields) {
+        if (!summary.empty()) summary += "\n";
+        summary += field;
+        if (x >= end) continue;
+        if (x > text.x) {
+            draw->AddLine(ImVec2(x + 12 * dpi, text.y + 2 * dpi),
+                          ImVec2(x + 12 * dpi, text.y + ImGui::GetTextLineHeight() - 2 * dpi), Colour(s.border.hairline), dpi);
+            x += 24 * dpi;
+        }
+        if (x < end) DrawEllipsis(field, end - x, ImVec2(x, text.y));
+        x += ImGui::CalcTextSize(field.c_str()).x;
+    }
     if (!miniMode) draw->AddText(ImVec2(min.x + width - s.spacing.windowPad - ImGui::CalcTextSize(tracks.c_str()).x, text.y), Colour(s.ink.secondary), tracks.c_str());
     ImGui::SetCursorScreenPos(text);
     ImGui::InvisibleButton("##status", ImVec2(width - 2 * s.spacing.windowPad, ImGui::GetTextLineHeight()));
@@ -784,33 +918,52 @@ void Panels::DrawMini(HWND hwnd, const Fonts& fonts, const skin::Skin& design, f
     auto* draw = ImGui::GetWindowDrawList();
     draw->AddRectFilled(origin, ImVec2(origin.x + size.x, origin.y + strip), Colour(s.surface.structure));
     ImGui::SetCursorScreenPos(ImVec2(origin.x + pad, origin.y + 8 * dpi));
-    Ellipsis(DeviceName(*state), std::max(40 * dpi, size.x - 280 * dpi));
+    DevicePill(DeviceName(*state), std::max(40 * dpi, size.x - 280 * dpi), s, dpi);
     ImGui::SetCursorScreenPos(ImVec2(origin.x + size.x - 268 * dpi, origin.y + 8 * dpi));
-    if (ImGui::RadioButton("Live", !miniAutoplay)) miniAutoplay = false;
-    ImGui::SameLine();
-    if (ImGui::RadioButton("Autoplay", miniAutoplay)) miniAutoplay = true;
-    ImGui::SameLine();
+    {
+        FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
+        const auto well = ImGui::GetCursorScreenPos();
+        const float segmentWidth = 164 * dpi;
+        skin::RecessedRect(draw, well, ImVec2(well.x + segmentWidth, well.y + control), s.radius.control, s);
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, s.radius.element);
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+        for (int mode = 0; mode < 2; ++mode) {
+            const bool selected = miniAutoplay == (mode == 1);
+            ImGui::SetCursorScreenPos(ImVec2(well.x + 4 * dpi + mode * 80 * dpi, well.y + 4 * dpi));
+            ImGui::PushStyleColor(ImGuiCol_Button, selected ? Colour(s.surface.elevated) : IM_COL32(0, 0, 0, 0));
+            if (ImGui::Button(mode ? "Autoplay" : "Live", ImVec2(76 * dpi, control - 8 * dpi))) miniAutoplay = mode == 1;
+            ImGui::PopStyleColor();
+            if (selected) {
+                const auto a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+                draw->AddRect(a, b, Colour(s.border.strong), s.radius.element, 0, dpi);
+            }
+        }
+        ImGui::PopStyleVar(2);
+        ImGui::SetCursorScreenPos(ImVec2(well.x + segmentWidth + 8 * dpi, well.y));
+    }
     if (IconButton("##mini-theme", s.dark ? Icon::Moon : Icon::Sun, "Switch theme", s, dpi)) preferences.skin ^= 1;
     ImGui::SameLine();
     if (IconButton("##restore-full", Icon::Expand, "Full window", s, dpi)) miniMode = false;
     ImGui::SetCursorScreenPos(ImVec2(origin.x + pad, origin.y + strip + 8 * dpi));
-    bool active = state->liveActive, velocity = state->velocity, sustain = state->sustain;
-    ImGui::BeginDisabled(state->liveDevice.empty());
-    if (ImGui::Checkbox("Midi2Key", &active)) engine.Send({ShellEngine::Action::LiveActive, {}, 0, 0, active});
-    ImGui::EndDisabled(); ImGui::SameLine();
-    if (ImGui::Checkbox("Velocity", &velocity)) engine.Send({ShellEngine::Action::Velocity, {}, 0, 0, velocity});
-    ImGui::SameLine(); ImGui::BeginDisabled(state->playing || state->liveActive);
-    if (ImGui::Checkbox("Sustain", &sustain)) engine.Send({ShellEngine::Action::Sustain, {}, 0, 0, sustain});
-    ImGui::EndDisabled(); ImGui::SameLine(); ImGui::TextDisabled("88 keys");
+    StatePills(fonts, design, dpi, engine, true);
     const float row = origin.y + strip + 16 * dpi + control;
     ImGui::SetCursorScreenPos(ImVec2(origin.x + pad, row));
     const auto number = [&](ShellEngine::Action action, double value) { engine.Send({action, {}, state->generation, 0, false, value}); };
     if (!miniAutoplay) {
-        CurveCombo("##mini-curve", size.x - 2 * pad - 216 * dpi, *state, engine);
+        ImGui::AlignTextToFramePadding(); ImGui::TextUnformatted("Curve"); ImGui::SameLine();
+        CurveCombo("##mini-curve", size.x - 2 * pad - 292 * dpi, *state, engine);
         ImGui::SameLine(); ImGui::AlignTextToFramePadding(); ImGui::TextUnformatted("Transpose"); ImGui::SameLine();
-        int transpose = state->transpose;
-        ImGui::SetNextItemWidth(120 * dpi);
-        if (ImGui::InputInt("##mini-transpose", &transpose, 1, 1)) number(ShellEngine::Action::Transpose, std::clamp(transpose, -12, 12));
+        ImGui::BeginDisabled(state->transpose <= -12);
+        if (IconButton("##mini-lower", Icon::Minus, "Transpose down", s, dpi)) number(ShellEngine::Action::Transpose, state->transpose - 1);
+        ImGui::EndDisabled(); ImGui::SameLine();
+        const auto value = ImGui::GetCursorScreenPos();
+        const auto text = (state->transpose >= 0 ? "+" : "") + std::to_string(state->transpose);
+        draw->AddText(ImVec2(value.x + (32 * dpi - ImGui::CalcTextSize(text.c_str()).x) / 2,
+                            value.y + (control - ImGui::GetTextLineHeight()) / 2), Colour(s.ink.primary), text.c_str());
+        ImGui::Dummy(ImVec2(32 * dpi, control)); ImGui::SameLine();
+        ImGui::BeginDisabled(state->transpose >= 12);
+        if (IconButton("##mini-higher", Icon::Plus, "Transpose up", s, dpi)) number(ShellEngine::Action::Transpose, state->transpose + 1);
+        ImGui::EndDisabled();
     } else {
         ImGui::SetNextItemWidth(size.x - 2 * pad - 2 * control - 16 * dpi);
         const auto fileName = state->loaded.empty() ? "Choose MIDI file" : Utf8(state->loaded.filename());
@@ -879,16 +1032,16 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     const ImVec2 size = ImGui::GetContentRegionAvail();
     if (miniMode) { DrawMini(hwnd, fonts, design, dpi, engine, origin, size); mappingArmed_ = false; return; }
     auto* dl = ImGui::GetWindowDrawList();
-    const float strip = 81 * dpi, status = 28 * dpi;
+    const bool modernStrip = design.type.family == "IBM Plex Sans";
+    const float stripPad = (modernStrip ? 12.f : 8.f) * dpi;
+    const float strip = (modernStrip ? 101.f : 81.f) * dpi, status = 28 * dpi;
     dl->AddRectFilled(origin, ImVec2(origin.x + size.x, origin.y + strip), Colour(s.surface.structure));
     dl->AddLine(ImVec2(origin.x, origin.y + strip), ImVec2(origin.x + size.x, origin.y + strip), Colour(s.border.hairline));
-    ImGui::SetCursorScreenPos(ImVec2(origin.x + s.spacing.windowPad, origin.y + s.spacing.s2));
-    { FontScope font(fonts, design, design.type.title, Weight::Semibold); ImGui::TextUnformatted("MIDI++"); }
-    ImGui::SameLine(0, s.spacing.s3);
-    { FontScope font(fonts, design, design.type.meta); Ellipsis(DeviceName(*state), size.x - 320 * dpi); }
-
+    ImGui::SetCursorScreenPos(ImVec2(origin.x + s.spacing.windowPad, origin.y + stripPad));
+    { FontScope font(fonts, design, design.type.body * SpecFontScale(design), Weight::Medium);
+      DevicePill(DeviceName(*state), size.x - 240 * dpi, s, dpi); }
     ImGui::SetCursorScreenPos(ImVec2(origin.x + size.x - s.spacing.windowPad - 4 * s.metric.controlHeight - 3 * s.spacing.s2,
-                                    origin.y + s.spacing.s2));
+                                    origin.y + stripPad));
     if (IconButton("##mini-mode", Icon::Mini, "Mini mode", s, dpi)) miniMode = true;
     ImGui::SameLine();
     if (IconButton("##key-mapping", Icon::Keyboard, "Key Mapping", s, dpi, preferences.keyMappingOpen))
@@ -904,19 +1057,8 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
         DrawSettings(fonts, design, dpi, engine);
         ImGui::EndPopup();
     } else if (measuring_) { input_latency::stop(); measuring_ = false; timingSummary_ = {}; }
-    ImGui::SetCursorScreenPos(ImVec2(origin.x + s.spacing.windowPad, origin.y + strip - s.metric.controlHeight - s.spacing.s2));
-    bool velocity = state->velocity, sustain = state->sustain;
-    bool live = state->liveActive;
-    ImGui::BeginDisabled(state->liveDevice.empty());
-    if (ImGui::Checkbox("Midi2Key", &live)) send(ShellEngine::Action::LiveActive, 0, live);
-    ImGui::EndDisabled(); ImGui::SameLine();
-    if (ImGui::Checkbox("Velocity", &velocity)) send(ShellEngine::Action::Velocity, 0, velocity);
-    ImGui::SameLine();
-    ImGui::BeginDisabled(state->playing || state->liveActive);
-    if (ImGui::Checkbox("Sustain", &sustain)) send(ShellEngine::Action::Sustain, 0, sustain);
-    ImGui::EndDisabled();
-    ImGui::SameLine(0, s.spacing.s4);
-    ImGui::TextDisabled("88 keys");
+    ImGui::SetCursorScreenPos(ImVec2(origin.x + s.spacing.windowPad, origin.y + strip - s.metric.controlHeight - stripPad - dpi));
+    StatePills(fonts, design, dpi, engine, false);
 
     const float top = origin.y + strip + s.spacing.windowPad;
     const float bottom = origin.y + size.y - status - s.spacing.windowPad;
@@ -924,8 +1066,27 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     const ImVec2 leftMin(origin.x + s.spacing.windowPad, top);
     const ImVec2 leftMax(leftMin.x + leftWidth, bottom);
     BeginPanel("Files", leftMin, leftMax, s);
-    { FontScope font(fonts, design, design.type.heading, Weight::Semibold); ImGui::TextUnformatted("MIDI files"); }
-    ImGui::SameLine(ImGui::GetContentRegionAvail().x - 3 * s.metric.controlHeight - 2 * s.spacing.s2);
+    ImGui::PushFont(fonts.Get(design), design.type.body * SpecFontScale(design));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12 * dpi, (s.metric.controlHeight - ImGui::GetTextLineHeight()) / 2));
+    { FontScope font(fonts, design, design.type.body * SpecFontScale(design), Weight::Semibold);
+      ImGui::AlignTextToFramePadding(); ImGui::TextUnformatted("MIDI Files"); }
+    const float sortWidth = ImGui::CalcTextSize("Name").x + 24 * dpi + 18 * dpi + s.spacing.s2;
+    const float refreshWidth = ImGui::CalcTextSize("Refresh").x + 16 * dpi;
+    ImGui::SameLine(ImGui::GetWindowWidth() - sortWidth - refreshWidth - s.spacing.s2);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8 * dpi, ImGui::GetStyle().FramePadding.y));
+    if (TransportButton("##sort-name", descendingNames_ ? Icon::Up : Icon::Down, "Name", s, dpi)) {
+        descendingNames_ = !descendingNames_;
+        filteredFiles_.reset();
+    }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        ImGui::SetTooltip("%s", descendingNames_ ? "Name: Z to A" : "Name: A to Z");
+    ImGui::SameLine();
+    ImGui::BeginDisabled(state->playing || state->busy || state->folder.empty());
+    if (ImGui::Button("Refresh", ImVec2(refreshWidth, s.metric.controlHeight))) engine.Send({ShellEngine::Action::Scan, state->folder});
+    ImGui::EndDisabled(); ImGui::PopStyleVar();
+    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 2 * s.metric.controlHeight - 2 * s.spacing.s2);
+    ImGui::InputTextWithHint("##search", "Search MIDI files", search_, sizeof(search_));
+    ImGui::SameLine();
     if (IconButton("##open", Icon::Open, "Open MIDI file", s, dpi)) load(PickFile(hwnd));
     ImGui::SameLine();
     ImGui::BeginDisabled(state->playing || state->busy);
@@ -933,13 +1094,7 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
         const auto path = PickFolder(hwnd);
         if (!path.empty()) { preferences.folder = path; engine.Send({ShellEngine::Action::Scan, path}); }
     }
-    ImGui::SameLine();
-    ImGui::BeginDisabled(state->folder.empty());
-    if (IconButton("##refresh", Icon::Refresh, "Refresh MIDI folder", s, dpi)) engine.Send({ShellEngine::Action::Scan, state->folder});
     ImGui::EndDisabled();
-    ImGui::EndDisabled();
-    ImGui::SetNextItemWidth(-1);
-    ImGui::InputTextWithHint("##search", "Search MIDI files", search_, sizeof(search_));
     const ImVec2 listMin = ImGui::GetCursorScreenPos();
     const ImVec2 listSize = ImGui::GetContentRegionAvail();
     skin::RecessedField(listMin, ImVec2(listMin.x + listSize.x, listMin.y + listSize.y), s);
@@ -957,6 +1112,10 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
             fileFilter_.clear();
             for (size_t i = 0; i < state->files->size(); ++i)
                 if (query.empty() || lowercase((*state->files)[i].name).find(query) != std::string::npos) fileFilter_.push_back(i);
+            std::stable_sort(fileFilter_.begin(), fileFilter_.end(), [&](size_t a, size_t b) {
+                const auto first = lowercase((*state->files)[a].name), second = lowercase((*state->files)[b].name);
+                return descendingNames_ ? first > second : first < second;
+            });
             filteredFiles_ = state->files;
             filteredQuery_ = query;
         }
@@ -970,14 +1129,22 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
             ImGui::BeginDisabled(state->busy);
             if (ImGui::Selectable("##file", file.path == state->loaded, 0, ImVec2(width, s.metric.controlHeight))) load(file.path);
             ImGui::EndDisabled();
-            DrawEllipsis(file.name, width - 2 * s.spacing.s2,
-                         ImVec2(pos.x + s.spacing.s2, pos.y + (s.metric.controlHeight - ImGui::GetTextLineHeight()) / 2));
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", file.name.c_str());
+            const bool selected = file.path == state->loaded;
+            auto* listDraw = ImGui::GetWindowDrawList();
+            if (selected) listDraw->AddRectFilled(pos, ImVec2(pos.x + 2 * dpi, pos.y + s.metric.controlHeight), Colour(s.accent.accent));
+            FontScope rowFont(fonts, design, design.type.body * SpecFontScale(design), selected ? Weight::Semibold : Weight::Regular);
+            const auto bytes = std::to_string((file.bytes + 1023) / 1024) + " KB";
+            const float sizeWidth = ImGui::CalcTextSize(bytes.c_str()).x;
+            const float textY = pos.y + (s.metric.controlHeight - ImGui::GetTextLineHeight()) / 2;
+            DrawEllipsis(file.name, width - sizeWidth - 3 * s.spacing.s3, ImVec2(pos.x + s.spacing.s3, textY));
+            listDraw->AddText(ImVec2(pos.x + width - s.spacing.s3 - sizeWidth, textY), Colour(s.ink.secondary), bytes.c_str());
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s\n%llu bytes", file.name.c_str(), static_cast<unsigned long long>(file.bytes));
             ImGui::PopID();
         }
         if (fileFilter_.empty()) ImGui::TextDisabled("No matching files");
     }
     ImGui::EndChild();
+    ImGui::PopStyleVar(); ImGui::PopFont();
     ImGui::EndChild();
 
     const float right = leftMax.x + s.spacing.s3;
@@ -1067,7 +1234,9 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     const float curveHeight = std::min(requestedCurveHeight, std::max(collapsedHeight, bottom - trackTop - 168 * dpi));
     const float curveTop = bottom - curveHeight;
     BeginPanel("Tracks", ImVec2(right, trackTop), ImVec2(edge, curveTop - s.spacing.s3), s);
-    { FontScope font(fonts, design, design.type.heading, Weight::Semibold); ImGui::AlignTextToFramePadding(); ImGui::TextUnformatted("Tracks"); }
+    ImGui::PushFont(fonts.Get(design), design.type.body * SpecFontScale(design));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12 * dpi, (s.metric.controlHeight - ImGui::GetTextLineHeight()) / 2));
+    { FontScope font(fonts, design, design.type.body * SpecFontScale(design), Weight::Semibold); ImGui::AlignTextToFramePadding(); ImGui::TextUnformatted("Tracks"); }
     const float actionsWidth = ImGui::CalcTextSize("Solo Piano").x + ImGui::CalcTextSize("Unmute All").x + 4 * ImGui::GetStyle().FramePadding.x + s.spacing.s2;
     ImGui::SameLine(ImGui::GetWindowWidth() - actionsWidth);
     ImGui::BeginDisabled(state->rows.empty() || state->busy);
@@ -1083,13 +1252,22 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
         ImGuiTableFlags_SizingStretchProp, tableSize)) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 20 * dpi);
-        ImGui::TableSetupColumn("Track", ImGuiTableColumnFlags_WidthStretch, 1.2f);
-        ImGui::TableSetupColumn("Instrument", ImGuiTableColumnFlags_WidthStretch, 1.f);
-        ImGui::TableSetupColumn("Ch", ImGuiTableColumnFlags_WidthFixed, 28 * dpi);
-        ImGui::TableSetupColumn("Notes", ImGuiTableColumnFlags_WidthFixed, 48 * dpi);
-        ImGui::TableSetupColumn("Mute", ImGuiTableColumnFlags_WidthFixed, s.metric.controlHeight);
-        ImGui::TableSetupColumn("Solo", ImGuiTableColumnFlags_WidthFixed, s.metric.controlHeight);
-        { FontScope font(fonts, design, design.type.meta, Weight::Semibold); ImGui::TableHeadersRow(); }
+        ImGui::TableSetupColumn("TRACK", ImGuiTableColumnFlags_WidthStretch, 1.2f);
+        ImGui::TableSetupColumn("INSTRUMENT", ImGuiTableColumnFlags_WidthStretch, 1.f);
+        ImGui::TableSetupColumn("CH", ImGuiTableColumnFlags_WidthFixed, 28 * dpi);
+        ImGui::TableSetupColumn("NOTES", ImGuiTableColumnFlags_WidthFixed, 48 * dpi);
+        ImGui::TableSetupColumn("##mute-heading", ImGuiTableColumnFlags_WidthFixed, s.metric.controlHeight);
+        ImGui::TableSetupColumn("##solo-heading", ImGuiTableColumnFlags_WidthFixed, s.metric.controlHeight);
+        ImVec2 muteSoloMin, muteSoloMax;
+        { FontScope font(fonts, design, design.type.meta * SpecFontScale(design), Weight::Semibold);
+          ImGui::TableNextRow(ImGuiTableRowFlags_Headers);
+          for (int column = 0; column < 7; ++column) {
+              ImGui::TableSetColumnIndex(column);
+              ImGui::TableHeader(column < 5 ? ImGui::TableGetColumnName(column) : "");
+          } }
+        const auto* table = ImGui::GetCurrentTable();
+        muteSoloMin = ImVec2(table->Columns[5].MinX, table->RowPosY1 + s.spacing.s1);
+        muteSoloMax = ImVec2(table->Columns[6].MaxX, muteSoloMin.y + 24 * dpi);
         const bool anySolo = AnySolo(state->rows);
         ImGuiListClipper tracks;
         tracks.Begin(static_cast<int>(state->rows.size()), s.metric.controlHeight + 2 * s.spacing.s1);
@@ -1102,11 +1280,12 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
             if (!audible) ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, Colour(s.surface.recessed));
             ImGui::TableNextColumn(); ImGui::AlignTextToFramePadding(); ImGui::Text("%zu", row.index + 1);
             ImGui::TableNextColumn(); ImGui::AlignTextToFramePadding();
-            { FontScope font(fonts, design, design.type.body, audible ? Weight::Medium : Weight::Regular);
+            { FontScope font(fonts, design, design.type.body * SpecFontScale(design), audible ? Weight::Medium : Weight::Regular);
               Ellipsis(row.name, ImGui::GetContentRegionAvail().x); }
             ImGui::TableNextColumn(); ImGui::AlignTextToFramePadding();
             if (row.piano) {
-                const auto p = ImGui::GetCursorScreenPos();
+                auto p = ImGui::GetCursorScreenPos();
+                p.y += ImGui::GetCurrentWindow()->DC.CurrLineTextBaseOffset + (ImGui::GetTextLineHeight() - 14 * dpi) / 2;
                 DrawIcon(ImGui::GetWindowDrawList(), Icon::Piano, p, 14 * dpi, Colour(s.ink.secondary), dpi);
                 ImGui::Dummy(ImVec2(14 * dpi, ImGui::GetTextLineHeight())); ImGui::SameLine(0, s.spacing.s1);
             }
@@ -1128,9 +1307,17 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
             ImGui::TableNextRow(); ImGui::TableSetColumnIndex(1);
             ImGui::TextUnformatted(state->loaded.empty() ? "Open a MIDI file" : "No note tracks");
         }
+        { FontScope font(fonts, design, design.type.meta * SpecFontScale(design), Weight::Semibold);
+          const float textWidth = ImGui::CalcTextSize("MUTE SOLO").x;
+          auto* headers = ImGui::GetWindowDrawList();
+          headers->PushClipRect(muteSoloMin, muteSoloMax, false);
+          headers->AddText(ImVec2(muteSoloMin.x + (muteSoloMax.x - muteSoloMin.x - textWidth) / 2, muteSoloMin.y),
+                           Colour(s.ink.secondary), "MUTE SOLO");
+          headers->PopClipRect(); }
         ImGui::EndTable();
     }
     ImGui::PopStyleVar();
+    ImGui::PopStyleVar(); ImGui::PopFont();
     ImGui::EndChild();
 
     DrawVelocity(fonts, design, dpi, engine, ImVec2(right, curveTop), ImVec2(edge, bottom));
