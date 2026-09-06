@@ -324,7 +324,9 @@ void ShellEngine::Run(std::stop_token stop) {
                         player = std::make_unique<VirtualPianoPlayer>(false, config_);
                         state.keyMappings = player->full_key_mappings;
                     }
-                    stopPlayback();
+                    // Not stopped again here. The stop above already ran, and a
+                    // player constructed two lines up has never played: the
+                    // second call only cost another sweep of release_all_keys.
                     applyMappings();
                     state.loaded.clear();
                     state.rows.clear();

@@ -91,6 +91,59 @@ void ModelTests(const std::filesystem::path& fixture) {
 // Four events is still four events. That is the least a modified keypress can
 // be, and shortening it means the game accepting something other than a
 // modified keypress, which is not ours to change.
+// release_all_keys used to inject a key-up for every one of the 88 mappings
+// whatever was actually down, into whatever window had focus at the time. A
+// file load calls it, usually for a score nobody has played a note of, so the
+// common case was 88 key-ups that released nothing: measured 9ms a call, and
+// that is what clicking a MIDI file spent its time waiting on.
+//
+// What must stay true is that a key that IS down still comes up. All three
+// halves are asserted: nothing held releases nothing, one held note releases
+// exactly that one key, and a second call releases nothing again.
+void ReleaseAllKeysTests(const std::filesystem::path& config) {
+    VirtualPianoPlayer player(false, config);
+    InjectInput = Capture;
+    player.eightyEightKeyModeActive = true;
+    player.enable_velocity_keypress = false;
+    const auto noteUps = [](const std::vector<Captured>& events) {
+        std::vector<WORD> scans;
+        for (const auto& e : events) {
+            const WORD scan = e.input.ki.wScan;
+            // The unconditional alt and ctrl releases are not note keys.
+            if ((e.input.ki.dwFlags & KEYEVENTF_KEYUP) && scan &&
+                scan != 0x1D && scan != 0x2A && scan != 0x36 && scan != 0x38) scans.push_back(scan);
+        }
+        return scans;
+    };
+
+    TakeCaptured();
+    player.release_all_keys();
+    Require(noteUps(TakeCaptured()).empty(), "release_all_keys with nothing held must release nothing");
+
+    // A score of one press and no release, so the note is still held when the
+    // playback thread runs out of events and there is something real to free.
+    player.trackMuted.push_back(std::make_shared<std::atomic<bool>>(false));
+    player.trackSoloed.push_back(std::make_shared<std::atomic<bool>>(false));
+    player.note_events = {{0ns, "C4", EventType::Press, 64, 0}};
+    TakeCaptured();
+    player.restart_song();
+    WORD held = 0;
+    Await([&] { for (const auto& e : TakeCaptured()) if (IsNotePress(e)) held = e.input.ki.wScan;
+                return held != 0; }, "the held note was never pressed");
+    player.should_stop = true;
+    SetEvent(player.command_event); player.playback_cv.notify_all();
+    player.playback_thread->join(); player.playback_thread.reset();
+    TakeCaptured();
+
+    player.release_all_keys();
+    const auto released = noteUps(TakeCaptured());
+    Require(released.size() == 1 && released[0] == held, "release_all_keys releases the held key and only it");
+
+    player.release_all_keys();
+    Require(noteUps(TakeCaptured()).empty(), "a key already released is not released twice");
+    std::cout << "PASS release_all_keys releases only the keys that are down\n";
+}
+
 void VelocityBatchTests(const std::filesystem::path& config) {
     VirtualPianoPlayer player(false, config);
     InjectInput = Capture;
@@ -844,6 +897,7 @@ int wmain() {
         ModelTests(fixture);
         MappingPersistenceTests(directory / L"config.json");
         VelocityBatchTests(directory / L"config.json");
+        ReleaseAllKeysTests(directory / L"config.json");
         ReleaseTests(directory / L"config.json");
         ControllerTests(directory / L"config.json", fixture);
         std::cout << "PASS all shell tests (injection captured in process)\n";
