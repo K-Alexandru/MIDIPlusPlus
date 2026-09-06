@@ -43,8 +43,13 @@ private:
     float seekPosition_ = 0;
     bool seeking_ = false;
     uint64_t seekGeneration_ = 0;
+    uint64_t handledSheetRevision_ = 0;
+    uint64_t sheetStatusGeneration_ = 0;
+    std::string sheetStatus_;
+    bool sheetPending_ = false;
     void DrawVelocity(const Fonts&, const skin::Skin&, float, ShellEngine&, ImVec2, ImVec2);
     void DrawSettings(const Fonts&, const skin::Skin&, float, ShellEngine&);
+    void SettingsControl(const Fonts&, const skin::Skin&, float, ShellEngine&, ImVec2, float);
     void DrawMini(HWND, const Fonts&, const skin::Skin&, float, ShellEngine&, ImVec2, ImVec2);
     void DrawStatus(const Fonts&, const skin::Skin&, float, const EngineSnapshot&, ImVec2, float, float);
     bool advancedCurve_ = false;

@@ -2,6 +2,7 @@
 #include "PlaybackSystem.hpp"
 #include "MIDI2Key.hpp"
 #include "WootingAnalog.hpp"
+#include "../MIDI++/SheetExport.hpp"
 #include <fstream>
 #include <cmath>
 #include <intrin.h>
@@ -244,6 +245,11 @@ void ShellEngine::Run(std::stop_token stop) {
             player->set_track_solo(row.index, row.solo);
         }
     };
+    const auto invalidateSheet = [&] {
+        state.sheetText = std::make_shared<const std::string>();
+        state.sheetNotes = state.sheetGroups = state.sheetMerged = state.sheetUnmapped = 0;
+        state.sheetReady = false;
+    };
     while (!stop.stop_requested()) {
         Command command{Action::Stop};
         bool hasCommand = false;
@@ -267,7 +273,8 @@ void ShellEngine::Run(std::stop_token stop) {
                      command.action == Action::Speed || command.action == Action::Transpose ||
                      command.action == Action::WootingTriggerThreshold ||
                      command.action == Action::WootingShiftAmount ||
-                     command.action == Action::WootingVelocityScale) &&
+                     command.action == Action::WootingVelocityScale ||
+                     command.action == Action::CopySheet) &&
                     std::any_of(commands_.begin(), commands_.end(),
                                 [&](const Command& queued) { return queued.action == command.action; });
                 if (overtaken) continue;
@@ -331,6 +338,7 @@ void ShellEngine::Run(std::stop_token stop) {
                     state.loaded.clear();
                     state.rows.clear();
                     state.duration = state.position = 0;
+                    invalidateSheet();
                     ++state.generation;
                     // Let the visible track controls own drum selection. The old
                     // parser's heuristic otherwise silently removes notes first.
@@ -413,6 +421,7 @@ void ShellEngine::Run(std::stop_token stop) {
                     state.keyMappings[note] = command.key;
                     ++state.mappingRevision;
                     applyMappings();
+                    invalidateSheet();
                     break;
                 }
                 case Action::LiveScan: {
@@ -490,9 +499,40 @@ void ShellEngine::Run(std::stop_token stop) {
                         else row.solo = command.value;
                     }
                     applyTracks();
+                    invalidateSheet();
                     break;
-                case Action::SoloPiano: SoloPiano(state.rows); applyTracks(); break;
-                case Action::UnmuteAll: UnmuteAll(state.rows); applyTracks(); break;
+                case Action::SoloPiano: SoloPiano(state.rows); applyTracks(); invalidateSheet(); break;
+                case Action::UnmuteAll: UnmuteAll(state.rows); applyTracks(); invalidateSheet(); break;
+                case Action::CopySheet: {
+                    if (!player || state.loaded.empty()) break;
+                    const bool anySolo = AnySolo(state.rows);
+                    const auto audible = [&](int track) {
+                        const auto row = std::find_if(state.rows.begin(), state.rows.end(),
+                            [&](const TrackRow& candidate) { return candidate.index == static_cast<size_t>(track); });
+                        return row != state.rows.end() && TrackAudible(*row, anySolo);
+                    };
+                    std::vector<sheet::Note> notes;
+                    notes.reserve(player->note_events.size() / 2);
+                    for (const auto& event : player->note_events) {
+                        if (event.action != EventType::Press || event.note_or_control == "sustain" || !audible(event.trackIndex)) continue;
+                        notes.push_back({static_cast<double>(event.time.count()) / 1e9, std::string(event.note_or_control)});
+                    }
+                    sheet::Options options;
+                    if (!player->midi_file.tempoChanges.empty()) {
+                        const auto tempo = std::min_element(player->midi_file.tempoChanges.begin(), player->midi_file.tempoChanges.end(),
+                            [](const TempoChange& a, const TempoChange& b) { return a.tick < b.tick; });
+                        options.beatSeconds = static_cast<double>(tempo->microsecondsPerQuarter) / 1e6;
+                    }
+                    auto result = sheet::ToVirtualPiano(std::move(notes), state.keyMappings, options);
+                    state.sheetText = std::make_shared<const std::string>(std::move(result.text));
+                    state.sheetNotes = result.notes;
+                    state.sheetGroups = result.groups;
+                    state.sheetMerged = result.merged;
+                    state.sheetUnmapped = result.unmapped;
+                    state.sheetReady = true;
+                    ++state.sheetRevision;
+                    break;
+                }
                 case Action::CurveSelect:
                 case Action::CurveAdjust:
                 case Action::CurveStep:

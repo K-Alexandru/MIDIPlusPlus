@@ -293,6 +293,29 @@ std::filesystem::path PickFolder(HWND hwnd) {
     return path;
 }
 
+bool CopyUtf8ToClipboard(HWND hwnd, const std::string& text) {
+    if (text.empty() || text.size() > static_cast<size_t>(INT_MAX)) return false;
+    const int characters = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(),
+                                                static_cast<int>(text.size()), nullptr, 0);
+    if (characters <= 0) return false;
+    const size_t bytes = (static_cast<size_t>(characters) + 1) * sizeof(wchar_t);
+    HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, bytes);
+    if (!memory) return false;
+    auto* destination = static_cast<wchar_t*>(GlobalLock(memory));
+    if (!destination) { GlobalFree(memory); return false; }
+    MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(), static_cast<int>(text.size()), destination, characters);
+    destination[characters] = L'\0';
+    GlobalUnlock(memory);
+    if (!OpenClipboard(hwnd)) { GlobalFree(memory); return false; }
+    if (!EmptyClipboard() || !SetClipboardData(CF_UNICODETEXT, memory)) {
+        CloseClipboard();
+        GlobalFree(memory);
+        return false;
+    }
+    CloseClipboard();
+    return true; // The clipboard owns memory after SetClipboardData succeeds.
+}
+
 std::string Time(double seconds) {
     const int total = static_cast<int>(std::max(0.0, seconds));
     char text[32];
@@ -936,6 +959,22 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
     ImGui::PopStyleVar();
 }
 
+void Panels::SettingsControl(const Fonts& fonts, const skin::Skin& design, float dpi,
+                             ShellEngine& engine, ImVec2 popupPosition, float popupMaxHeight) {
+    const auto s = skin::ScaleGeometry(design, dpi);
+    if (IconButton("##settings", Icon::Settings, "Settings", s, dpi)) ImGui::OpenPopup("Settings");
+    ImGui::SetNextWindowSizeConstraints(ImVec2(344 * dpi, 0), ImVec2(344 * dpi, popupMaxHeight));
+    ImGui::SetNextWindowPos(popupPosition);
+    if (ImGui::BeginPopup("Settings")) {
+        DrawSettings(fonts, design, dpi, engine);
+        ImGui::EndPopup();
+    } else if (measuring_) {
+        input_latency::stop();
+        measuring_ = false;
+        timingSummary_ = {};
+    }
+}
+
 void Panels::DrawStatus(const Fonts& fonts, const skin::Skin& design, float dpi, const EngineSnapshot& state,
                        ImVec2 min, float width, float height) {
     const auto s = skin::ScaleGeometry(design, dpi);
@@ -990,8 +1029,8 @@ void Panels::DrawMini(HWND hwnd, const Fonts& fonts, const skin::Skin& design, f
     auto* draw = ImGui::GetWindowDrawList();
     draw->AddRectFilled(origin, ImVec2(origin.x + size.x, origin.y + strip), Colour(s.surface.structure));
     ImGui::SetCursorScreenPos(ImVec2(origin.x + pad, origin.y + 8 * dpi));
-    DevicePill(DeviceName(*state), std::max(40 * dpi, size.x - 280 * dpi), s, dpi);
-    ImGui::SetCursorScreenPos(ImVec2(origin.x + size.x - 268 * dpi, origin.y + 8 * dpi));
+    DevicePill(DeviceName(*state), std::max(40 * dpi, size.x - 320 * dpi), s, dpi);
+    ImGui::SetCursorScreenPos(ImVec2(origin.x + size.x - 308 * dpi, origin.y + 8 * dpi));
     {
         FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
         const auto well = ImGui::GetCursorScreenPos();
@@ -1014,6 +1053,9 @@ void Panels::DrawMini(HWND hwnd, const Fonts& fonts, const skin::Skin& design, f
         ImGui::SetCursorScreenPos(ImVec2(well.x + segmentWidth + 8 * dpi, well.y));
     }
     if (IconButton("##mini-theme", s.dark ? Icon::Moon : Icon::Sun, "Switch theme", s, dpi)) preferences.skin ^= 1;
+    ImGui::SameLine();
+    SettingsControl(fonts, design, dpi, engine,
+                    ImVec2(origin.x + size.x - 344 * dpi - s.spacing.windowPad, origin.y + 48 * dpi), 544 * dpi);
     ImGui::SameLine();
     if (IconButton("##restore-full", Icon::Expand, "Full window", s, dpi)) miniMode = false;
     ImGui::SetCursorScreenPos(ImVec2(origin.x + pad, origin.y + strip + 8 * dpi));
@@ -1088,6 +1130,17 @@ void Panels::DrawMini(HWND hwnd, const Fonts& fonts, const skin::Skin& design, f
 void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float dpi, ShellEngine& engine) {
     const auto s = skin::ScaleGeometry(design, dpi);
     auto state = engine.Snapshot();
+    if (state->sheetReady && state->sheetRevision != handledSheetRevision_) {
+        handledSheetRevision_ = state->sheetRevision;
+        sheetStatusGeneration_ = state->generation;
+        sheetPending_ = false;
+        if (state->sheetText->empty()) sheetStatus_ = "No mapped notes to copy.";
+        else if (CopyUtf8ToClipboard(hwnd, *state->sheetText))
+            sheetStatus_ = "Copied " + std::to_string(state->sheetNotes) + " notes.";
+        else sheetStatus_ = "Clipboard is busy. Try again.";
+    }
+    if (sheetStatusGeneration_ != state->generation) { sheetStatus_.clear(); sheetPending_ = false; }
+    else if (!state->sheetReady && !sheetPending_) sheetStatus_.clear();
     if (!scannedLive_ && hwnd) { engine.Send({ShellEngine::Action::LiveScan}); scannedLive_ = true; }
     if (measuring_ && ImGui::GetTime() >= nextTimingPoll_) {
         input_latency::poll(timing_);
@@ -1124,13 +1177,8 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     if (IconButton("##theme", s.dark ? Icon::Moon : Icon::Sun, s.dark ? "Switch to light" : "Switch to dark", s, dpi))
         preferences.skin ^= 1;
     ImGui::SameLine();
-    if (IconButton("##settings", Icon::Settings, "Settings", s, dpi)) ImGui::OpenPopup("Settings");
-    ImGui::SetNextWindowSizeConstraints(ImVec2(344 * dpi, 0), ImVec2(344 * dpi, size.y - 52 * dpi));
-    ImGui::SetNextWindowPos(ImVec2(origin.x + size.x - 344 * dpi - s.spacing.windowPad, origin.y + 48 * dpi));
-    if (ImGui::BeginPopup("Settings")) {
-        DrawSettings(fonts, design, dpi, engine);
-        ImGui::EndPopup();
-    } else if (measuring_) { input_latency::stop(); measuring_ = false; timingSummary_ = {}; }
+    SettingsControl(fonts, design, dpi, engine,
+                    ImVec2(origin.x + size.x - 344 * dpi - s.spacing.windowPad, origin.y + 48 * dpi), size.y - 52 * dpi);
     ImGui::SetCursorScreenPos(ImVec2(origin.x + s.spacing.windowPad, origin.y + strip - s.metric.controlHeight - stripPad - dpi));
     StatePills(fonts, design, dpi, engine, false);
 
@@ -1224,22 +1272,44 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     const float right = leftMax.x + s.spacing.s3;
     const float edge = origin.x + size.x - s.spacing.windowPad;
     const bool modern = design.type.family == "IBM Plex Sans";
-    // Measured from the rendered mockup: 18.75/25 title line, 12px gaps,
-    // 6px seek, two 28/32px rows and 12/16px card padding.
-    const float titleHeight = (modern ? 25.f : 18.75f) * dpi;
-    const float playbackHeight = 2 * s.spacing.panelPad + titleHeight + 42 * dpi + 2 * s.metric.controlHeight;
+    // Keep the file name, sheet action and result status together above the
+    // seek groove. The two transport rows retain the mockup's measured geometry.
+    const float titleHeight = s.metric.controlHeight;
+    const float sheetLineHeight = (modern ? 18.f : 16.f) * dpi;
+    const float playbackHeight = 2 * s.spacing.panelPad + titleHeight + sheetLineHeight + 46 * dpi + 2 * s.metric.controlHeight;
     BeginPanel("Playback", ImVec2(right, top), ImVec2(edge, top + playbackHeight), s,
                ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     ImGui::PushFont(fonts.Get(design), design.type.body * SpecFontScale(design));
     const auto content = ImGui::GetCursorScreenPos();
     const float contentWidth = ImGui::GetContentRegionAvail().x;
+    const char* sheetLabel = "Copy as sheet";
+    const float sheetButtonWidth = 2 * 12 * dpi + 16 * dpi + s.spacing.s2 + ImGui::CalcTextSize(sheetLabel).x;
     { FontScope font(fonts, design, (modern ? 20.f : 15.f) * SpecFontScale(design), Weight::Medium);
-      DrawEllipsis(state->loaded.empty() ? "Playback" : Utf8(state->loaded.stem()), contentWidth, content); }
+      DrawEllipsis(state->loaded.empty() ? "Playback" : Utf8(state->loaded.stem()),
+                   contentWidth - sheetButtonWidth - s.spacing.s2, ImVec2(content.x, content.y + (titleHeight - ImGui::GetTextLineHeight()) / 2)); }
+    ImGui::SetCursorScreenPos(ImVec2(content.x + contentWidth - sheetButtonWidth, content.y));
+    ImGui::BeginDisabled(state->loaded.empty() || state->rows.empty() || state->busy);
+    if (TransportButton("##copy-sheet", Icon::Copy, sheetLabel, s, dpi)) {
+        send(ShellEngine::Action::CopySheet);
+        sheetStatusGeneration_ = state->generation;
+        sheetStatus_ = "Preparing sheet...";
+        sheetPending_ = true;
+    }
+    ImGui::EndDisabled();
+    std::string sheetNote = sheetStatus_;
+    if (state->sheetReady && state->sheetMerged)
+        sheetNote += " " + std::to_string(state->sheetMerged) + " shared notes merged.";
+    if (state->sheetReady && state->sheetUnmapped)
+        sheetNote += " " + std::to_string(state->sheetUnmapped) + " unmapped notes dropped.";
+    if (!sheetNote.empty()) {
+        FontScope font(fonts, design, design.type.meta * SpecFontScale(design));
+        DrawEllipsis(sheetNote, contentWidth, ImVec2(content.x, content.y + titleHeight + 2 * dpi));
+    }
     const auto number = [&](ShellEngine::Action action, double amount) {
         engine.Send({action, {}, state->generation, 0, false, amount});
     };
     ImGui::BeginDisabled(state->loaded.empty() || state->rows.empty() || state->busy);
-    ImGui::SetCursorScreenPos(ImVec2(content.x, content.y + titleHeight + 4 * dpi));
+    ImGui::SetCursorScreenPos(ImVec2(content.x, content.y + titleHeight + sheetLineHeight + 4 * dpi));
     if (!seeking_ || seekGeneration_ != state->generation) {
         seekPosition_ = static_cast<float>(state->position);
         seeking_ = false;
@@ -1252,7 +1322,7 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
         seeking_ = false;
     } else if (seekChanged && !ImGui::IsItemActive()) number(ShellEngine::Action::Seek, seekPosition_);
     if (ImGui::IsItemHovered() || seeking_) ImGui::SetTooltip("%s", Time(seekPosition_).c_str());
-    const float transportY = content.y + titleHeight + 30 * dpi;
+    const float transportY = content.y + titleHeight + sheetLineHeight + 30 * dpi;
     ImGui::SetCursorScreenPos(ImVec2(content.x, transportY));
     if (TransportButton("##play", state->playing ? Icon::Pause : Icon::Play, state->playing ? "Pause" : "Play", s, dpi, true))
         send(ShellEngine::Action::TogglePlayPause);
@@ -1330,9 +1400,9 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
         ImGui::TableSetupColumn("INSTRUMENT", ImGuiTableColumnFlags_WidthStretch, 1.f);
         ImGui::TableSetupColumn("CH", ImGuiTableColumnFlags_WidthFixed, 28 * dpi);
         ImGui::TableSetupColumn("NOTES", ImGuiTableColumnFlags_WidthFixed, 48 * dpi);
-        ImGui::TableSetupColumn("##mute-heading", ImGuiTableColumnFlags_WidthFixed, s.metric.controlHeight);
-        ImGui::TableSetupColumn("##solo-heading", ImGuiTableColumnFlags_WidthFixed, s.metric.controlHeight);
-        ImVec2 muteSoloMin, muteSoloMax;
+        ImGui::TableSetupColumn("##mute-heading", ImGuiTableColumnFlags_WidthFixed, s.metric.controlHeight + s.spacing.s2);
+        ImGui::TableSetupColumn("##solo-heading", ImGuiTableColumnFlags_WidthFixed, s.metric.controlHeight + s.spacing.s2);
+        std::array<ImVec2, 2> actionHeaderMin, actionHeaderMax;
         { FontScope font(fonts, design, design.type.meta * SpecFontScale(design), Weight::Semibold);
           ImGui::TableNextRow(ImGuiTableRowFlags_Headers);
           for (int column = 0; column < 7; ++column) {
@@ -1341,14 +1411,17 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
               // its ID from the parent, so the two icon columns collided with
               // each other and ImGui said so on screen.
               // The mute and solo names begin with ## and so draw nothing;
-              // MUTE SOLO is painted across both of them below.
+              // their separate labels are painted over the two columns below.
               ImGui::TableHeader(ImGui::TableGetColumnName(column));
           } }
         const auto* table = ImGui::GetCurrentTable();
-        // The real header row, not a 24px guess offset by a spacing step: that
-        // put MUTE SOLO on a different baseline from the five headers beside it.
-        muteSoloMin = ImVec2(table->Columns[5].MinX, table->RowPosY1);
-        muteSoloMax = ImVec2(table->Columns[6].MaxX, muteSoloMin.y + ImGui::TableGetHeaderRowHeight());
+        // The real header row, not a guessed offset, keeps both labels on the
+        // same baseline as the five headers beside them.
+        for (int action = 0; action < 2; ++action) {
+            actionHeaderMin[action] = ImVec2(table->Columns[5 + action].MinX, table->RowPosY1);
+            actionHeaderMax[action] = ImVec2(table->Columns[5 + action].MaxX,
+                table->RowPosY1 + ImGui::TableGetHeaderRowHeight());
+        }
         const bool anySolo = AnySolo(state->rows);
         ImGuiListClipper tracks;
         tracks.Begin(static_cast<int>(state->rows.size()), s.metric.controlHeight + 2 * s.spacing.s1);
@@ -1389,13 +1462,18 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
             ImGui::TextUnformatted(state->loaded.empty() ? "Open a MIDI file" : "No note tracks");
         }
         { FontScope font(fonts, design, design.type.meta * SpecFontScale(design), Weight::Semibold);
-          const float textWidth = ImGui::CalcTextSize("MUTE SOLO").x;
           auto* headers = ImGui::GetWindowDrawList();
-          headers->PushClipRect(muteSoloMin, muteSoloMax, false);
-          headers->AddText(ImVec2(muteSoloMin.x + (muteSoloMax.x - muteSoloMin.x - textWidth) / 2,
-                                  muteSoloMin.y + (muteSoloMax.y - muteSoloMin.y - ImGui::GetTextLineHeight()) / 2),
-                           Colour(s.ink.secondary), "MUTE SOLO");
-          headers->PopClipRect(); }
+          for (int action = 0; action < 2; ++action) {
+              const char* label = action ? "SOLO" : "MUTE";
+              const float textWidth = ImGui::CalcTextSize(label).x;
+              headers->PushClipRect(actionHeaderMin[action], actionHeaderMax[action], false);
+              headers->AddText(ImVec2(actionHeaderMin[action].x +
+                                          (actionHeaderMax[action].x - actionHeaderMin[action].x - textWidth) / 2,
+                                      actionHeaderMin[action].y +
+                                          (actionHeaderMax[action].y - actionHeaderMin[action].y - ImGui::GetTextLineHeight()) / 2),
+                               Colour(s.ink.secondary), label);
+              headers->PopClipRect();
+          } }
         ImGui::EndTable();
     }
     ImGui::PopStyleVar();

@@ -662,6 +662,54 @@ the keycode mode really returns Set 1 scancodes, and how any of it feels to
 play. The panel owner reports the device enumerates and opens, which is further
 than this has been before.
 
+Completed 2026-09-06, Copy as sheet and the three panel follow-ups:
+
+- **The sheet converter now has a caller.** Playback has a Copy as sheet
+  action beside the loaded file. The engine collects note-on events from the
+  tracks that are currently audible, so mute and solo affect the result, and
+  uses the file's earliest explicit tempo for rhythmic spacing. A file without
+  an explicit tempo stays on the converter's flat one-space fallback rather
+  than receiving a guessed tempo.
+- **Copying goes to the clipboard.** Virtual piano sheets are made to be pasted
+  into another window, and a clipboard action does not create an unexpected
+  sidecar beside the owner's MIDI file. The worker publishes the finished text
+  through `EngineSnapshot`; the message-loop thread owns the Win32 clipboard.
+  The result line reports characters written, shared chord notes merged, and
+  unmapped notes dropped when those counts are nonzero. There is no generic
+  Lossy line: it did not say anything useful about this particular export.
+- **The exporter keeps three accounting buckets.** Claude's `14b0b5d` fix is
+  included here as `cf95c30`: a chord that maps two notes to one character
+  writes that character once and counts the other note as merged. Therefore
+  `notes + merged + unmapped` equals every note handed to the converter without
+  changing `notes` from its documented meaning, characters written.
+- **Mini mode has Settings.** The device pill and right control cluster reserve
+  the additional 40 pixels worked out in the panel spec. Full and mini modes
+  call one Settings helper, including the popup and the latency collector
+  cleanup, so closing the mini popup cannot leave a copied cleanup path behind.
+  The mini popup is capped at 344 by 544 design pixels.
+- **MUTE and SOLO no longer touch.** Each column has one spacing step around
+  its control and its own centered header, while retaining the existing
+  `##mute-heading` and `##solo-heading` IDs.
+
+Verified: the Release x64 shell build and the complete
+`tests/run-shell-tests.ps1 -Render` suite pass. All four skins rendered at
+100/150/200% and returned to 100%, and all twelve captures were inspected. A
+native DirectX 11 and ImGui harness clicked the real Copy as sheet control,
+matched the Windows clipboard to the engine snapshot, and opened the shared
+344 by 544 mini Settings popup. The owner's Beethoven file produced 5,370
+written notes, 1 merged note and 0 unmapped notes from 5,371 note-ons in 2,771
+groups, with bracketed chords. The Kaine file produced 1,581 written, 5 merged
+and 0 unmapped from 1,586 note-ons in 941 groups, also with bracketed chords.
+Muting their only note track produced an empty export, confirming that silent
+tracks are excluded.
+
+Still unverified: neither generated sheet was pasted into or played in a game,
+and this was not a manual end-user walkthrough of the packaged window. The
+owner's two available MIDI files had no unmapped notes, so the nonzero unmapped
+status was covered by converter tests and code inspection rather than a real
+file. Mini Settings was opened through the native interaction harness, but an
+active latency measurement was not started and then closed through that popup.
+
 Fixed 2026-09-06, the frame rate while using Key Mapping:
 
 - **The app called itself backgrounded whenever you used its second window.**
@@ -700,13 +748,13 @@ to `build/legacy-check/`. New-shell delivery into a game has not been tested.
 The native file picker opens; completing its modal dialog remains unverified
 because the desktop automation tool could not target its controls reliably.
 
-Next: everything left needs the keyboard rather than the compiler. One session
+Next: most of what is left needs the keyboard rather than the compiler. One session
 with the Wooting settles trigger feel, held-Left-Shift black keys, strike
 velocity and delivery into a game; a second device plus a piano settles playing
 through two at once; and live curve reconnection and native window resizing are
-the same kind of check. The panel owner's outstanding piece is a button for
-`MIDI++/SheetExport.hpp`, which is built and tested and has no caller. The
-rendered browser comparison is complete and reproducible with
+the same kind of check. Copy as sheet is now reachable from Playback. The
+transcription half of the YouTube pipeline still requires an owner-approved
+tool installation. The rendered browser comparison is complete and reproducible with
 `tools/serve-mockup.ps1`, `docs/design/` and `build/render-tests/`.
 The velocity design decisions in `HANDOFF.md` still apply. Keep Tracks visible
 and retain the real device ids and measurement boundaries.
@@ -768,12 +816,13 @@ From `HANDOFF.md` section 15, and they are not stylistic preferences:
    done and the list was never updated: `245479a` collapsed `MIDIConnect`'s
    table and `e678893` removed the syscall stub. Confirmed 2026-09-06 and now
    held by a `static_assert` and a test. See the entry above.
-6. **YouTube to MIDI pipeline.** Half done as of 2026-09-06. The sheet
-   converter is built and tested in `MIDI++/SheetExport.hpp` and needs a button,
-   which is the panel owner's. The transcription half is blocked on tools this
-   machine does not have: `python.exe` is the Store alias stub, and there is no
-   Node, ffmpeg or `yt-dlp`. It wants those plus a PyTorch sidecar, so it starts
-   with an install decision rather than with code.
+6. **YouTube to MIDI pipeline.** The sheet half is complete as of 2026-09-06:
+   the tested converter in `MIDI++/SheetExport.hpp` is wired to Copy as sheet in
+   Playback, includes only audible tracks, uses an explicit file tempo when one
+   exists, and reports merged and unmapped notes. The transcription half is
+   blocked on tools this machine does not have: `python.exe` is the Store alias
+   stub, and there is no Node, ffmpeg or `yt-dlp`. It wants those plus a PyTorch
+   sidecar, so it starts with an install decision rather than with code.
 
 ## Repository note
 

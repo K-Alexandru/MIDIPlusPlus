@@ -36,6 +36,13 @@ struct EngineSnapshot {
     int transpose = 0;
     std::map<std::string, std::string> keyMappings;
     uint64_t mappingRevision = 0;
+    std::shared_ptr<const std::string> sheetText = std::make_shared<const std::string>();
+    size_t sheetNotes = 0;
+    size_t sheetGroups = 0;
+    size_t sheetMerged = 0;
+    size_t sheetUnmapped = 0;
+    uint64_t sheetRevision = 0;
+    bool sheetReady = false;
     std::vector<VelocityPreset> curves;
     VelocityEdit curve;
     VelocityEdit previousCurve;
@@ -58,6 +65,7 @@ public:
     enum class Action { Scan, Load, Play, Stop, Mute, Solo, SoloPiano, UnmuteAll, Velocity, Sustain,
                         Pause, TogglePlayPause, Restart, Back10, Forward10, Seek, Speed, Transpose, Remap,
                         LiveScan, LiveOpen, LiveActive, LiveChannel,
+                        CopySheet,
                         CurveSelect, CurveAdjust, CurveStep, CurveCompare, CurveNew,
                         CurveDuplicate, CurveRename, SustainCutoff, CurveSteps,
                         WootingTriggerThreshold, WootingShiftAmount, WootingVelocityScale };
