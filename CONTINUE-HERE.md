@@ -571,6 +571,55 @@ poll loop's held-Left-Shift path, strike velocity under real playing and game
 delivery remain hardware checks for the owner. Nothing under `MIDI++/` or
 `tests/` was edited for this panel.
 
+Completed 2026-09-06, the ALT preamble and half of item 6:
+
+- **A note now travels in the same injection as its velocity.** A note whose
+  bucket changed was two calls: the four-event ALT tap, then the note.
+  `SendInput` inserts one call's events serially and puts nothing between them,
+  and promises nothing across two, so whatever landed in that gap took the
+  velocity the tap had just set. One call now, same events, same order.
+- **MIDI2Key's tap buffer was a static member.** Two callback threads wrote the
+  same four `INPUT`s and each could send the other's velocity. That is the bug
+  `269c2f2` fixed in `MIDIConnect` by making its batch a local; MIDI2Key kept
+  the shared one. It is a local now, which is also what makes the merge
+  possible.
+- **Live input sent its volume adjustment between the tap and the note**, up to
+  forty arrow-key events wide. Autoplay already adjusted volume first, so live
+  now matches it and nothing sits between a tap and its note.
+- **The tap itself is unchanged, and that is the answer to item 5's leftover.**
+  Four events is the least a modified keypress can be: ALT down and the key
+  down are what the game listens for, and the two ups exist so the next note is
+  not typed with ALT held. `HANDOFF.md` calls this four events where one would
+  do. One needs the game to accept something that is not a modified keypress,
+  which is the game's protocol and not ours, and establishing that needs
+  someone playing rather than someone reading. Now said in the code as well.
+- **MIDI to virtual piano sheet exists**, in `MIDI++/SheetExport.hpp`. Header
+  only and free of project references, so it costs no vcxproj change. Notes
+  inside a 45 ms window are one bracketed chord, gaps become spaces when a
+  tempo is supplied and a single space when it is not, lines wrap, and notes
+  the mapping does not carry are dropped and counted rather than guessed at.
+
+The rest of item 6 is blocked on tools this machine does not have. `python.exe`
+here is the Microsoft Store alias stub, and there is no Node, no ffmpeg and no
+`yt-dlp`. The transcription half wants all of those plus a PyTorch sidecar, so
+starting it is an install decision for the owner rather than something to do
+quietly.
+
+Verified: the shell Release build, the original solution build, the full
+`tests/run-shell-tests.ps1` with and without `-Render` across all four skins at
+100/150/200%, and the legit-mode suite. The batching test groups captured
+injections by call and asserts that a call opening with ALT down carries more
+than four events, which is exactly what the old two-call path could not satisfy.
+The sheet tests cover chords, the window boundary either side, spacing with and
+without a tempo, the silence cap, wrapping, unsorted input, unmapped notes and
+an empty score.
+
+Still unverified: nothing here was played into a game. The merge is a promise
+`SendInput` documents rather than one measured on this machine, and whether the
+game can accept fewer than four events is still unknown and still needs someone
+at the keyboard. `SheetExport.hpp` has no caller: turning it into a button is
+an `EngineSnapshot` field and an `Action`, which belong to the panel owner.
+
 `ShellEngine` owns the player and command queue. Construction, loading,
 play/stop, key cleanup and destruction run on its worker, and scheduling keeps
 the inherited playback threads. The legacy hotkey listener is disabled only in
@@ -637,7 +686,12 @@ From `HANDOFF.md` section 15, and they are not stylistic preferences:
    done and the list was never updated: `245479a` collapsed `MIDIConnect`'s
    table and `e678893` removed the syscall stub. Confirmed 2026-09-06 and now
    held by a `static_assert` and a test. See the entry above.
-6. **YouTube to MIDI pipeline.** Lowest coupling, can happen anytime.
+6. **YouTube to MIDI pipeline.** Half done as of 2026-09-06. The sheet
+   converter is built and tested in `MIDI++/SheetExport.hpp` and needs a button,
+   which is the panel owner's. The transcription half is blocked on tools this
+   machine does not have: `python.exe` is the Store alias stub, and there is no
+   Node, ffmpeg or `yt-dlp`. It wants those plus a PyTorch sidecar, so it starts
+   with an install decision rather than with code.
 
 ## Repository note
 

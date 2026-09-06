@@ -4,6 +4,7 @@
 #include "../MIDI++/VelocityTelemetry.hpp"
 #include "../MIDI++/WootingAnalog.hpp"
 #include "../MIDI++/MidiInput.hpp"
+#include "../MIDI++/SheetExport.hpp"
 #include "../MIDI++/config.hpp"
 #include <atomic>
 #include <fstream>
@@ -352,6 +353,77 @@ void WootingMapTests() {
     std::cout << "PASS wooting scancode mapping follows the virtual piano layout\n";
 }
 
+// Sheet text is what people paste to each other for these games, and it is the
+// half of the YouTube to MIDI pipeline that needs nothing installed. A note is
+// the character the app would type for it, notes struck together are bracketed,
+// and time is spaces.
+void SheetExportTests() {
+    const std::map<std::string, std::string> mapping{
+        {"C4", "t"}, {"E4", "y"}, {"G4", "u"}, {"C5", "i"}, {"C#4", "%"}};
+
+    // A chord is one bracket, and its characters are ordered so the same chord
+    // always reads the same way whatever order the notes arrived in.
+    auto chord = sheet::ToVirtualPiano({{0.010, "G4"}, {0.0, "C4"}, {0.020, "E4"}}, mapping);
+    Require(chord.text == "[tuy]", "notes struck together are one sorted bracket");
+    Require(chord.groups == 1 && chord.notes == 3, "a chord is one group of three notes");
+
+    // Far enough apart and they are separate groups, and a single note carries
+    // no brackets.
+    auto melody = sheet::ToVirtualPiano({{0.0, "C4"}, {0.5, "E4"}, {1.0, "G4"}}, mapping);
+    Require(melody.text == "t y u", "separate onsets are separate groups");
+    Require(melody.groups == 3, "three notes, three groups");
+
+    // The window is the boundary, not a suggestion. 45 ms is the default and
+    // comes from measured chord asynchrony.
+    sheet::Options tight; tight.chordWindow = 0.045;
+    auto edge = sheet::ToVirtualPiano({{0.0, "C4"}, {0.045, "E4"}}, mapping, tight);
+    Require(edge.groups == 1, "exactly the window is still one chord");
+    auto past = sheet::ToVirtualPiano({{0.0, "C4"}, {0.046, "E4"}}, mapping, tight);
+    Require(past.groups == 2, "past the window is two groups");
+
+    // With a tempo, a gap of whole beats becomes extra spaces. Without one,
+    // every gap is a single space, because guessing a tempo would be inventing
+    // rhythm that is not in the input.
+    sheet::Options timed; timed.beatSeconds = 0.5;
+    auto spaced = sheet::ToVirtualPiano({{0.0, "C4"}, {0.5, "E4"}, {2.0, "G4"}}, mapping, timed);
+    Require(spaced.text == "t y   u", "a gap of three beats widens to three spaces");
+    auto untimed = sheet::ToVirtualPiano({{0.0, "C4"}, {0.5, "E4"}, {2.0, "G4"}}, mapping);
+    Require(untimed.text == "t y u", "with no tempo every gap is one space");
+
+    // A long silence must not produce a line of nothing but spaces.
+    sheet::Options capped; capped.beatSeconds = 0.5; capped.maxGapSpaces = 2;
+    auto silence = sheet::ToVirtualPiano({{0.0, "C4"}, {60.0, "E4"}}, mapping, capped);
+    Require(silence.text == "t  y", "a long silence is capped rather than unbounded");
+
+    // Notes the mapping does not carry are dropped and counted, never guessed
+    // at and never silently lost.
+    auto missing = sheet::ToVirtualPiano({{0.0, "C4"}, {0.5, "A9"}, {1.0, "E4"}}, mapping);
+    Require(missing.text == "t y", "an unmapped note leaves no mark in the sheet");
+    Require(missing.unmapped == 1 && missing.notes == 2, "and is reported rather than lost");
+
+    // Black keys are shifted characters and go through as they are, which is
+    // what a sheet reader types.
+    auto sharp = sheet::ToVirtualPiano({{0.0, "C#4"}}, mapping);
+    Require(sharp.text == "%", "a shifted binding is written as its own character");
+
+    // Lines are short enough to read. A break already separates two groups, so
+    // it must not also carry a space.
+    sheet::Options lines; lines.groupsPerLine = 2;
+    auto wrapped = sheet::ToVirtualPiano({{0.0, "C4"}, {0.5, "E4"}, {1.0, "G4"}, {1.5, "C5"}}, mapping, lines);
+    Require(wrapped.text == "t y\nu i", "lines wrap without a trailing space");
+
+    // Unsorted input is sorted, and an empty score is an empty sheet rather
+    // than a stray separator.
+    auto unsorted = sheet::ToVirtualPiano({{1.0, "G4"}, {0.0, "C4"}, {0.5, "E4"}}, mapping);
+    Require(unsorted.text == "t y u", "onsets are ordered before anything is written");
+    auto empty = sheet::ToVirtualPiano({}, mapping);
+    Require(empty.text.empty() && empty.groups == 0, "no notes is no sheet");
+    auto allMissing = sheet::ToVirtualPiano({{0.0, "A9"}}, mapping);
+    Require(allMissing.text.empty() && allMissing.unmapped == 1, "a score of nothing mappable writes nothing");
+
+    std::cout << "PASS MIDI to virtual piano sheet: chords, spacing, wrapping and unmapped notes\n";
+}
+
 // Three index spaces once disagreed about what "device 1" meant, which is
 // harmless with one device and wrong with two. Ids fixed the disagreement but
 // not the resolution: RtMidi welds the port index onto every WinMM port name,
@@ -598,6 +670,7 @@ int wmain() {
         WootingMapTests();
         WootingSettingsTests();
         PortResolutionTests();
+        SheetExportTests();
         TwoDeviceTests();
         ModelTests(fixture);
         MappingPersistenceTests(directory / L"config.json");
