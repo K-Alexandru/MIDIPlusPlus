@@ -1,7 +1,11 @@
 #include "../ui/ShellEngine.hpp"
 #include "PlaybackSystem.hpp"
 #include "TrackFixture.hpp"
+#include "../MIDI++/VelocityTelemetry.hpp"
+#include <atomic>
 #include <iostream>
+#include <thread>
+#include <vector>
 #include <set>
 
 using namespace std::chrono_literals;
@@ -183,6 +187,83 @@ void ControllerTests(const std::filesystem::path& config, const std::filesystem:
     Require(engine.Snapshot()->loaded == fixture && engine.Snapshot()->rows.size() == 5, "failed parse preserves previous score");
     std::cout << "PASS async loading, engine dispatch off UI thread, track commands, generation checks and error recovery\n";
 }
+
+// The velocity graph's missing half. observe() carries the decode, so the one
+// line inside MIDI2Key::ProcessMidiMessage that calls it has nothing left to
+// get wrong; these drive the same bytes a MIDI callback would.
+void VelocityTelemetryTests() {
+    namespace vt = velocity_telemetry;
+    vt::reset();
+    auto empty = vt::snapshot();
+    Require(empty.total == 0 && empty.last == 0, "reset clears the histogram and the live velocity");
+
+    const uint8_t noteOn[3]{0x90, 60, 100};
+    vt::observe(noteOn, sizeof(noteOn));
+    auto one = vt::snapshot();
+    Require(one.total == 1 && one.last == 100, "a note on is recorded with its velocity");
+    Require(one.buckets[vt::bucketFor(100)] == 1, "the note lands in its own bucket");
+    Require(one.revision > empty.revision, "recording moves the revision");
+
+    // Everything that is not a sounding note on has to leave the graph alone,
+    // or the histogram fills with events the player never played.
+    const uint8_t noteOffZero[3]{0x90, 60, 0};      // note on, velocity 0
+    const uint8_t noteOff[3]{0x80, 60, 64};         // real note off, and its velocity is a release
+    const uint8_t sustain[3]{0xB0, 64, 127};        // control change
+    const uint8_t truncated[2]{0x90, 60};
+    vt::observe(noteOffZero, sizeof(noteOffZero));
+    vt::observe(noteOff, sizeof(noteOff));
+    vt::observe(sustain, sizeof(sustain));
+    vt::observe(truncated, sizeof(truncated));
+    vt::observe(nullptr, 3);
+    auto still = vt::snapshot();
+    Require(still.total == 1 && still.last == 100,
+            "note offs, control change, short buffers and null leave the histogram alone");
+
+    // Every channel reaches the same histogram. MIDI2Key filters by channel
+    // before it calls in, so a per-channel filter here would apply it twice.
+    const uint8_t otherChannel[3]{0x95, 60, 100};
+    vt::observe(otherChannel, sizeof(otherChannel));
+    Require(vt::snapshot().total == 2, "channel selection belongs to the caller");
+
+    // 1 and 127 are the ends of the real range and must not fall outside the
+    // array. 128 cannot arrive from a valid message and must not be trusted to.
+    vt::reset();
+    for (int velocity = 1; velocity <= 127; ++velocity) vt::record(static_cast<uint8_t>(velocity));
+    vt::record(128);
+    auto full = vt::snapshot();
+    Require(full.total == 127 && full.last == 127, "the whole velocity range is counted and 128 is refused");
+    Require(vt::bucketFor(1) == 0 && vt::bucketFor(127) == vt::kBuckets - 1, "the ends map to the end buckets");
+    uint32_t counted = 0;
+    for (int i = 0; i < vt::kBuckets; ++i) {
+        Require(full.buckets[i] > 0, "every bucket is reachable from a real velocity");
+        counted += full.buckets[i];
+    }
+    Require(counted == full.total, "the buckets and the total agree");
+
+    // record() runs on the MIDI callback thread while the UI reads at frame
+    // rate. Nothing may be lost, and the reader may not tear into a crash.
+    vt::reset();
+    constexpr int writers = 4, each = 20000;
+    std::atomic<bool> go{false}, stop{false};
+    std::vector<std::thread> threads;
+    for (int w = 0; w < writers; ++w) threads.emplace_back([&, w] {
+        while (!go.load()) std::this_thread::yield();
+        for (int n = 0; n < each; ++n) vt::record(static_cast<uint8_t>(1 + (w * 31 + n) % 127));
+    });
+    std::atomic<uint64_t> reads{0};
+    std::thread reader([&] {
+        while (!stop.load()) { auto s = vt::snapshot(); if (s.total <= writers * each) reads.fetch_add(1); }
+    });
+    go.store(true);
+    for (auto& thread : threads) thread.join();
+    stop.store(true);
+    reader.join();
+    auto raced = vt::snapshot();
+    Require(raced.total == writers * each, "concurrent recording loses nothing");
+    Require(reads.load() > 0, "the reader kept up while notes arrived");
+    vt::reset();
+    std::cout << "PASS velocity telemetry: decode, range, bucket ends and concurrent recording\n";
+}
 }
 
 int wmain() {
@@ -190,6 +271,7 @@ int wmain() {
         const auto directory = std::filesystem::current_path();
         const auto fixture = directory / L"tracks-\u97f3\u4e50.mid";
         WriteTrackFixture(fixture);
+        VelocityTelemetryTests();
         ModelTests(fixture);
         ReleaseTests(directory / L"config.json");
         ControllerTests(directory / L"config.json", fixture);

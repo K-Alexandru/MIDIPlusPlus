@@ -298,6 +298,57 @@ The screenshots are of the spec. `build/render-tests/` holds the equivalent
 PNGs of the real shell, and comparing the two folders is the comparison the
 entry above could not make.
 
+
+Completed 2026-09-05, velocity telemetry (`MIDI++/VelocityTelemetry.hpp`):
+
+- **The graph's missing half now exists.** The curve editor is specified to
+  draw a histogram of the velocities you play and a dot for the note sounding
+  now, and shipped as a pointer preview because nothing in the input path kept
+  the velocities it saw. `velocity_telemetry` keeps them: 32 buckets, one per
+  curve sample, plus the last velocity and a revision a reader can compare
+  against to skip a redraw.
+- **Cost on the callback thread** is three relaxed atomics and one release, no
+  allocation and no lock. `record` sits after MIDI2Key's channel filter, so the
+  histogram describes the part being played, and before the enable checks, so
+  it still describes what was played when velocity output is switched off.
+- **Header only and free of project references,** so consuming it needs no
+  change to either vcxproj and no new link dependency.
+- **Live input only.** Autoplay velocities come out of the curve under
+  inspection, so feeding them back would draw the graph its own output.
+- **A snapshot is not one instant.** Buckets are read one at a time, so a
+  snapshot taken mid-performance can be a note or two out of step with itself.
+  A histogram does not need better, and a lock on the callback thread to get it
+  would be the wrong trade. Said here because the number must not later be
+  presented as exact.
+
+Verified: `tests/run-shell-tests.ps1` covers the decode (note on, velocity-zero
+note off, real note off, control change, short buffer, null), the ends of the
+velocity range against the ends of the bucket array, the refusal of 128, that
+every bucket is reachable, and four threads recording 80,000 notes against a
+concurrent reader with nothing lost. The single call inside
+`MIDI2Key::ProcessMidiMessage` is not covered by a test: there is no fake
+backend seam to feed an `IMidiInput` from, so the decode was moved into
+`observe` where it can be driven directly, leaving that line with nothing to
+get wrong.
+
+**This is the producer only, and the consumer is not Claude's to write.**
+`EngineSnapshot` belongs to whoever owns the panel. What the shell needs is one
+field carried through the existing snapshot, no new `Action`:
+
+```cpp
+#include "../MIDI++/VelocityTelemetry.hpp"
+// in EngineSnapshot
+velocity_telemetry::Snapshot playedVelocities;
+// wherever the snapshot is published
+snapshot.playedVelocities = velocity_telemetry::snapshot();
+```
+
+Then the graph draws `buckets` as its histogram, normalised by the largest
+bucket, and `last` as the live dot when it is non-zero. Call
+`velocity_telemetry::reset()` on load if the histogram should describe the
+piece rather than the session. Until that field exists the caption has to keep
+saying the graph is a pointer preview: do not describe a live dot that is not
+being fed.
 `ShellEngine` owns the player and command queue. Construction, loading,
 play/stop, key cleanup and destruction run on its worker, and scheduling keeps
 the inherited playback threads. The legacy hotkey listener is disabled only in
@@ -309,7 +360,8 @@ to `build/legacy-check/`. New-shell delivery into a game has not been tested.
 The native file picker opens; completing its modal dialog remains unverified
 because the desktop automation tool could not target its controls reliably.
 
-Next: expose incoming velocities for the graph through the input-path owner,
+Next: the panel owner carries `playedVelocities` into `EngineSnapshot` and
+draws it, per the velocity telemetry entry above,
 then validate live curve reconnection and native window resizing. The browser
 comparison is now runnable: `tools/serve-mockup.ps1`, then compare against
 `docs/design/` and `build/render-tests/`.
