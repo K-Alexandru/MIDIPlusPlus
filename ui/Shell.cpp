@@ -245,7 +245,15 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     WNDCLASSEXW wc = { sizeof(wc), CS_CLASSDC, WndProc, 0, 0, inst,
                        nullptr, nullptr, nullptr, nullptr, L"MIDIShell", nullptr };
     ::RegisterClassExW(&wc);
-    RECT initial{0, 0, static_cast<LONG>(1090.f * g_dpi), static_cast<LONG>((panels.preferences.skin < 2 ? 635.f : 728.f) * g_dpi)};
+    // From DesiredSize, not from a copy of the numbers it used to return.
+    //
+    // This line held the third statement of the same rule -- 635 for Classic,
+    // 728 for Modern -- and it was the one missed when the other two were made
+    // skin-independent. The result was worse than the original: the window
+    // still opened at a different size per skin, and the resize on skin change
+    // had been removed, so it never corrected itself either.
+    const ImVec2 desired = panels.DesiredSize();
+    RECT initial{0, 0, static_cast<LONG>(desired.x * g_dpi), static_cast<LONG>(desired.y * g_dpi)};
     AdjustWindowRectExForDpi(&initial, WS_OVERLAPPEDWINDOW, FALSE, 0, static_cast<UINT>(96.f * g_dpi));
     HWND hwnd = ::CreateWindowW(wc.lpszClassName, L"MIDI++ shell (ImGui)",
                                 WS_OVERLAPPEDWINDOW, 100, 100, initial.right - initial.left, initial.bottom - initial.top,
