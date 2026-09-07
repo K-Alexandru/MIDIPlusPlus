@@ -11,44 +11,27 @@ still has them, working, and the shell never sets the flag, so they are
 permanently off and no user can tell they exist. That is the defect in
 `HANDOFF.md` section 15 one step worse: not merely undiscoverable, unreachable.
 
+## Done
+
+- **88-Key mode**, `0248ff0`. Selectable and persistent, with the outgoing
+  layout's held keys released before the incoming one can type. The line that
+  pinned it now reads the selection, `ShellEngine.cpp:212`.
+- **AutoVol**, `dea0965`. Window choice, a warning, a cancellable countdown,
+  confirmed focus, and one calibration sweep instead of the original's two.
+
+Both are guarded by `ShellTests.cpp` and mutation-tested in `d7a8a79`: the
+AutoVol sweep count fails if the duplicate call returns, and the layout case
+fails if the pin does. The layout test did not catch the pin until it was
+rewritten to play from a restarted session, which is the path the pin lived on.
+
+Corrections these produced, from the panel seat reading the code rather than
+this page: `calibrate_volume()` does not focus anything, `FocusRobloxWindow()`
+at `MIDI++.cpp:2060` does; and it runs twice on every enable, once inside
+`toggle_volume_adjustment()` at `PlaybackCore.cpp:1180` and once from the
+caller at `MIDI++.cpp:2061`. **The duplicate is still in the original window's
+handler and is the engine seat's to remove.**
+
 ## Built in the engine, unreachable from the shell
-
-### AutoVol
-
-Original: `Advanced` card, toggles `enable_volume_adjustment` through
-`toggle_volume_adjustment()`, which drives the in-game volume to a known point
-by sweeping the volume keys. `MIDI++.cpp:2055`. It re-calibrates after every
-file load, `MIDI++.cpp:1735`.
-
-Engine: live on both paths. `MIDI2Key.cpp:466` for live input,
-`AdjustVolumeBasedOnVelocity` for autoplay. Both read
-`enable_volume_adjustment`, which `PlaybackSystem.hpp:245` defaults to false.
-
-Shell: nothing anywhere in `ui/` mentions it, so it is false forever.
-
-Two things to design rather than guess at. Corrected 2026-09-07 by the panel
-seat, which read the code instead of taking this page's word for it.
-
-`calibrate_volume()` does **not** focus anything. It sends 50 volume-down
-arrows and then sweeps back up, with a busy-wait between each. The focusing is
-the host's, `FocusRobloxWindow()` at `MIDI++.cpp:2060`, called just before it.
-So the shell owes a focus step of its own, and owes the user warning before it
-runs: a checkbox that takes the desktop and types a hundred arrows is its own
-bug report. Design it, do not drop it.
-
-It also runs **twice** on every enable, which is a bug and not a design
-question. `toggle_volume_adjustment()` already calls `calibrate_volume()` at
-`PlaybackCore.cpp:1180`, and `MIDI++.cpp:2061` calls it again straight after.
-The shell must call `toggle_volume_adjustment()` and nothing else. The
-duplicate in the original is the engine seat's to remove.
-
-### 88-Key mode
-
-Original: `Advanced` card, first button, `MIDI++.cpp:1231`.
-
-Shell: `ShellEngine.cpp:159` sets `eightyEightKeyModeActive = true` for every
-player it constructs and nothing sets it back. Anyone playing a game with the
-61-key layout gets the 88-key map and no way to say so. This one is audible.
 
 ### OutRange
 
@@ -63,14 +46,14 @@ identity branch either way. Both switches have to come back for either to work.
 
 Original: `Config` card checkbox, `MIDI++.cpp:1345`.
 
-Shell: `ShellEngine.cpp:388` hardcodes `legit_mode_active = false` on load.
+Shell: `ShellEngine.cpp:449` hardcodes `legit_mode_active = false` on load.
 `LEGIT-MODE.md` records that it sounds unconvincing, which is a reason to
 default it off and a reason to keep improving it. It is not a reason to remove
 the switch: the original offers it, so the shell offers it.
 
 ### Drum detection and auto-transpose
 
-`ShellEngine.cpp:386` forces `DETECT_DRUMS` and `auto_transpose.ENABLED` off at
+`ShellEngine.cpp:447` forces `DETECT_DRUMS` and `auto_transpose.ENABLED` off at
 load, because the parser's heuristic removes notes before the track list is
 built. That is a real constraint and it is also a bug to fix, not a permanent
 override. Until it is fixed the shell has to show these as unavailable and say
@@ -82,12 +65,34 @@ why; after it is fixed they are ordinary settings again.
   picking the next file at random.
 - **Opacity slider.** `MIDI++.cpp:1314`, window alpha.
 - **Prev / Next.** `MIDI++.cpp:1330`, step through the file list.
-- **MidiConnect.** `Panels.cpp:220` draws a disabled pill reading "Unavailable
+- **MidiConnect.** `Panels.cpp:222` draws a disabled pill reading "Unavailable
   in this shell". The class is built and working, so that pill is a promise to
   finish, not an answer.
 - **Log panel and Clear Log.** `MIDI++.cpp:1378`. Without it, everything the
   engine prints is invisible to anyone who did not launch from a console, which
   is every tester who has filed a report so far.
+
+## Reported by testers, not yet addressed
+
+Added 2026-09-07 after checking the Discord threads against what actually
+shipped. Neither is a crash, and both are the app's fault under section 15.
+
+- **The MIDI device list is unreadable.** `EnumerateMidiInputs` lists WinRT
+  ports bare, WinMM ports with `(WinMM)` appended only where the name already
+  appeared, and every Kernel Streaming pin with `(KS)`. One physical piano
+  therefore appears three times, and software ports like VirtualMIDISynth sit
+  at the top of the list looking exactly like hardware. A tester on 2026-09-06
+  asked what KS was, reported the list "says virtualmidisynth", and found their
+  piano only by hunting. Kernel Streaming itself works: the suite enumerates
+  its pins and routes its ids. What is broken is being asked to know what a
+  transport is in order to choose a keyboard. Group the rows by device and let
+  the transport be a property of the chosen row, not three rows.
+- **Nothing warns that the app types into whatever has focus.** The 88-key
+  layout binds the lowest notes to `ctrl+` combinations, so `G#1` is `ctrl+w`.
+  A tester played it with a browser focused and lost the tab, then could not
+  screenshot the bug because playing again closed the window again. The mapping
+  is correct and the behaviour is inherent to typing keystrokes at another
+  program. Saying so before the first note is not.
 
 ## Also owed, from elsewhere
 
@@ -118,6 +123,8 @@ Order of work only. Nothing below the line gets dropped for being below it.
 1. 88-Key mode and AutoVol, because those are features people had and lost.
 2. The log panel, because the next tester report is written blind without it.
 3. Transport bindings and the countdown, which are one piece of work.
-4. MidiConnect, OutRange, legit mode, shuffle, Prev/Next, opacity.
-5. MIDI output, which is new rather than owed, and the largest.
-6. Drum detection and auto-transpose, once the parser heuristic is fixed.
+4. The device list, which is the one a tester has already tripped over.
+5. MidiConnect, OutRange, legit mode, shuffle, Prev/Next, opacity, and the
+   warning before the first keystroke.
+6. MIDI output, which is new rather than owed, and the largest.
+7. Drum detection and auto-transpose, once the parser heuristic is fixed.
