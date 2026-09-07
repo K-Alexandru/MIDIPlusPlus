@@ -68,8 +68,11 @@ It resolves config and preferences beside the executable, so any working
 directory works. The build copies the default config only when none exists.
 The Latin fonts are embedded; CJK fallback fonts come from Windows. Font and
 software licenses are copied beside the executable. Open a file, choose a
-folder, drop a MIDI, or pass its path on the command line. Folder scans are not
-recursive.
+folder, drop a MIDI, or pass its path on the command line. Folder scans reach
+sub-folders, and a file below the chosen folder is named by its path relative to
+it. The original app browses instead, listing folders as rows with a `..`; a
+flat list suits this panel because it has a search box, so searching covers the
+whole library rather than one directory.
 
 ```powershell
 & .\tests\run-shell-tests.ps1 -Render

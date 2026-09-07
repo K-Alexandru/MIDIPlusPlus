@@ -299,18 +299,58 @@ void ShellEngine::Run(std::stop_token stop) {
                     }
                     state.busy = true;
                     Publish(state);
+                    // Sub-folders are searched too, and a file found in one is
+                    // named by its path relative to the folder you chose. The
+                    // original app browses instead: it lists folders as rows
+                    // with a ".." to go up, so you see one directory at a time.
+                    // A flat list is the better fit here because this panel has
+                    // a search box, and searching your whole library beats
+                    // searching whichever directory you last clicked into.
                     auto files = std::make_shared<std::vector<MidiEntry>>();
                     std::error_code error;
-                    std::filesystem::directory_iterator it(command.path, error);
+                    // Permission-denied folders are stepped over rather than
+                    // ending the scan, and directory symlinks are not followed,
+                    // which is what stops a junction pointing at its own parent
+                    // from recursing forever.
+                    std::filesystem::recursive_directory_iterator it(
+                        command.path, std::filesystem::directory_options::skip_permission_denied, error);
                     if (error) throw std::runtime_error("Cannot read MIDI folder: " + error.message());
-                    for (const auto& entry : it) {
+                    const std::filesystem::recursive_directory_iterator end;
+                    // A music library is not 32 deep. The limit is here so that
+                    // a pathological tree costs a bounded walk rather than the
+                    // whole session.
+                    constexpr int kMaxDepth = 32;
+                    // And a guard for the folder picked by mistake. Pointing
+                    // this at a drive root used to be harmless because the scan
+                    // was one directory; now it is not. Stopping with a message
+                    // beats both hanging and silently listing half a disk.
+                    constexpr size_t kMaxFiles = 20000;
+                    while (it != end) {
                         if (stop.stop_requested()) break;
-                        if (!entry.is_regular_file(error)) continue;
-                        auto extension = entry.path().extension().wstring();
-                        std::transform(extension.begin(), extension.end(), extension.begin(), ::towlower);
-                        if (extension != L".mid" && extension != L".midi") continue;
-                        const auto bytes = entry.file_size(error);
-                        files->push_back({entry.path(), Utf8(entry.path().filename()), error ? 0 : bytes});
+                        const auto& entry = *it;
+                        std::error_code entryError;
+                        if (entry.is_regular_file(entryError) && !entryError) {
+                            auto extension = entry.path().extension().wstring();
+                            std::transform(extension.begin(), extension.end(), extension.begin(), ::towlower);
+                            if (extension == L".mid" || extension == L".midi") {
+                                std::error_code sizeError, relativeError;
+                                const auto bytes = entry.file_size(sizeError);
+                                auto shown = std::filesystem::relative(entry.path(), command.path, relativeError);
+                                if (relativeError || shown.empty()) shown = entry.path().filename();
+                                files->push_back({entry.path(), Utf8(shown), sizeError ? 0 : bytes});
+                            }
+                        }
+                        if (files->size() >= kMaxFiles) {
+                            state.error = "Stopped at " + std::to_string(kMaxFiles) +
+                                          " files. Choose a folder with fewer sub-folders in it.";
+                            break;
+                        }
+                        if (it.depth() >= kMaxDepth) it.disable_recursion_pending();
+                        std::error_code step;
+                        it.increment(step);
+                        // An increment that fails may not have advanced, so
+                        // carrying on would spin on the same entry.
+                        if (step) break;
                     }
                     std::sort(files->begin(), files->end(), [](const auto& a, const auto& b) { return a.name < b.name; });
                     state.files = std::move(files);

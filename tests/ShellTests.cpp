@@ -343,6 +343,63 @@ void MappingPersistenceTests(const std::filesystem::path& source) {
     std::cout << "PASS keybind saves settle, survive shutdown and preserve the config\n";
 }
 
+// The folder scan reaches sub-folders. The original app browses instead --
+// folders are rows and you click into them -- so this is a deliberate
+// difference, not a port of the same behaviour, and it is what the search box
+// in that panel is worth having.
+//
+// The two ways a recursive walk goes wrong are both asserted: a name that does
+// not say which folder a file came from, and a walk that does not terminate.
+void FolderScanTests(const std::filesystem::path& config) {
+    const auto root = std::filesystem::temp_directory_path() / L"midiplusplus-scan-test";
+    std::filesystem::remove_all(root);
+    std::filesystem::create_directories(root / L"Classical" / L"Beethoven");
+    std::filesystem::create_directories(root / L"empty");
+    WriteTrackFixture(root / L"top.mid");
+    WriteTrackFixture(root / L"Classical" / L"middle.mid");
+    WriteTrackFixture(root / L"Classical" / L"Beethoven" / L"deep.midi");
+    // Neither of these is a score, and both are the kind of thing that sits in
+    // a music folder.
+    std::ofstream(root / L"notes.txt") << "not a midi file";
+    std::ofstream(root / L"Classical" / L"cover.jpg") << "not a midi file either";
+
+    shell::ShellEngine engine(config);
+    engine.Send({shell::ShellEngine::Action::Scan, root});
+    Await([&] { const auto s = engine.Snapshot(); return !s->busy && s->files->size() >= 3; },
+          "recursive folder scan timeout");
+    const auto found = engine.Snapshot()->files;
+    Require(found->size() == 3, "every .mid and .midi below the folder is listed, and nothing else is");
+
+    std::set<std::string> names;
+    for (const auto& entry : *found) {
+        names.insert(entry.name);
+        Require(std::filesystem::exists(entry.path), "a listed file's path resolves");
+        Require(entry.bytes > 0, "a listed file reports its size");
+    }
+    // The name carries the sub-folder, or two files called the same thing in
+    // two folders would be one indistinguishable row twice. Windows separators,
+    // because that is what the panel shows the user.
+    Require(names.count("top.mid") == 1, "a file in the chosen folder keeps its plain name");
+    Require(names.count("Classical\\middle.mid") == 1, "a file one level down is named by its relative path");
+    Require(names.count("Classical\\Beethoven\\deep.midi") == 1, "and so is one two levels down");
+
+    // A directory symlink pointing at its own parent is the shape that makes a
+    // naive recursive walk run until it runs out of path. Skipped on machines
+    // without the privilege to create one, which is most of them unmodified.
+    std::error_code link;
+    std::filesystem::create_directory_symlink(root, root / L"Classical" / L"loop", link);
+    if (!link) {
+        shell::ShellEngine second(config);
+        second.Send({shell::ShellEngine::Action::Scan, root});
+        Await([&] { const auto s = second.Snapshot(); return !s->busy && !s->files->empty(); },
+              "scan did not terminate with a directory symlink loop present");
+        Require(second.Snapshot()->files->size() < 100, "a symlink loop does not multiply the listing");
+    }
+
+    std::filesystem::remove_all(root);
+    std::cout << "PASS folder scan reaches sub-folders, names them by relative path and terminates on a loop\n";
+}
+
 void ControllerTests(const std::filesystem::path& config, const std::filesystem::path& fixture) {
     shell::ShellEngine engine(config);
     const DWORD uiThread = GetCurrentThreadId();
@@ -1018,6 +1075,7 @@ int wmain() {
         VelocityBatchTests(directory / L"config.json");
         ReleaseAllKeysTests(directory / L"config.json");
         ReleaseTests(directory / L"config.json");
+        FolderScanTests(directory / L"config.json");
         ControllerTests(directory / L"config.json", fixture);
         std::cout << "PASS all shell tests (injection captured in process)\n";
         return 0;
