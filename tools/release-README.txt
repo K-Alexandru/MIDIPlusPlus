@@ -1,23 +1,6 @@
 MIDI++ test build
 =================
 
-Turns a MIDI keyboard into keystrokes for virtual piano games, and plays MIDI
-files the same way.
-
-
-Playing something
------------------
-
-MIDI++ types into whatever window is focused, so click into the game first.
-
-Live: pick your device under the gear icon at the top right.
-
-Files: the midi folder next to the exe, drag and drop, or the folder button.
-Sub-folders are included.
-
-The keyboard icon opens Key Mapping, where you click a note on the piano then
-press the key you want it to send.
-
 
 What to try
 -----------
