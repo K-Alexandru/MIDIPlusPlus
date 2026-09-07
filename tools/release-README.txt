@@ -35,12 +35,13 @@ key you want it to send.
 What to try
 -----------
 
-- Does it play the right notes in your game, in time?
-- Playing live, does the velocity feel right? Velocity Response at the bottom
+- Test Kernel Streaming.
+- Play a MIDI file into your game. Do the notes land in time?
+- Play live. Does the velocity feel right? Velocity Response at the bottom
   controls that.
-- Settings lists four MIDI transports. You'll only see the ones your hardware
-  supports. If you get more than one, tell me if one is better.
-- Anything cut off or too small to read on your monitor.
+- Try the other transports in Settings if your hardware gives you more than one.
+  Tell me if one is better.
+- Look for anything cut off or too small to read.
 
 If something breaks, send your Windows version, display scale, MIDI device, and
 which transport you were on.
@@ -50,8 +51,6 @@ Known gaps
 ----------
 
 - Some panels from the old version aren't back yet.
-- Nobody has tested Kernel Streaming yet. Try it if you can and tell me what
-  happens.
 - Copy as sheet has no velocity or note lengths.
 
 
