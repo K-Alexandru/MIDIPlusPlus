@@ -1,104 +1,99 @@
-MIDI++ — test build
-===================
+MIDI++ test build
+=================
 
-A Windows MIDI-to-QWERTY app for virtual piano games. It turns a MIDI keyboard
-into keystrokes, and plays MIDI files as keystrokes.
+Turns a MIDI keyboard into keystrokes so you can play virtual piano games, and
+plays MIDI files the same way.
 
-This is a test build, not a finished release. Read "What is not finished" below
-before you report anything.
+This build is rough in places. There's a list of what isn't done near the
+bottom, have a look before you tell me something's broken.
 
 
 Running it
 ----------
 
-1. Unzip the whole folder somewhere. Keep the files together.
-2. Run MIDIShell.exe.
+Unzip the folder, keep the files together, run MIDIShell.exe.
 
-Nothing to install. No Visual C++ redistributable, no .NET, no drivers. Windows
-10 or 11, 64-bit.
+Nothing to install. No redistributables, no .NET, no drivers. Windows 10 or 11,
+64-bit.
 
-Windows SmartScreen will warn you the first time, because the build is not code
-signed. More info -> Run anyway.
-
-
-Getting sound out of it
------------------------
-
-Open the game (or any text field, to see what it types) and give it focus.
-MIDI++ types into whatever window is focused, so it must not be focused itself
-while you play.
-
-  Live playing   Plug in a MIDI keyboard, open Settings (gear, top right) and
-                 pick your device. Play.
-  MIDI files     Put .mid files in the midi folder beside the exe and press
-                 Refresh, or drag a file onto the window, or use the folder
-                 button. Sub-folders are searched too, so a whole library
-                 works; files below the folder show their path.
-
-Key Mapping (the keyboard icon, top right) shows which computer key each note
-types, and lets you change any of them. Click a key on the piano, then press
-the key you want it to send.
+SmartScreen will complain the first time because the build isn't signed. Click
+More info, then Run anyway.
 
 
-What to try, and what I want to hear about
-------------------------------------------
+Playing something
+-----------------
 
-- Does it type the right notes into your game, at the right time?
-- Live playing: does velocity feel right? The Velocity Response panel at the
-  bottom shapes how hard-you-press maps to what gets sent.
-- The four MIDI transports in Settings: WinRT, WinMM, Kernel Streaming, Wooting
-  Analog. Only some will be available depending on your hardware. If more than
-  one works for you, is one noticeably better?
-- Anything that looks wrong, cut off, or unreadable at your display scale.
+MIDI++ types into whichever window is focused, so click into the game first. If
+MIDI++ has focus, that's where the keys go.
 
-Worth saying in a report: your Windows version, display scale (Settings ->
-System -> Display -> Scale), your MIDI device, and which transport you picked.
+Live playing: plug your keyboard in, hit the gear icon at the top right, pick
+your device.
+
+MIDI files: drop them in the midi folder next to the exe and hit Refresh. You
+can also drag a file onto the window, or point it at any folder with the folder
+button. Sub-folders work, so your whole library can go in there.
+
+The keyboard icon at the top right opens Key Mapping. It shows which key each
+note types and lets you change any of them: click a note on the piano, then
+press the key you want it to send.
 
 
-What is not finished
---------------------
+What I'd like you to try
+------------------------
 
-Said plainly so you do not spend time on known gaps:
+- Does it play the right notes in your game, in time?
+- Playing live, does the velocity feel right? The Velocity Response panel at
+  the bottom is what shapes that.
+- Settings lists four MIDI transports: WinRT, WinMM, Kernel Streaming and
+  Wooting Analog. You'll only see the ones your hardware supports. If you get
+  more than one, tell me whether either feels better.
+- Anything that looks squashed, cut off, or unreadable on your monitor.
 
-- The UI is a rewrite in progress. Some panels from the older build are not
-  ported yet.
-- Kernel Streaming is new. It finds MIDI devices correctly, but actually
-  playing through it has not been confirmed on any machine yet. If you try it,
-  that is genuinely useful to hear about either way.
-- Wooting analog keyboards are supported in code and have not been played on
-  real hardware.
-- Two MIDI devices can be opened at once. Playing through both at once has not
-  been tried.
-- "Legit mode", which humanises autoplay timing, is off. It exists but it
-  sounds wrong, so it is not exposed.
-- Sheet export ("Copy as sheet") produces virtual piano text. It has no
-  velocity and no note length, because that notation does not carry them.
+If something goes wrong, tell me your Windows version, your display scale
+(Settings, System, Display), what MIDI device you're on, and which transport
+you picked. Saves me guessing.
 
-Autoplay accuracy is the part with the most work behind it. Live playing is the
-part most likely to surprise you.
+
+What isn't done yet
+-------------------
+
+- The interface is a rewrite and some panels from the old version aren't back
+  yet.
+- Kernel Streaming is brand new. It finds devices fine, but nobody has
+  confirmed notes actually coming through it. If you've got hardware, try it.
+  Either way, that's the most useful thing you can tell me.
+- Wooting analog keyboards work in the code but have never been played on a
+  real one.
+- You can open two MIDI devices at once. Nobody has played through both.
+- Legit mode, meant to make autoplay sound less robotic, is off. It works, it
+  just sounds wrong, so it's hidden.
+- Copy as sheet gives you virtual piano text. No velocity, no note lengths.
+  That notation doesn't carry them.
+
+Autoplay has had the most work behind it. Live playing is where you're most
+likely to find something odd.
 
 
 Licence
 -------
 
-GPLv3. See LICENSE. This is a fork of Zephkek/MIDIPlusPlus.
+GPLv3, forked from Zephkek/MIDIPlusPlus. See LICENSE.
 
-Because it is GPLv3, you are entitled to the source for this exact build. Ask
-and you will get it — a link comes with this build if it did not reach you
-already.
+That means you can have the source for this exact build. Ask me, or use the
+link that came with it.
 
-Third-party notices: ImGui-LICENSE.txt (MIT), IBM-Plex-LICENSE.txt (SIL OFL
-1.1). RtMidi is MIT and is covered in LICENSE.
+ImGui-LICENSE.txt (MIT) and IBM-Plex-LICENSE.txt (SIL OFL 1.1) cover the two
+bundled libraries. RtMidi is MIT and is covered in LICENSE.
 
 
-Files here
-----------
+What's in here
+--------------
 
   MIDIShell.exe   the app
-  config.json     key mappings and settings; edited by the app, safe to keep
+  config.json     your key mappings and settings, the app writes to it
   midi\           put your .mid files here
   LICENSE         GPLv3
-  *-LICENSE.txt   third-party notices
+  *-LICENSE.txt   the other two
 
-The app writes shell-settings.json beside itself for window and theme choices.
-Deleting it resets those and nothing else.
+It also drops a shell-settings.json next to itself for window size and theme.
+Delete that if you want those reset; it won't touch anything else.
