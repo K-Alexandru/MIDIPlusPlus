@@ -75,7 +75,8 @@ void ShellEngine::Run(std::stop_token stop) {
     try {
         std::ifstream stream(config_);
         configJson = nlohmann::json::parse(stream);
-        state.keyMappings = configJson.at("KEY_MAPPINGS").at("FULL").get<decltype(state.keyMappings)>();
+        state.eightyEightKeys = configJson.value("SHELL_88_KEYS", true);
+        state.keyMappings = configJson.at("KEY_MAPPINGS").at(state.eightyEightKeys ? "FULL" : "LIMITED").get<decltype(state.keyMappings)>();
     } catch (const std::exception& error) { state.error = error.what(); }
     const auto touchConfig = [&] {
         configDirty = true;
@@ -141,7 +142,8 @@ void ShellEngine::Run(std::stop_token stop) {
         for (int note = 0; note < 128; ++note) {
             const int target = note + state.transpose;
             const auto found = target >= 21 && target <= 108 ? state.keyMappings.find(NoteName(target)) : state.keyMappings.end();
-            player->full_key_mappings[NoteName(note)] = found == state.keyMappings.end() ? "" : found->second;
+            auto& mappings = state.eightyEightKeys ? player->full_key_mappings : player->limited_key_mappings;
+            mappings[NoteName(note)] = found == state.keyMappings.end() ? "" : found->second;
             player->pressed_keys.try_emplace(NoteName(note), false);
         }
     };
@@ -153,10 +155,10 @@ void ShellEngine::Run(std::stop_token stop) {
             // reach the disk before it looks.
             flushConfig();
             player = std::make_unique<VirtualPianoPlayer>(false, config_);
-            state.keyMappings = player->full_key_mappings;
             player->enable_velocity_keypress = state.velocity;
             player->currentSustainMode = state.sustain ? SustainMode::SPACE_DOWN : SustainMode::IG;
-            player->eightyEightKeyModeActive = true;
+            player->eightyEightKeyModeActive = state.eightyEightKeys;
+            applyMappings();
         }
     };
     const auto applyWootingSettings = [&] {
@@ -367,10 +369,7 @@ void ShellEngine::Run(std::stop_token stop) {
                     auto file = parser.parse(Utf8(std::filesystem::absolute(command.path)));
                     if (file.format == 2) throw std::runtime_error("MIDI format 2 contains independent sequences. Use a format 0 or 1 file.");
                     auto rows = DescribeTracks(file);
-                    if (!player) {
-                        player = std::make_unique<VirtualPianoPlayer>(false, config_);
-                        state.keyMappings = player->full_key_mappings;
-                    }
+                    ensurePlayer();
                     // Not stopped again here. The stop above already ran, and a
                     // player constructed two lines up has never played: the
                     // second call only cost another sweep of release_all_keys.
@@ -444,6 +443,8 @@ void ShellEngine::Run(std::stop_token stop) {
                     break;
                 case Action::Remap: {
                     if (command.track < 21 || command.track > 108) break;
+                    if (!state.eightyEightKeys && (command.track < 36 || command.track > 96))
+                        throw std::runtime_error("The 61-key layout covers C2 to C7. Switch to 88 keys to map this note.");
                     std::string key = command.key;
                     if (key.starts_with("ctrl+")) key.erase(0, 5);
                     if (key.size() != 1 || std::string("1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!@#$%^&*()").find(key[0]) == std::string::npos)
@@ -456,7 +457,7 @@ void ShellEngine::Run(std::stop_token stop) {
                     // config in place, including the fields the live-input host
                     // owns.
                     const auto note = NoteName(static_cast<int>(command.track));
-                    configJson["KEY_MAPPINGS"]["FULL"][note] = command.key;
+                    configJson["KEY_MAPPINGS"][state.eightyEightKeys ? "FULL" : "LIMITED"][note] = command.key;
                     touchConfig();
                     state.keyMappings[note] = command.key;
                     ++state.mappingRevision;
@@ -667,6 +668,40 @@ void ShellEngine::Run(std::stop_token stop) {
                         if (state.liveDevice.empty()) state.error = "Velocity saved; MIDI input could not reopen.";
                     }
                     if (resume && state.position < state.duration) startPlayback();
+                    break;
+                }
+                case Action::EightyEightKeys: {
+                    if (state.eightyEightKeys == command.value) break;
+                    auto mappings = configJson.at("KEY_MAPPINGS").at(command.value ? "FULL" : "LIMITED")
+                        .get<decltype(state.keyMappings)>();
+                    const auto device = state.liveDevice;
+                    const bool active = state.liveActive;
+                    // Closing joins callbacks before any lookup changes. Live
+                    // note ownership is private, so release the outgoing map
+                    // in full and replace its owner before building new caches.
+                    if (live) { live->SetActive(false); live->CloseDevice(); }
+                    stopPlayback();
+                    if (live) { player->release_every_mapped_key(); live.reset(); }
+                    state.liveActive = false;
+                    state.eightyEightKeys = command.value;
+                    state.keyMappings = std::move(mappings);
+                    player->eightyEightKeyModeActive = command.value;
+                    applyMappings();
+                    ++state.mappingRevision;
+                    invalidateSheet();
+                    configJson["SHELL_88_KEYS"] = command.value;
+                    touchConfig();
+                    if (!device.empty()) {
+                        live = std::make_unique<MIDI2Key>(player.get());
+                        live->SetMidiChannel(state.liveChannel);
+                        live->OpenDevice(device);
+                        state.liveDevice = live->GetSelectedDevice();
+                        state.liveActive = active && !state.liveDevice.empty();
+                        live->SetActive(state.liveActive);
+                        liveMappings = state.mappingRevision;
+                        liveTranspose = state.transpose;
+                        if (state.liveDevice.empty()) state.error = "Layout changed; MIDI input could not reopen.";
+                    }
                     break;
                 }
                 case Action::Velocity:

@@ -215,7 +215,9 @@ void StatePills(const Fonts& fonts, const skin::Skin& design, float dpi, ShellEn
                   sustainEnabled ? nullptr : "Stop playback and live input before changing sustain."))
         engine.Send({ShellEngine::Action::Sustain, {}, 0, 0, !state->sustain});
     ImGui::SameLine();
-    StatePill("88 Keys", true, fonts, design, dpi, pad, false, "The shell uses the 88-key mapping.");
+    if (StatePill(state->eightyEightKeys ? "88 Keys" : "61 Keys", state->eightyEightKeys,
+                  fonts, design, dpi, pad, true, "Switch game layout. Pauses autoplay and releases held notes."))
+        engine.Send({ShellEngine::Action::EightyEightKeys, {}, 0, 0, !state->eightyEightKeys});
     ImGui::SameLine();
     StatePill("MidiConnect", false, fonts, design, dpi, pad, false, "Unavailable in this shell.");
 }
@@ -373,6 +375,11 @@ void Panels::DrawKeyMapping(const Fonts& fonts, const skin::Skin& design, float 
     ImGui::PushFont(fonts.Get(design), design.type.body * SpecFontScale(design));
     const auto state = engine.Snapshot();
     const auto origin = ImGui::GetWindowPos();
+    if (mappingLayout88_ != state->eightyEightKeys) {
+        mappingLayout88_ = state->eightyEightKeys;
+        mappingArmed_ = false;
+        selectedNote_ = -1;
+    }
     auto* draw = ImGui::GetWindowDrawList();
     const float title = 44 * dpi, width = 840 * dpi, pad = s.spacing.panelPad;
     const auto at = [&](float x, float y) { return ImVec2(origin.x + x, origin.y + y); };
@@ -444,7 +451,8 @@ void Panels::DrawKeyMapping(const Fonts& fonts, const skin::Skin& design, float 
         if (hoveredNote >= 0) {
             const auto found = state->keyMappings.find(NoteName(hoveredNote));
             ImGui::SetTooltip("%s: %s", NoteName(hoveredNote).c_str(), found == state->keyMappings.end() ? "Unassigned" : found->second.c_str());
-            if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+            if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) &&
+                (state->eightyEightKeys || (hoveredNote >= 36 && hoveredNote <= 96))) {
                 selectedNote_ = hoveredNote; mappingArmed_ = true;
                 engine.Send({ShellEngine::Action::Pause, {}, state->generation});
             }
@@ -504,7 +512,8 @@ void Panels::DrawKeyMapping(const Fonts& fonts, const skin::Skin& design, float 
     ImGui::SetCursorScreenPos(at(pad, statusY + 8 * dpi));
     { FontScope font(fonts, design, design.type.meta * SpecFontScale(design));
       const std::string status = !state->error.empty() ? state->error :
-          "Layout 88-key     Range " + NoteName(whites.front()) + "\xe2\x80\x93" + NoteName(whites.back());
+          std::string(state->eightyEightKeys ? "Layout 88-key     Range " : "Layout 61-key     Range ") +
+          NoteName(whites.front()) + "\xe2\x80\x93" + NoteName(whites.back());
       Ellipsis(status, width - 2 * pad); }
     ImGui::PopFont();
     ImGui::GetStyle() = previousStyle;
@@ -1005,7 +1014,8 @@ void Panels::DrawStatus(const Fonts& fonts, const skin::Skin& design, float dpi,
         fields.push_back(input);
         if (!stopHotkeyAvailable) fields.push_back("Stop hotkey unavailable");
     }
-    const auto tracks = std::to_string(SilentTracks(state.rows)) + " of " + std::to_string(state.rows.size()) + " tracks silent \xc2\xb7 88-key";
+    const auto tracks = std::to_string(SilentTracks(state.rows)) + " of " + std::to_string(state.rows.size()) +
+        (state.eightyEightKeys ? " tracks silent \xc2\xb7 88-key" : " tracks silent \xc2\xb7 61-key");
     const float suffix = miniMode ? 0 : ImGui::CalcTextSize(tracks.c_str()).x + 24 * dpi;
     const float end = min.x + width - s.spacing.windowPad - suffix;
     float x = text.x;

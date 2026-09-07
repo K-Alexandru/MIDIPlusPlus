@@ -33,6 +33,7 @@ struct EngineSnapshot {
     // Whoever has the modified script turns it on; nobody gets it unasked.
     bool velocity = false;
     bool sustain = true;
+    bool eightyEightKeys = true;
     double position = 0;
     double duration = 0;
     // Live MIDI input. Devices are opaque backend-specific ids, never indices:
@@ -77,7 +78,7 @@ public:
                         CopySheet,
                         CurveSelect, CurveAdjust, CurveStep, CurveCompare, CurveNew,
                         CurveDuplicate, CurveRename, SustainCutoff, CurveSteps,
-                        WootingTriggerThreshold, WootingShiftAmount, WootingVelocityScale };
+                        WootingTriggerThreshold, WootingShiftAmount, WootingVelocityScale, EightyEightKeys };
     struct Command {
         Action action;
         std::filesystem::path path;

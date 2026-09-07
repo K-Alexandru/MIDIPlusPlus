@@ -39,6 +39,7 @@ private:
     int selectedNote_ = -1;
     bool fullKeyboard_ = false;
     bool mappingArmed_ = false;
+    bool mappingLayout88_ = true;
     float mappingDpi_ = 0;
     float seekPosition_ = 0;
     bool seeking_ = false;
