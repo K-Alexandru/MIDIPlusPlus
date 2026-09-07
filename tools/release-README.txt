@@ -10,7 +10,7 @@ Running it
 
 Unzip, keep the files together, run MIDIShell.exe.
 
-Nothing to install. Windows 10 or 11, 64-bit.
+Windows 10 or 11, 64-bit.
 
 SmartScreen warns on first run because the build isn't signed, so click More
 info then Run anyway.
