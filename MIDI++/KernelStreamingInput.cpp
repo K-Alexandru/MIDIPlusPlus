@@ -42,7 +42,9 @@
 #include <ks.h>
 #include <ksmedia.h>
 
+#include <algorithm>
 #include <atomic>
+#include <cstring>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -57,6 +59,14 @@ extern "C" __declspec(dllimport) DWORD __stdcall KsCreatePin(
     HANDLE FilterHandle, PKSPIN_CONNECT Connect, ACCESS_MASK DesiredAccess, PHANDLE ConnectionHandle);
 
 namespace {
+
+// The walk in MidiStreamSplit.hpp mirrors KSMUSICFORMAT so it can be tested
+// without the KS headers. If the SDK ever changes that layout, this is where
+// it stops compiling rather than where it starts misparsing.
+static_assert(sizeof(KSMUSICFORMAT) == sizeof(midi_stream::KsMusicHeader),
+              "KSMUSICFORMAT and KsMusicHeader must be the same 8 bytes");
+static_assert(offsetof(KSMUSICFORMAT, ByteCount) == offsetof(midi_stream::KsMusicHeader, byteCount),
+              "ByteCount must sit at the same offset in both");
 
 constexpr wchar_t kKsPrefix[] = L"ks:";
 
@@ -388,6 +398,19 @@ private:
             header.FrameExtent = sizeof(buffer);
             header.Data = buffer;
 
+            // Cleared before every read, not after.
+            //
+            // The buffer outlives the read and a read overwrites only the bytes
+            // it produced, so without this everything past DataUsed is still
+            // the previous read's events. Any driver that reports DataUsed
+            // even slightly high then replays them, and on 2026-09-06 a tester
+            // played one note and heard about eighteen: the whole buffer's
+            // worth of history. Zeroed, a stale event reads as a zero
+            // ByteCount, which ends the walk.
+            //
+            // It is a 4KB memset against a device read. Nothing measurable.
+            std::memset(buffer, 0, sizeof(buffer));
+
             OVERLAPPED overlapped{};
             overlapped.hEvent = event;
             ResetEvent(event);
@@ -407,7 +430,12 @@ private:
             // t0 of the latency chain, taken here rather than after parsing so
             // it means the same thing as the other two backends' timestamps.
             const uint64_t timestamp = nowQpc();
-            deliver(buffer, header.DataUsed, timestamp, splitter);
+            // DataUsed is the driver's word for how much it wrote, and it is
+            // the only thing bounding the walk, so it is not taken on trust:
+            // a value past the end of our own buffer is the driver being wrong
+            // about our memory.
+            const ULONG used = (std::min)(header.DataUsed, static_cast<ULONG>(sizeof(buffer)));
+            deliver(buffer, used, timestamp, splitter);
         }
         CloseHandle(event);
     }
@@ -416,19 +444,16 @@ private:
     // padded up to a 4-byte boundary. TimeDeltaMs is the driver's own spacing
     // and is not used: we timestamp on arrival, and mixing the two clocks would
     // make the latency figures mean nothing.
+    //
+    // The walk itself is midi_stream::FeedKsEvents, where it can be driven with
+    // a buffer that still holds an earlier read's events. That case is what
+    // this backend got wrong, and it cannot be asked of a real driver.
     void deliver(const uint8_t* data, ULONG used, uint64_t timestamp, midi_stream::Splitter& splitter) {
         if (!callback_) return;
-        ULONG offset = 0;
-        while (offset + sizeof(KSMUSICFORMAT) <= used) {
-            KSMUSICFORMAT music{};
-            memcpy(&music, data + offset, sizeof(music));
-            offset += sizeof(KSMUSICFORMAT);
-            if (music.ByteCount == 0 || offset + music.ByteCount > used) break;
-            splitter.feed(data + offset, music.ByteCount, [&](const uint8_t* message, size_t length) {
+        midi_stream::FeedKsEvents(splitter, data, used,
+            [&](const uint8_t* message, size_t length) {
                 if (callback_) callback_(timestamp, message, length);
             });
-            offset += (music.ByteCount + 3) & ~3u;
-        }
     }
 
     HANDLE filter_ = nullptr;

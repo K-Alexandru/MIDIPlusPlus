@@ -17,6 +17,7 @@
 // to either vcxproj.
 
 #include <cstddef>
+#include <cstring>
 #include <cstdint>
 
 namespace midi_stream {
@@ -86,6 +87,10 @@ public:
 
     void reset() { status_ = 0; pending_ = 0; expected_ = 0; inSysex_ = false; }
 
+    // Test seam. A driver can hand over half a message and the rest on the
+    // next read, so the splitter is deliberately stateful across feeds.
+    bool assembling() const { return pending_ != 0; }
+
 private:
     uint8_t message_[3]{};
     uint8_t status_ = 0;     // last channel status, for running status
@@ -93,5 +98,40 @@ private:
     size_t expected_ = 0;
     bool inSysex_ = false;
 };
+
+// A Kernel Streaming MIDI pin does not hand over bare bytes: it hands over a
+// run of KSMUSICFORMAT events, each an 8-byte header of TimeDeltaMs and
+// ByteCount followed by ByteCount bytes padded up to a 4-byte boundary.
+//
+// This is here, rather than inline in the backend, because of what went wrong
+// with it. The read buffer is reused across reads and only the bytes a read
+// produced are overwritten, so everything past that point is still the
+// previous read's messages. Walking one byte too far replays them, and a
+// tester on 2026-09-06 played a single note and heard about eighteen: every
+// note still sitting in the buffer from earlier. That cannot be produced on
+// demand from a real driver, and driven directly it is four lines of test.
+//
+// Two things stop it. The caller clears the buffer, so anything beyond this
+// read reads as a zero count; and a count that would run past the end ends the
+// walk rather than being clamped, because a length that does not fit is
+// evidence the framing is already wrong.
+struct KsMusicHeader {
+    uint32_t timeDeltaMs;
+    uint32_t byteCount;
+};
+
+template <class Emit>
+void FeedKsEvents(Splitter& splitter, const uint8_t* data, size_t used, Emit&& emit) {
+    if (!data) return;
+    size_t offset = 0;
+    while (offset + sizeof(KsMusicHeader) <= used) {
+        KsMusicHeader music{};
+        std::memcpy(&music, data + offset, sizeof(music));
+        offset += sizeof(KsMusicHeader);
+        if (music.byteCount == 0 || music.byteCount > used - offset) return;
+        splitter.feed(data + offset, music.byteCount, emit);
+        offset += (static_cast<size_t>(music.byteCount) + 3) & ~size_t{3};
+    }
+}
 
 } // namespace midi_stream

@@ -15,6 +15,7 @@
 #include <thread>
 #include <vector>
 #include <set>
+#include <array>
 
 using namespace std::chrono_literals;
 namespace {
@@ -796,6 +797,81 @@ void MidiStreamSplitTests() {
     std::cout << "PASS MIDI byte stream split into messages: running status, realtime, sysex and partial reads\n";
 }
 
+// The KSMUSICFORMAT walk, and the reason the Kernel Streaming backend was
+// "incredibly broken" on a real piano on 2026-09-06.
+//
+// The read buffer outlives the read and a read overwrites only the bytes it
+// produced, so past DataUsed the buffer still holds the previous read's
+// events. The walk was bounded by DataUsed alone. A driver reporting it high,
+// by any amount, replays whatever is sitting there: the tester played a single
+// note and the game showed about eighteen, which is how many old events fit.
+//
+// No driver can be asked to report a wrong length on demand. Driven here it is
+// one array and one number.
+void KsEventWalkTests() {
+    std::vector<std::vector<uint8_t>> out;
+    midi_stream::Splitter splitter;
+    const auto emit = [&](const uint8_t* m, size_t n) { out.emplace_back(m, m + n); };
+
+    // Three note-ons as the driver frames them: an 8-byte header each, payload
+    // padded up to 4. Three bytes pads to four, so each event is 12.
+    std::array<uint8_t, 64> buffer{};
+    const auto writeEvent = [&](size_t at, uint8_t note) {
+        const midi_stream::KsMusicHeader header{0, 3};
+        std::memcpy(buffer.data() + at, &header, sizeof(header));
+        buffer[at + 8] = 0x90; buffer[at + 9] = note; buffer[at + 10] = 100;
+        return at + 12;
+    };
+    size_t used = writeEvent(0, 60);
+    used = writeEvent(used, 64);
+    used = writeEvent(used, 67);
+    Require(used == 36, "three framed events are 36 bytes");
+
+    out.clear();
+    midi_stream::FeedKsEvents(splitter, buffer.data(), used, emit);
+    Require(out.size() == 3 && out[0][1] == 60 && out[2][1] == 67, "a full read yields its three notes");
+
+    // The read that broke it: one new note written over the front of a buffer
+    // that still holds the three above, with the driver claiming the whole
+    // buffer. Clearing first is what makes the rest read as a zero count.
+    std::memset(buffer.data(), 0, buffer.size());
+    const size_t one = writeEvent(0, 72);
+    out.clear();
+    midi_stream::FeedKsEvents(splitter, buffer.data(), buffer.size(), emit);
+    Require(out.size() == 1 && out[0][1] == 72,
+            "one note played is one note delivered, whatever length the driver claims");
+
+    // And unclear, the same read is every note still in the buffer. This is
+    // the tester's screenshot, and it is what the memset in readLoop prevents.
+    writeEvent(one, 64);
+    writeEvent(one + 12, 67);
+    out.clear();
+    midi_stream::FeedKsEvents(splitter, buffer.data(), buffer.size(), emit);
+    Require(out.size() == 3, "an uncleared buffer is exactly the reported bug, so the clear is load bearing");
+
+    // A length that runs off the end ends the walk. Clamping it would hand the
+    // splitter bytes the driver never wrote.
+    std::memset(buffer.data(), 0, buffer.size());
+    const midi_stream::KsMusicHeader overrun{0, 1000};
+    std::memcpy(buffer.data(), &overrun, sizeof(overrun));
+    out.clear();
+    midi_stream::FeedKsEvents(splitter, buffer.data(), buffer.size(), emit);
+    Require(out.empty(), "an event longer than the read is refused, not clamped");
+
+    // A trailing fragment is held for the next read rather than dropped, which
+    // is the behaviour running status depends on.
+    std::memset(buffer.data(), 0, buffer.size());
+    const midi_stream::KsMusicHeader partial{0, 2};
+    std::memcpy(buffer.data(), &partial, sizeof(partial));
+    buffer[8] = 0x90; buffer[9] = 55;
+    out.clear();
+    splitter.reset();
+    midi_stream::FeedKsEvents(splitter, buffer.data(), 12, emit);
+    Require(out.empty() && splitter.assembling(), "half a message waits for the rest of it");
+
+    std::cout << "PASS Kernel Streaming event walk: framing, a stale buffer, overruns and split messages\n";
+}
+
 // Every id a backend produces must route back to that backend, or the app opens
 // the wrong device -- the bug this whole interface exists to prevent. Machines
 // without a KS MIDI pin enumerate nothing, and an empty list is a pass: there
@@ -1359,6 +1435,7 @@ int wmain() {
         WootingSettingsTests();
         WootingPollTests();
         MidiStreamSplitTests();
+        KsEventWalkTests();
         KernelStreamingIdentityTests();
         PortResolutionTests();
         SheetExportTests();
