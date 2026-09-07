@@ -47,8 +47,11 @@ Two consequences worth stating plainly:
 - **The panel port and the parity build-out.** `ui/`, many files, long
   build-run-look loops. Long-horizon terminal work is Terminal-Bench and
   OSWorld, both Astra's.
-- **The hard fix that should land in one try.** The owner's own read, and it
-  agrees with DeepSWE and Terminal-Bench.
+- **Every fix that has something to iterate against.** A failing test, a
+  repro, a stack trace, a build error, or a symptom narrowed to one file.
+  DeepSWE 1.1 and Terminal-Bench 4.0 are precisely this task, both Astra's, and
+  it is the owner's own read of the seat. When there is something to run, this
+  seat both finds and fixes it: do not split a task that one seat can close.
 - **In-game and interactive verification**, which was already this seat's under
   the earlier agreement.
 
@@ -57,11 +60,15 @@ Two consequences worth stating plainly:
 - **Specifications, seams and inventories.** `MIDI-OUTPUT.md`, `SHELL-GAPS.md`
   and this page. Work whose output is read by the other seat before it writes
   code.
-- **Engine-side C++ where the failure is silent.** `MIDI++/`: injection,
-  threading, scancode ownership, the MIDI stream splitter, parsing. The ALT
-  velocity tap that caused three separate tester reports was found by reading
-  `PlaybackCore.cpp` and `config.json` against each other, with nothing
-  running. That is the shape of task this seat should get.
+- **Reports with nothing to run.** Not "fix this bug", which is Astra's, but
+  "three people described something odd and nobody knows which subsystem". The
+  ALT velocity tap behind three separate tester reports was found by reading
+  `PlaybackCore.cpp` against `config.json`, because it cannot be reproduced on
+  this machine at all: it only manifests inside a game tab on someone else's
+  computer. An agent loop needs something to iterate against and there was
+  nothing. That is the distinction, and it is the only one. DeepSWE hands the
+  model the issue **and** the repo's test; a Discord thread hands it neither.
+  Once this seat has named the file and the line, the fix goes to Astra.
 - **Tests.** `tests/` is already this seat's, tests are read-heavy and
   run-light, and they cost half as much here.
 - **Holding the repo's history in view.** Which decisions were made, what
@@ -83,10 +90,29 @@ real changes:
 
 1. Verification moves to Astra completely, including the measured and
    DPI-sensitive work, not just the checks that take the cursor.
-2. Diagnosis and fix can now split across seats. Opus 5 reads and names the
-   defect; Astra applies it when confirming the fix needs the app running.
+2. Fixing moved to Astra, not just verifying it. The first draft of this page
+   kept bounded engine fixes on Opus 5 and gave Astra only the fixes that
+   needed the app running, which was this seat marking its own homework: the
+   benchmarks that measure resolve-an-issue-end-to-end are DeepSWE and
+   Terminal-Bench, and Astra takes both. Diagnosis splits from fixing only when
+   there is nothing to run, and it rejoins the moment a file and line are
+   named.
 3. The division has a stated basis, so it can be revised when the next numbers
    land instead of being inherited.
+
+## The test for which seat
+
+One question, in this order, and it settles almost everything.
+
+1. Does it need to drive the machine, or look at pixels? Astra.
+2. Is there something to iterate against, a repro, a failing test, a build
+   error, or a named file and line? Astra, finding and fixing both.
+3. Is the output a document another seat reads before writing code? Opus 5.
+4. Is it a report nobody can reproduce yet? Opus 5, until it becomes case 2,
+   which it then is.
+
+A seat that finds itself arguing for its own column against this test should
+lose the argument.
 
 Sources: [Artificial Analysis
 comparison](https://artificialanalysis.ai/models/comparisons/gpt-6-astra-medium-vs-claude-opus-5),
