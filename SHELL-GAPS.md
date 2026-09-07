@@ -20,7 +20,7 @@ Original: `Advanced` card, toggles `enable_volume_adjustment` through
 `calibrate_volume()` to drive the in-game volume to a known point.
 `MIDI++.cpp:2055`. It re-calibrates after every file load, `MIDI++.cpp:1735`.
 
-Engine: live on both paths. `MIDI2Key.cpp:467` for live input,
+Engine: live on both paths. `MIDI2Key.cpp:466` for live input,
 `AdjustVolumeBasedOnVelocity` for autoplay. Both read
 `enable_volume_adjustment`, which `PlaybackSystem.hpp:245` defaults to false.
 
@@ -54,14 +54,14 @@ identity branch either way. Both switches have to come back for either to work.
 
 Original: `Config` card checkbox, `MIDI++.cpp:1345`.
 
-Shell: `ShellEngine.cpp:348` hardcodes `legit_mode_active = false` on load.
+Shell: `ShellEngine.cpp:388` hardcodes `legit_mode_active = false` on load.
 `LEGIT-MODE.md` records that it sounds unconvincing, which is a reason to
 default it off and a reason to keep improving it. It is not a reason to remove
 the switch: the original offers it, so the shell offers it.
 
 ### Drum detection and auto-transpose
 
-`ShellEngine.cpp:345` forces `DETECT_DRUMS` and `auto_transpose.ENABLED` off at
+`ShellEngine.cpp:386` forces `DETECT_DRUMS` and `auto_transpose.ENABLED` off at
 load, because the parser's heuristic removes notes before the track list is
 built. That is a real constraint and it is also a bug to fix, not a permanent
 override. Until it is fixed the shell has to show these as unavailable and say
@@ -73,7 +73,7 @@ why; after it is fixed they are ordinary settings again.
   picking the next file at random.
 - **Opacity slider.** `MIDI++.cpp:1314`, window alpha.
 - **Prev / Next.** `MIDI++.cpp:1330`, step through the file list.
-- **MidiConnect.** `Panels.cpp:217` draws a disabled pill reading "Unavailable
+- **MidiConnect.** `Panels.cpp:220` draws a disabled pill reading "Unavailable
   in this shell". The class is built and working, so that pill is a promise to
   finish, not an answer.
 - **Log panel and Clear Log.** `MIDI++.cpp:1378`. Without it, everything the
@@ -91,7 +91,7 @@ Listed here so one page holds the whole obligation.
   registered those hotkeys, and asked for again by a tester on 2026-09-07.
 - **A settable velocity key.** The velocity burst holds ALT and taps a
   character, and ALT is hardcoded at `PlaybackCore.cpp:922` and
-  `MIDI2Key.cpp:460`. Alt+1 is Roblox's capture shortcut, which is why velocity
+  `MIDI2Key.cpp:459`. Alt+1 is Roblox's capture shortcut, which is why velocity
   is off by default since `954b3cd`. Whether a given game can be told to listen
   for a different key is the game's business; offering the choice is ours.
 
