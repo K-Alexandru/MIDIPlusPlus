@@ -126,6 +126,90 @@ find them twice.
 - **"Loading..." overlaps the separator.** `Panels.cpp:1103`. It flashes for a
   frame when a file is clicked and the text crosses the hairline while it does.
 
+## The velocity editor diverged from its own spec
+
+`HANDOFF.md` section 12 calls this the most important UI problem in the project
+and settles the question at the end of it: *"Editing 32 discrete steps by hand
+is exactly the manual-dragging tedium that made the old one unusable. The steps
+are an implementation detail and should be visible but not the editing
+surface."* Advanced does exactly that, `Panels.cpp:824`.
+
+Two defects, and the second is why it feels worse than it looks.
+
+- **The 32 steps are the editing surface.** Section 12 says edit a smooth
+  curve, sample it to 32, and draw the steps as a faint ghost underneath. Note
+  that hiding this under Advanced is not the fix: manual editing still has to
+  be worth using, it just is not the primary interface.
+
+  What to build instead, agreed with the owner 2026-09-07: anchor points on the
+  curve, as Photoshop's Curves works. Click the line to drop an anchor, drag it
+  and the curve bends smoothly through it, drag it off the graph to delete.
+  Three or four anchors cover nearly every response anyone wants, and one drag
+  changes a region of the player's range instead of one bucket in 32.
+
+  Interpolate between anchors with monotone cubic (PCHIP), so the curve cannot
+  fold backwards whatever the anchors do. That is what retires the clamp below:
+  monotonicity comes from the interpolation rather than from restricting the
+  mouse. The 32 bars stay as the ghost readout section 12 asks for.
+
+  One addition beyond section 12: the played-velocity histogram is already
+  drawn, so anchors should snap to the edges of the band the player actually
+  plays in. Section 12 opens by saying the user cannot tell what to go for;
+  a snap target is that answer made concrete.
+
+  Free-draw, holding and sweeping across the graph with the line following the
+  cursor and smoothing on release, is worth having as a second mode once the
+  anchor model exists. It is faster for a big reshape and worse for precision.
+- **A bar can barely move.** `Panels.cpp:842` clamps each one between its two
+  neighbours' current heights, so on a near-linear curve the travel is about
+  one step in 31. Making an audible change means dragging all 32 in order, each
+  unlocking a sliver for the next. The clamp itself is right, a curve that goes
+  backwards is nonsense, but enforcing monotonicity by pinning the handles is
+  what makes the handles useless. Smoothing enforces it for free.
+
+The part section 12 called the key feature, the histogram of what the player
+actually played, is built and wired to `velocity_telemetry`. The editor has the
+hard half and lost the easy half.
+
+## The graph redraws the curve instead of drawing it
+
+`ui/VelocityModel.hpp:33`. The engine's table says which inputs each output
+bucket covers. `VelocitySamples` asks the opposite question, what bucket does
+input `round(i * 127/31)` fall in, which resamples a table stepping by 4 on a
+grid stepping by 4.097. Measured against Linear Fine: 27 of 32 samples land on
+their own index, 5 gain a step at the top, and `samples[30]` and `samples[31]`
+are both exactly 1.0, so the drawn line goes flat over its final interval.
+That flat step is the visible bump.
+
+No new numbers are needed. Bucket `i` sits at input `thresholds[i]`, so plot it
+parametrically, x = `thresholds[i]/127` against y = `i/31`, and the drawing is
+the table exactly. `VelocityThresholds` in the same file already keeps built-ins
+untouched, with the comment "Preserve built-ins exactly". The drawing does not.
+
+Separately, and engine side: Linear Fine is 2, 6, 10 ... 122 and then 127, so
+its last interval is 5 where every other is 4, and Linear Coarse ends 124 then
+127, a 3. The other three presets reach 127 early and repeat it, 15 times for
+Logarithmic, which is the flat right-hand third of the graph. Whether to
+change those is the owner's call, because it changes what the app sounds like.
+
+## Pro is missing because nobody has its numbers
+
+Not a bug. `CONTINUE-HERE.md:310` records the decision: only configured custom
+presets are shown and no Pro values were invented for configs that do not have
+them. Every `config.json` in this repo and on this machine has
+`CUSTOM_VELOCITY_CURVES` empty, so Pro has never existed here as data.
+
+What exists is the name decision, `HANDOFF.md:291`, where Pro carries a
+"recommended" tag and "Radiant Grand" is retired as the name of its author's
+soundfont; and a shape in the mockup, `skin-system.html:1097`, which is
+`x*x*(3-2*x)` with sensitivity 18 and contrast 58. The mockup shape is a
+stand-in drawn to make the mockup legible, not a tuning.
+
+Needs the real 32 values from someone's config. Failing that, either ship the
+mockup shape and say in the UI that it is a starting point rather than the
+original tuning, or retire the name. If Pro ships it belongs beside the other
+built-ins in `PlaybackCore.cpp`, not as a custom entry a user can delete.
+
 ## Conversion pipeline, asked for 2026-09-07
 
 Not parity and not panel-only, so it is scoped before it is built.
