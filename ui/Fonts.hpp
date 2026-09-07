@@ -9,8 +9,7 @@ public:
     void Load();
     ImFont* Get(const skin::Skin& skin, Weight weight = Weight::Regular) const;
 private:
-    ImFont* classic_[3]{};
-    ImFont* modern_[3]{};
+    ImFont* fonts_[3]{};
 };
 
 // Sizes are in design pixels. FontScaleDpi applies the monitor scale once.

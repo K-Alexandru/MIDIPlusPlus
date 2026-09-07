@@ -18,9 +18,8 @@ ImU32 OpaqueTint(skin::Argb tint, skin::Argb surface) {
     return IM_COL32(channel(16), channel(8), channel(0), 255);
 }
 // Browser CSS sizes use the font em. stb_truetype uses ascent minus descent.
-// Ratios from the shipped hhea/head tables: Segoe 2724/2048, Plex 1300/1000.
-// Apply this correction wherever typography is measured against the spec.
-float SpecFontScale(const skin::Skin& s) { return s.type.family == "IBM Plex Sans" ? 1.3f : 2724.f / 2048.f; }
+// The shipped IBM Plex hhea/head ratio is 1300/1000.
+float SpecFontScale(const skin::Skin&) { return 1.3f; }
 enum class Icon { Folder, Open, Refresh, Settings, Sun, Moon, Play, Pause, Back, Forward,
                   Minus, Plus, Left, Right, Down, Up, Close, Keyboard, Speaker, Muted, Solo, Piano,
                   Mini, Expand, Copy, Rename, Check, SortDown, SortUp };
@@ -349,8 +348,7 @@ void Panels::SavePreferences(const std::filesystem::path& path) const {
 void Panels::DrawKeyMapping(const Fonts& fonts, const skin::Skin& design, float dpi, ShellEngine& engine) {
     const bool platform = (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) != 0;
     if (platform && mappingDpi_ > 0) dpi = mappingDpi_;
-    const bool modern = design.type.family == "IBM Plex Sans";
-    const float height = modern ? 268.390625f : 246.9375f;
+    const float height = 268.390625f;
     const auto* main = ImGui::GetMainViewport();
     if (!platform || mappingDpi_ == 0)
         ImGui::SetNextWindowPos(ImVec2(main->Pos.x + 125 * dpi, main->Pos.y + main->Size.y - (height + 40) * dpi));
@@ -373,7 +371,7 @@ void Panels::DrawKeyMapping(const Fonts& fonts, const skin::Skin& design, float 
     const auto state = engine.Snapshot();
     const auto origin = ImGui::GetWindowPos();
     auto* draw = ImGui::GetWindowDrawList();
-    const float title = (modern ? 44.f : 36.f) * dpi, width = 840 * dpi, pad = s.spacing.panelPad;
+    const float title = 44 * dpi, width = 840 * dpi, pad = s.spacing.panelPad;
     const auto at = [&](float x, float y) { return ImVec2(origin.x + x, origin.y + y); };
     draw->AddRectFilled(origin, at(width, height * dpi), Colour(s.surface.canvas), s.radius.window);
     draw->AddRectFilled(origin, at(width, title), Colour(s.surface.structure), s.radius.window, ImDrawFlags_RoundCornersTop);
@@ -628,7 +626,7 @@ void Panels::DrawVelocity(const Fonts& fonts, const skin::Skin& design, float dp
         workspaceY += control + 12 * dpi;
     }
     const float presetsWidth = std::min(236 * dpi, width * .36f), mainWidth = width - presetsWidth - 12 * dpi;
-    const float graphHeight = (design.type.family == "IBM Plex Sans" ? 208.f : 192.f) * dpi;
+    const float graphHeight = 208 * dpi;
     const auto& shown = state->comparingCurve ? state->previousCurve : editor_;
     const auto& preset = state->comparingCurve ? state->previousPreset : state->curves[shown.preset];
     const ImVec2 graphMin(start.x, workspaceY), graphMax(start.x + mainWidth, workspaceY + graphHeight);
@@ -959,7 +957,6 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
         ImGui::TextWrapped("Based on Zephkek/MIDIPlusPlus (GPLv3)");
         ImGui::TextWrapped("Dear ImGui and RtMidi (MIT)");
         ImGui::TextWrapped("IBM Plex Sans (SIL Open Font License 1.1)");
-        ImGui::TextWrapped("Segoe UI and CJK fallback fonts from Windows");
     }
     ImGui::PopStyleVar();
 }
@@ -1164,9 +1161,8 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     const ImVec2 size = ImGui::GetContentRegionAvail();
     if (miniMode) { DrawMini(hwnd, fonts, design, dpi, engine, origin, size); mappingArmed_ = false; return; }
     auto* dl = ImGui::GetWindowDrawList();
-    const bool modernStrip = design.type.family == "IBM Plex Sans";
-    const float stripPad = (modernStrip ? 12.f : 8.f) * dpi;
-    const float strip = (modernStrip ? 101.f : 81.f) * dpi, status = 28 * dpi;
+    const float stripPad = 12 * dpi;
+    const float strip = 101 * dpi, status = 28 * dpi;
     dl->AddRectFilled(origin, ImVec2(origin.x + size.x, origin.y + strip), Colour(s.surface.structure));
     dl->AddLine(ImVec2(origin.x, origin.y + strip), ImVec2(origin.x + size.x, origin.y + strip), Colour(s.border.hairline));
     ImGui::SetCursorScreenPos(ImVec2(origin.x + s.spacing.windowPad, origin.y + stripPad));
@@ -1276,11 +1272,10 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
 
     const float right = leftMax.x + s.spacing.s3;
     const float edge = origin.x + size.x - s.spacing.windowPad;
-    const bool modern = design.type.family == "IBM Plex Sans";
     // Keep the file name, sheet action and result status together above the
     // seek groove. The two transport rows retain the mockup's measured geometry.
     const float titleHeight = s.metric.controlHeight;
-    const float sheetLineHeight = (modern ? 18.f : 16.f) * dpi;
+    const float sheetLineHeight = 18 * dpi;
     const float playbackHeight = 2 * s.spacing.panelPad + titleHeight + sheetLineHeight + 46 * dpi + 2 * s.metric.controlHeight;
     BeginPanel("Playback", ImVec2(right, top), ImVec2(edge, top + playbackHeight), s,
                ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
@@ -1289,7 +1284,7 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     const float contentWidth = ImGui::GetContentRegionAvail().x;
     const char* sheetLabel = "Copy as sheet";
     const float sheetButtonWidth = 2 * 12 * dpi + 16 * dpi + s.spacing.s2 + ImGui::CalcTextSize(sheetLabel).x;
-    { FontScope font(fonts, design, (modern ? 20.f : 15.f) * SpecFontScale(design), Weight::Medium);
+    { FontScope font(fonts, design, 20 * SpecFontScale(design), Weight::Medium);
       DrawEllipsis(state->loaded.empty() ? "Playback" : Utf8(state->loaded.stem()),
                    contentWidth - sheetButtonWidth - s.spacing.s2, ImVec2(content.x, content.y + (titleHeight - ImGui::GetTextLineHeight()) / 2)); }
     ImGui::SetCursorScreenPos(ImVec2(content.x + contentWidth - sheetButtonWidth, content.y));
@@ -1378,8 +1373,8 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
 
     const float trackTop = top + playbackHeight + s.spacing.s3;
     const float collapsedHeight = 2 * s.spacing.panelPad + s.metric.controlHeight;
-    const float requestedCurveHeight = velocityExpanded ? ((modern ? 472.f : 444.f) +
-        (advancedCurve_ ? 108.f : 0.f) + (nameOperation_ ? (modern ? 44.f : 40.f) : 0.f)) * dpi : collapsedHeight;
+    const float requestedCurveHeight = velocityExpanded ? (472 +
+        (advancedCurve_ ? 108.f : 0.f) + (nameOperation_ ? 44.f : 0.f)) * dpi : collapsedHeight;
     const float curveHeight = std::min(requestedCurveHeight, std::max(collapsedHeight, bottom - trackTop - 168 * dpi));
     const float curveTop = bottom - curveHeight;
     BeginPanel("Tracks", ImVec2(right, trackTop), ImVec2(edge, curveTop - s.spacing.s3), s);

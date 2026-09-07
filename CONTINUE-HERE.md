@@ -66,9 +66,10 @@ Output is `build\shell\MIDIShell.exe`.
 
 It resolves config and preferences beside the executable, so any working
 directory works. The build copies the default config only when none exists.
-Fonts are embedded except for the system's Segoe UI and CJK fallback fonts. Font and software licenses
-are copied beside the executable. Open a file, choose a folder, drop a MIDI, or
-pass its path on the command line. Folder scans are not recursive.
+The Latin fonts are embedded; CJK fallback fonts come from Windows. Font and
+software licenses are copied beside the executable. Open a file, choose a
+folder, drop a MIDI, or pass its path on the command line. Folder scans are not
+recursive.
 
 ```powershell
 & .\tests\run-shell-tests.ps1 -Render
@@ -155,12 +156,36 @@ Completed 2026-09-06, one shape for every skin (`MIDI++/Skin.hpp`):
   want to differ.** That is a small change and it should wait until there is a
   finished layout to vary. Nothing here forecloses it.
 
-Still to do, and it is `ui/` work rather than skin work: the eleven
-`modern ? a : b` branches in `ui/Panels.cpp` are now dead. Every one tests
-`design.type.family == "IBM Plex Sans"`, which every skin satisfies, so they all
-take the branch that is now correct for all four. They give the right answer and
-should still go, along with `SpecFontScale`'s family test and the Segoe UI half
-of `ui/Fonts.cpp`.
+Completed 2026-09-06, removed the dead shape and base-font branches (`ui/`):
+
+- **Panels now state the one surviving shape directly.** The eleven family
+  conditionals and `SpecFontScale`'s family test are gone. Their IBM Plex values
+  survive unchanged, so this is a deletion of unreachable alternatives rather
+  than another layout change.
+- **IBM Plex Sans is the only Latin base font.** All three weights load from the
+  embedded resources. The Segoe loader and the About-box claim that Segoe is
+  used are gone, so the shell no longer depends on that unembedded system font.
+- **CJK remains a separate Windows fallback path.** `MergeCjk` is unchanged and
+  still merges the available Chinese, Japanese and Korean faces into each base
+  weight. This is why removing Segoe does not remove filename coverage.
+- **The mockup and design captures were deliberately not edited.** They still
+  show two shapes and two window heights. The current build supersedes them on
+  this point, as stated above; leaving that mismatch visible is preferable to a
+  partial reconciliation.
+
+Verified: the Release x64 shell build and `tests/run-shell-tests.ps1 -Render`
+pass. The twelve required PNGs were inspected at 100/150/200% across Blue, Blue
+Dark, Terracotta and Terracotta Dark, with the shared controls clean and no
+clipping or overlap. The ignored panel harness also found all four sampled CJK
+glyphs and rendered `月光曲_ピアノ_피아노.mid` after rebuilding against this font
+path.
+
+Still unverified: availability and coverage of those Windows CJK fallback files
+on other machines. The ignored panel harness's later sensitivity-click check is
+stale after the shape consolidation and fails after the CJK assertions; the
+required renderer and shell suite do not use that obsolete coordinate. The
+required renderer also still requests the old taller canvas for the two
+Terracotta skins, so those PNGs do not prove equal window height.
 
 Verified: Release shell and `MIDI++.sln` build; `tests/run-shell-tests.ps1
 -Render` passes, and the render suite picked up the new names from `skin::All()`
