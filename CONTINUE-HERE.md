@@ -777,11 +777,17 @@ skins at all three scales and back to 100%, producing identical 480 by 166 and
 480 by 264 logical sizes for Classic and Modern. Its Settings captures show all
 four backend rows at every skin and scale without stale explanatory copy.
 
-Still unverified: the desktop-driving native suite was not run because it
-fronts a real window and moves the owner's cursor, and permission to take over
-the desktop was not given during this pass. Therefore a real top-level window
-was not measured while switching skins. The two Kernel Streaming pins were not
-opened on physical MIDI hardware, and WinMM had no enumerated port on this run.
+Native verification after owner approval: `tests/run-native-tests.ps1` passed
+at the display's real 125% scale. It exercised the enforced minimum, three
+window resizes and swap-chain rebuilds, a physical cursor click that loaded a
+MIDI row, clean `WM_CLOSE`, and settings persistence. Windows rejected the
+first run's programmatic foreground request, although its following click still
+landed; an immediate unchanged rerun passed that check and the entire suite.
+
+Still unverified: a mixed-DPI monitor move was skipped because only one monitor
+was attached, and the native suite does not change skin families while
+measuring the top-level window. The two Kernel Streaming pins were not opened
+on physical MIDI hardware, and WinMM had no enumerated port on this run.
 
 Fixed 2026-09-06, the frame rate while using Key Mapping:
 
