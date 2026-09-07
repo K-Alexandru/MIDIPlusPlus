@@ -180,9 +180,11 @@ Two defects, and the second is why it feels worse than it looks.
   - **Monotonicity is repaired, not enforced.** A sweep that dips, or runs
     right to left, must be allowed to happen and then be made non-decreasing on
     release. Blocking the cursor is what makes the current bars miserable.
-  - **One level of undo, at least.** A sweep replaces a whole region in one
-    gesture, so it needs undo far more than dragging an anchor does. A/B
-    compare is preset against preset and does not cover this.
+  - **Undo and redo, replacing A/B compare.** A sweep replaces a whole region
+    in one gesture, so there has to be a way back. HANDOFF section 12 point 4
+    was revised on 2026-09-07 for this: undo and redo serve the comparison
+    people actually make, and A/B costs 25 references across five snapshot
+    fields for a pinned reference the preset list already provides.
 - **A bar can barely move.** `Panels.cpp:842` clamps each one between its two
   neighbours' current heights, so on a near-linear curve the travel is about
   one step in 31. Making an audible change means dragging all 32 in order, each

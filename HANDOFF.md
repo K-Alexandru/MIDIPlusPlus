@@ -561,11 +561,26 @@ comparable before selection rather than after. The user later removed the
 written descriptions entirely: with the thumbnail, the live dot and the
 histogram on the graph, a sentence under each name was restating the picture.
 
-**4. A/B compare.**
+**4. Undo and redo.** (Revised 2026-09-07. This point used to be A/B compare.)
 
-One button to flip between the current curve and the previous one while playing.
-Comparing is how anyone actually judges this, and it costs almost nothing to
-build.
+Comparing is still how anyone judges a curve. What changed is which control
+serves that best, once the editor was built and looked at.
+
+A/B flips between the current curve and the previous one. Undo and redo do the
+same job for the comparison people actually make, better or worse than a moment
+ago, and they do a dozen other jobs besides. Free-draw makes them mandatory:
+one sweep replaces a whole region, and there is nothing to get it back.
+
+A/B's remaining advantage is a reference that stays pinned while editing
+continues. That case is real and rare, and the preset list already covers it,
+by duplicating a curve before starting. Against that it costs 25 references
+across five snapshot fields and a mode other controls disable themselves during,
+which is a parallel state machine for one button. The original argument for it
+was that it cost almost nothing to build. That half turned out to be wrong.
+
+So: build undo and redo, remove the compare mode. If a pinned reference is
+missed once undo exists, it returns as "pin" on a preset row, which is a
+bookmark rather than a second edit state.
 
 Supporting requirements:
 
