@@ -467,6 +467,20 @@ void WootingMapTests() {
     Require(custom[0x32] == 108, "C8 reaches the top of the range");
     Require(custom[0x10] == -1, "keys the mapping does not name stay silent");
     for (const auto& entry : custom) Require(entry >= -1 && entry <= 127, "no note escapes the MIDI range");
+
+    // The two layouts bind the same characters to different notes, so which
+    // one the map is built from decides what a Wooting key sounds. MIDI2Key
+    // built it from full_key_mappings unconditionally, which was invisible
+    // only because the shell pinned 88-key mode on. These are the real
+    // config.json bindings for the character "t".
+    const std::map<std::string, std::string> full{{"C4", "t"}, {"G3", "w"}};
+    const std::map<std::string, std::string> limited{{"C4", "t"}, {"G3", "w"}, {"C7", "m"}};
+    Require(WootingScancodeNoteMapFrom(full)[0x14] == 60, "t is C4 in the 88-key layout");
+    Require(WootingScancodeNoteMapFrom(limited)[0x32] == 96,
+            "the 61-key layout binds m to C7, which the 88-key layout does not");
+    Require(WootingScancodeNoteMapFrom(full)[0x32] != WootingScancodeNoteMapFrom(limited)[0x32],
+            "the layouts disagree, so picking the wrong one sounds the wrong note");
+
     std::cout << "PASS wooting scancode mapping follows the virtual piano layout\n";
 }
 

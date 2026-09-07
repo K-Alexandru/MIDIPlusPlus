@@ -16,9 +16,9 @@ permanently off and no user can tell they exist. That is the defect in
 ### AutoVol
 
 Original: `Advanced` card, toggles `enable_volume_adjustment` through
-`toggle_volume_adjustment()`, and on switch-on it focuses the game and runs
-`calibrate_volume()` to drive the in-game volume to a known point.
-`MIDI++.cpp:2055`. It re-calibrates after every file load, `MIDI++.cpp:1735`.
+`toggle_volume_adjustment()`, which drives the in-game volume to a known point
+by sweeping the volume keys. `MIDI++.cpp:2055`. It re-calibrates after every
+file load, `MIDI++.cpp:1735`.
 
 Engine: live on both paths. `MIDI2Key.cpp:466` for live input,
 `AdjustVolumeBasedOnVelocity` for autoplay. Both read
@@ -26,12 +26,21 @@ Engine: live on both paths. `MIDI2Key.cpp:466` for live input,
 
 Shell: nothing anywhere in `ui/` mentions it, so it is false forever.
 
-One thing to design rather than guess at: `calibrate_volume()` takes the
-desktop. It focuses the game window and sweeps the volume keys. In the original
-that was acceptable because the original window was the thing you alt-tabbed
-away from. The shell needs to say what it is about to do and when, because a
-checkbox that silently steals focus and types arrows is its own bug report.
-Design it, do not drop it.
+Two things to design rather than guess at. Corrected 2026-09-07 by the panel
+seat, which read the code instead of taking this page's word for it.
+
+`calibrate_volume()` does **not** focus anything. It sends 50 volume-down
+arrows and then sweeps back up, with a busy-wait between each. The focusing is
+the host's, `FocusRobloxWindow()` at `MIDI++.cpp:2060`, called just before it.
+So the shell owes a focus step of its own, and owes the user warning before it
+runs: a checkbox that takes the desktop and types a hundred arrows is its own
+bug report. Design it, do not drop it.
+
+It also runs **twice** on every enable, which is a bug and not a design
+question. `toggle_volume_adjustment()` already calls `calibrate_volume()` at
+`PlaybackCore.cpp:1180`, and `MIDI++.cpp:2061` calls it again straight after.
+The shell must call `toggle_volume_adjustment()` and nothing else. The
+duplicate in the original is the engine seat's to remove.
 
 ### 88-Key mode
 

@@ -350,25 +350,40 @@ MIDI2Key::~MIDI2Key() {
     CloseDevice();
 }
 
+// The analog keyboard has no notes of its own: a key sounds whatever the user's
+// mapping types for it, so the map has to be built from the same layout the
+// note path is going to read.
+//
+// It was built from full_key_mappings unconditionally, which was invisible
+// while the shell pinned 88-key mode on and wrong the moment it stopped. A
+// 61-key layout would have sounded the 88-key note for every key that differs
+// between the two, which is most of them.
+//
+// Called on open and on activation, so a layout change takes effect without
+// needing the device closed and reopened. Cheap either way: 128 map lookups.
+void MIDI2Key::ApplyWootingLayout(const std::wstring& deviceId) {
+    if (!m_player || deviceId.empty()) return;
+    if (BackendForDeviceId(deviceId) != MidiBackend::WootingAnalog) return;
+
+    const bool full = m_player->eightyEightKeyModeActive.load(std::memory_order_relaxed);
+    SetWootingScancodeNoteMap(WootingScancodeNoteMapFrom(
+        full ? m_player->full_key_mappings : m_player->limited_key_mappings));
+
+    // The layout only reaches the white keys, so without a shift amount the
+    // black ones cannot be played at all. Reading the settings here means
+    // changing one takes effect at the same moment a remap does.
+    const auto& configured = midi::Config::getInstance().wooting;
+    SetWootingAnalogSettings({static_cast<float>(configured.TRIGGER_THRESHOLD),
+                              static_cast<float>(configured.RELEASE_FRACTION),
+                              configured.SHIFT_AMOUNT,
+                              static_cast<float>(configured.VELOCITY_SCALE)});
+}
+
 void MIDI2Key::OpenDevice(const std::wstring& deviceId) {
     CloseDevice();
     if (deviceId.empty()) return;
 
-    // The analog keyboard has no notes of its own: a key sounds whatever the
-    // user's mapping types for it. Feeding that in here means a remap is
-    // picked up the next time the device is opened, and it stops the built-in
-    // layout being the only thing a Wooting ever plays.
-    if (BackendForDeviceId(deviceId) == MidiBackend::WootingAnalog && m_player) {
-        SetWootingScancodeNoteMap(WootingScancodeNoteMapFrom(m_player->full_key_mappings));
-        // The layout only reaches the white keys, so without a shift amount the
-        // black ones cannot be played at all. Reading the settings here means
-        // changing one takes effect on the next open, the same as a remap.
-        const auto& configured = midi::Config::getInstance().wooting;
-        SetWootingAnalogSettings({static_cast<float>(configured.TRIGGER_THRESHOLD),
-                                  static_cast<float>(configured.RELEASE_FRACTION),
-                                  configured.SHIFT_AMOUNT,
-                                  static_cast<float>(configured.VELOCITY_SCALE)});
-    }
+    ApplyWootingLayout(deviceId);
 
     m_input = CreateMidiInput(BackendForDeviceId(deviceId));
     if (!m_input) return;
@@ -406,6 +421,9 @@ void MIDI2Key::SetActive(bool active) {
         precomputeAllMappings(*m_player);
     }
     m_isActive.store(active, std::memory_order_release);
+    // The layout the Wooting map was built from may have changed since the
+    // device was opened, and switching layout is exactly when this is toggled.
+    if (active) ApplyWootingLayout(m_selectedDevice);
 }
 
 const std::wstring& MIDI2Key::GetSelectedDevice() const {

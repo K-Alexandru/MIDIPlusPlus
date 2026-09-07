@@ -42,6 +42,10 @@ public:
 private:
     void ProcessMidiMessage(uint64_t timestampQpc, const uint8_t* data, size_t length);
 
+    // Rebuilds the Wooting scancode-to-note map from whichever layout is
+    // active, 88-key or 61-key. Does nothing for any other backend.
+    void ApplyWootingLayout(const std::wstring& deviceId);
+
     // Transport, chosen per device id
     std::unique_ptr<IMidiInput> m_input;
     std::wstring m_selectedDevice;
