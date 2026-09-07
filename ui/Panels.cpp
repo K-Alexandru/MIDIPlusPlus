@@ -54,12 +54,15 @@ bool IconButton(const char* id, Icon icon, const char* tip, const skin::Skin& s,
     DrawIcon(ImGui::GetWindowDrawList(), icon, ImVec2(min.x + (height - 16.f * dpi) / 2,
              min.y + (height - 16.f * dpi) / 2), 16.f * dpi,
              Colour(active ? s.accent.accent : s.ink.secondary), dpi);
-    if (active) { // Shape as well as colour, per the house rules.
-        const float inset = 6 * dpi;
-        ImGui::GetWindowDrawList()->AddLine(ImVec2(min.x + inset, min.y + height - 4 * dpi),
-                                           ImVec2(min.x + height - inset, min.y + height - 4 * dpi),
-                                           Colour(s.accent.accent), 2 * dpi);
-    }
+    // Shape as well as colour, per the house rules: an outline, not an
+    // underline. The underline this replaces read as text decoration sitting
+    // under an icon, and it was the only underline anywhere in the app. An
+    // outline says "this one is on" with the same non-colour signal and matches
+    // the selected segment of the mini Live/Autoplay control, which is the one
+    // other place a toggle is marked by shape.
+    if (active)
+        ImGui::GetWindowDrawList()->AddRect(min, ImVec2(min.x + height, min.y + height),
+                                            Colour(s.accent.accent), s.radius.control, 0, dpi);
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("%s", tip);
     return clicked;
 }
@@ -399,12 +402,12 @@ void Panels::DrawKeyMapping(const Fonts& fonts, const skin::Skin& design, float 
     if (wasFull) ImGui::PushStyleColor(ImGuiCol_Button, Colour(s.accent.accentSoft));
     if (ImGui::Button("Full 88", ImVec2(fullWidth, s.metric.controlHeight))) { fullKeyboard_ = !fullKeyboard_; mappingArmed_ = false; }
     if (wasFull) ImGui::PopStyleColor();
-    if (fullKeyboard_) {
-        // A checked corner distinguishes the selected mode without colour.
-        const auto max = ImGui::GetItemRectMax();
-        draw->AddLine(ImVec2(max.x - 9 * dpi, max.y - 6 * dpi), ImVec2(max.x - 6 * dpi, max.y - 3 * dpi), Colour(s.ink.primary), dpi);
-        draw->AddLine(ImVec2(max.x - 6 * dpi, max.y - 3 * dpi), ImVec2(max.x - 2 * dpi, max.y - 9 * dpi), Colour(s.ink.primary), dpi);
-    }
+    // The same accent ring every other toggle in the app wears, rather than
+    // the checked corner this used to draw. Both carry the state without
+    // colour; only one of them means "on" everywhere else you look.
+    if (fullKeyboard_)
+        draw->AddRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(),
+                      Colour(s.accent.accent), s.radius.control, 0, dpi);
     ImGui::SameLine();
     ImGui::BeginDisabled(fullKeyboard_ || rangeStart_ >= 60);
     if (IconButton("##higher-range", Icon::Right, "Higher range", s, dpi)) { rangeStart_ = std::min(60, rangeStart_ + 12); mappingArmed_ = false; }
@@ -964,7 +967,12 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
 void Panels::SettingsControl(const Fonts& fonts, const skin::Skin& design, float dpi,
                              ShellEngine& engine, ImVec2 popupPosition, float popupMaxHeight) {
     const auto s = skin::ScaleGeometry(design, dpi);
-    if (IconButton("##settings", Icon::Settings, "Settings", s, dpi)) ImGui::OpenPopup("Settings");
+    // Marked while the popover is open. It was the one control in the strip
+    // that gave no sign it had been pressed: the panel appeared, the button
+    // did not change, and closing it left nothing to say what had happened.
+    if (IconButton("##settings", Icon::Settings, "Settings", s, dpi, ImGui::IsPopupOpen("Settings")))
+        ImGui::OpenPopup("Settings");
+
     ImGui::SetNextWindowSizeConstraints(ImVec2(344 * dpi, 0), ImVec2(344 * dpi, popupMaxHeight));
     ImGui::SetNextWindowPos(popupPosition);
     if (ImGui::BeginPopup("Settings")) {
@@ -1048,7 +1056,7 @@ void Panels::DrawMini(HWND hwnd, const Fonts& fonts, const skin::Skin& design, f
             ImGui::PopStyleColor();
             if (selected) {
                 const auto a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
-                draw->AddRect(a, b, Colour(s.border.strong), s.radius.element, 0, dpi);
+                draw->AddRect(a, b, Colour(s.accent.accent), s.radius.element, 0, dpi);
             }
         }
         ImGui::PopStyleVar(2);
