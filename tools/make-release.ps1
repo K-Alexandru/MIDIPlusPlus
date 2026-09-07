@@ -45,17 +45,24 @@ foreach ($file in @('MIDIShell.exe', 'config.json', 'LICENSE', 'IBM-Plex-LICENSE
 }
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'release-README.txt') -Destination (Join-Path $stage 'README.txt')
 
-# Compress-Archive drops empty directories, and the README tells testers to put
-# their files in midi\, so the folder needs something in it to survive the zip.
-@'
-Put your .mid files in this folder, then press Refresh in the app.
-
-Sub-folders are searched too, so you can drop a whole library in here.
-You can also point the app at any other folder with the folder button.
-'@ | Out-File -LiteralPath (Join-Path $stage 'midi\PUT-MIDI-FILES-HERE.txt') -Encoding utf8
-
 if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
-Compress-Archive -Path $stage -DestinationPath $zip -Force
+
+# Written entry by entry rather than with Compress-Archive, which silently drops
+# empty directories. The README tells testers to drop their files in midi\, so
+# that folder has to arrive, and it should arrive empty rather than carrying a
+# placeholder file explaining why it is not empty.
+Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$archive = [System.IO.Compression.ZipFile]::Open($zip, 'Create')
+try {
+    foreach ($file in Get-ChildItem -LiteralPath $stage -File | Sort-Object Name) {
+        [void][System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+            $archive, $file.FullName, "MIDIPlusPlus/$($file.Name)",
+            [System.IO.Compression.CompressionLevel]::Optimal)
+    }
+    # A trailing slash is what makes this a directory entry rather than a file.
+    [void]$archive.CreateEntry('MIDIPlusPlus/midi/')
+} finally { $archive.Dispose() }
 
 # A binary with no Visual C++ redistributable is the whole reason testers need
 # nothing installed, so it is worth failing loudly if that ever changes.
