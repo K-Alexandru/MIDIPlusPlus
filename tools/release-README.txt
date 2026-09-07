@@ -19,7 +19,7 @@ Run anyway.
 Playing something
 -----------------
 
-MIDI++ types into whichever window is focused, so click into the game first.
+MIDI++ types into whatever window is focused, so click into the game first.
 
 Live: plug your keyboard in, open the gear icon at the top right, pick your
 device.
@@ -35,12 +35,12 @@ key you want it to send.
 What to try
 -----------
 
-- Right notes in your game, in time?
+- Does it play the right notes in your game, in time?
 - Playing live, does the velocity feel right? Velocity Response at the bottom
-  is what shapes it.
+  controls that.
 - Settings lists four MIDI transports. You'll only see the ones your hardware
-  supports. If you get more than one, say whether either is better.
-- Anything squashed, cut off, or unreadable on your monitor.
+  supports. If you get more than one, tell me if one is better.
+- Anything cut off or too small to read on your monitor.
 
 If something breaks, send your Windows version, display scale, MIDI device, and
 which transport you were on.
@@ -50,7 +50,8 @@ Known gaps
 ----------
 
 - Some panels from the old version aren't back yet.
-- Kernel Streaming is new and unproven. If you can try it, say what happened.
+- Nobody has tested Kernel Streaming yet. Try it if you can and tell me what
+  happens.
 - Copy as sheet has no velocity or note lengths.
 
 
@@ -70,5 +71,5 @@ What's in here
   LICENSE         GPLv3
   *-LICENSE.txt   third-party notices
 
-shell-settings.json appears next to the exe for window size and theme. Delete
-it to reset those.
+The app writes shell-settings.json next to itself for window size and theme.
+Delete it to reset those.
