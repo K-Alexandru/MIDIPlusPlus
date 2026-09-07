@@ -94,6 +94,52 @@ shipped. Neither is a crash, and both are the app's fault under section 15.
   is correct and the behaviour is inherent to typing keystrokes at another
   program. Saying so before the first note is not.
 
+## Owner's UI pass, 2026-09-07
+
+Found by looking at the built shell. Panel work, with anchors so nobody has to
+find them twice.
+
+- **SOLO is not centred.** `Panels.cpp:1586`. MUTE and SOLO are centred by the
+  same arithmetic, so if only one looks wrong the header rectangle is wrong,
+  not the centring.
+- **Files can only be sorted by name.** `Panels.cpp:1319` is one button
+  toggling `descendingNames_`. `MidiEntry` already carries `bytes`, so size
+  needs no engine change; a date sort needs a field on `MidiEntry`, which is
+  the panel seat's own type.
+- **The highlight above buttons stops at the corners.** It runs the straight
+  span only and does not follow the rounded ends, so it reads as a line rather
+  than a highlight. `SkinDraw.cpp`.
+- **The top-right icons move between mini and regular mode.** Settings goes
+  from hard right to the middle while zoom takes the right-hand slot. The
+  positions should not depend on the mode.
+- **Pills change size, weight and position between modes.** "No MIDI input"
+  appears to go from bold to regular and shifts, and MIDI2Key shifts too, in
+  both cases with room to spare either way. Pick one treatment and use it in
+  both modes; if something has to shrink to fit mini mode, shrink it in
+  regular mode as well so the two agree.
+- **Refresh is the only utility control spelled out in words.**
+  `Panels.cpp:1327`. `Icon::Refresh` exists and is used at 582, 932, 1232 and
+  1449. Section 15 already requires icons here.
+- **"Copy as sheet" is the primary button and should not be.**
+  `Panels.cpp:1404`. It is one export among several, so it belongs in a menu
+  whose other entries are the other export formats.
+- **"Loading..." overlaps the separator.** `Panels.cpp:1103`. It flashes for a
+  frame when a file is clicked and the text crosses the hairline while it does.
+
+## Conversion pipeline, asked for 2026-09-07
+
+Not parity and not panel-only, so it is scoped before it is built.
+
+- **MP3 to MIDI**, the converter a community member wrote, asked for by a
+  tester as well.
+- **MIDI to coloured sheets**, from the author of MIDIToQWERTY, which has
+  options this fork's `SheetExport.hpp` does not.
+
+Both are third-party code. This fork is GPLv3, so each one needs its licence
+read before a line of it is copied, and attribution under `HANDOFF.md` section
+13, which is not optional. Neither is a panel task: the panel owes the menu
+that `Copy as sheet` becomes, and the engine owes what the menu entries do.
+
 ## Also owed, from elsewhere
 
 Listed here so one page holds the whole obligation.
