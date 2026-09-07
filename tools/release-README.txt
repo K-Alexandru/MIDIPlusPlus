@@ -24,9 +24,9 @@ MIDI++ types into whatever window is focused, so click into the game first.
 Live: plug your keyboard in, open the gear icon at the top right, pick your
 device.
 
-Files: drop .mid files in the midi folder next to the exe and hit Refresh. You
-can also drag a file onto the window, or pick another folder with the folder
-button. Sub-folders are included.
+Files: drop .mid files in the midi folder next to the exe and hit Refresh, drag
+a file onto the window, or pick another folder with the folder button.
+Sub-folders are included.
 
 The keyboard icon opens Key Mapping. Click a note on the piano, then press the
 key you want it to send.
@@ -36,11 +36,9 @@ What to try
 -----------
 
 - Test Kernel Streaming.
-- Play a MIDI file into your game. Do the notes land in time?
-- Play live. Does the velocity feel right? Velocity Response at the bottom
-  controls that.
-- Try the other transports in Settings if your hardware gives you more than one.
-  Tell me if one is better.
+- Play a MIDI file into your game and check the notes land in time.
+- Play live and tell me if the velocity feels right.
+- Try the other transports in Settings if you have more than one.
 - Look for anything cut off or too small to read.
 
 If something breaks, send your Windows version, display scale, MIDI device, and
