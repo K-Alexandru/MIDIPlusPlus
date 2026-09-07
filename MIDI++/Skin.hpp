@@ -106,12 +106,36 @@ struct Skin {
     Shadow   inner;     // recessed surfaces
 };
 
-// Classic: the current app's palette, tightened. 6/8px radii, 12px padding,
-// 28px controls, 13px body on Segoe UI.
-inline Skin Classic() {
+// Every skin has the same shape. A skin chooses colour and nothing else.
+//
+// It used not to: Classic was 28px controls, 6/8px radii and 13px Segoe UI,
+// Modern was 32px controls, 12px radii and 14px IBM Plex. That is a defensible
+// thing for a finished app to offer and a bad thing to carry while one is being
+// built. Every panel grew a `modern ? a : b` beside each measurement, the
+// window opened at two different heights, and a layout bug had to be found
+// twice and fixed twice. Two of the three copies of the window height were
+// fixed on 2026-09-06 and the third was missed, which is exactly the failure
+// this removes.
+//
+// The surviving shape is what was Modern's: larger type, taller controls, more
+// air. Putting per-skin metrics back later is this function moved into the
+// skins that want to differ. That is a small change, and it should wait until
+// there is a finished layout to vary.
+inline void Shape(Skin& s) {
+    s.radius  = { 12.f, 12.f, 10.f, 8.f };
+    s.spacing = { 4.f, 8.f, 12.f, 16.f, 24.f, 16.f, 16.f };
+    s.metric  = { 32.f, 24.f };
+    s.type    = { 12.f, 14.f, 14.f, 20.f, "IBM Plex Sans" };
+}
+
+// Named for the accent, because that is now the whole of the difference.
+// #0B6EC4 is a plain blue; #B5443A is a brick red rather than an orange, and
+// calling it Orange would describe a colour the app does not draw.
+inline Skin Blue() {
     Skin s{};
-    s.name = "Classic";
+    s.name = "Blue";
     s.dark = false;
+    Shape(s);
     s.surface = { Rgb(0xE8EBEF), Rgb(0xF3F5F7), Rgb(0xFFFFFF),
                   Rgb(0xFFFFFF), Rgb(0xF7F9FB), Rgb(0xE9ECF1) };
     s.ink = { Rgb(0x1B1E24), Rgb(0x5B636F), Rgb(0x8B929E) };
@@ -119,19 +143,17 @@ inline Skin Classic() {
                  Rgb(0x1A7F45), Rgb(0x12652F), Rgba(0x1A7F45, .12), Rgba(0x1A7F45, .34),
                  Rgb(0x9A6C0D), Rgb(0xB23F2F) };
     s.border = { Rgba(0x11161F, .09), Rgba(0x11161F, .16), Rgba(0xFFFFFF, .85) };
-    s.radius = { 6.f, 8.f, 6.f, 4.f };
-    s.spacing = { 4.f, 8.f, 12.f, 16.f, 24.f, 12.f, 12.f };
-    s.metric = { 28.f, 20.f };
-    s.type = { 11.f, 13.f, 13.f, 15.f, "Segoe UI" };
+    // Shadow geometry is shape and is shared; a shadow's colour belongs to the
+    // palette it falls on, so only that is set here.
     s.contact = { 1.f, 1.f, Rgba(0x11161F, .05) };
-    s.ambient = { 2.f, 4.f, Rgba(0x11161F, .04) };
+    s.ambient = { 2.f, 6.f, Rgba(0x11161F, .04) };
     s.inner   = { 1.f, 2.f, Rgba(0x11161F, .09) };
     return s;
 }
 
-inline Skin ClassicDark() {
-    Skin s = Classic();
-    s.name = "Classic Dark";
+inline Skin BlueDark() {
+    Skin s = Blue();
+    s.name = "Blue Dark";
     s.dark = true;
     s.surface = { Rgb(0x191C21), Rgb(0x20242A), Rgb(0x272B31),
                   Rgb(0x2E333A), Rgb(0x363C44), Rgb(0x14171B) };
@@ -141,17 +163,16 @@ inline Skin ClassicDark() {
                  Rgb(0xD0A259), Rgb(0xE0685A) };
     s.border = { Rgba(0xFFFFFF, .08), Rgba(0xFFFFFF, .14), Rgba(0xFFFFFF, .06) };
     s.contact = { 1.f, 1.f, Rgba(0x000000, .30) };
-    s.ambient = { 2.f, 4.f, Rgba(0x000000, .22) };
+    s.ambient = { 2.f, 6.f, Rgba(0x000000, .22) };
     s.inner   = { 1.f, 2.f, Rgba(0x000000, .45) };
     return s;
 }
 
-// Modern is not a recolour. Larger radii, more air, taller controls and a 20px
-// title anchor on a warmer ground: a structural difference.
-inline Skin Modern() {
+inline Skin Terracotta() {
     Skin s{};
-    s.name = "Modern";
+    s.name = "Terracotta";
     s.dark = false;
+    Shape(s);
     s.surface = { Rgb(0xE6E2DB), Rgb(0xF1EEE9), Rgb(0xFBFAF8),
                   Rgb(0xFFFFFF), Rgb(0xF6F3EE), Rgb(0xECE8E1) };
     s.ink = { Rgb(0x1D1B19), Rgb(0x6F675E), Rgb(0x948B81) };
@@ -159,19 +180,15 @@ inline Skin Modern() {
                  Rgb(0x3F7A55), Rgb(0x245939), Rgba(0x3F7A55, .12), Rgba(0x3F7A55, .30),
                  Rgb(0xA8781F), Rgb(0xB5443A) };
     s.border = { Rgba(0x2D261E, .09), Rgba(0x2D261E, .16), Rgba(0xFFFFFF, .90) };
-    s.radius = { 12.f, 12.f, 10.f, 8.f };
-    s.spacing = { 4.f, 8.f, 12.f, 16.f, 24.f, 16.f, 16.f };
-    s.metric = { 32.f, 24.f };
-    s.type = { 12.f, 14.f, 14.f, 20.f, "IBM Plex Sans" };
     s.contact = { 1.f, 1.f, Rgba(0x2D261E, .05) };
     s.ambient = { 2.f, 6.f, Rgba(0x2D261E, .04) };
     s.inner   = { 1.f, 2.f, Rgba(0x2D261E, .08) };
     return s;
 }
 
-inline Skin ModernDark() {
-    Skin s = Modern();
-    s.name = "Modern Dark";
+inline Skin TerracottaDark() {
+    Skin s = Terracotta();
+    s.name = "Terracotta Dark";
     s.dark = true;
     s.surface = { Rgb(0x17140F), Rgb(0x1F1B15), Rgb(0x26221B),
                   Rgb(0x2E2921), Rgb(0x372F26), Rgb(0x120F0B) };
@@ -186,8 +203,11 @@ inline Skin ModernDark() {
     return s;
 }
 
+// Order is load-bearing: preferences store the index, `skin ^= 1` toggles
+// light and dark, and `skin >= 2` picks the colour. Light and dark of one
+// colour stay adjacent.
 inline std::array<Skin, 4> All() {
-    return { Classic(), ClassicDark(), Modern(), ModernDark() };
+    return { Blue(), BlueDark(), Terracotta(), TerracottaDark() };
 }
 
 // The piano is a physical object, not UI chrome, so ivory stays ivory in every

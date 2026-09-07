@@ -945,9 +945,16 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
         "Keeps the main window above other windows.", fonts, design, dpi);
     ImGui::Separator();
     section("APPEARANCE");
-    if (ImGui::RadioButton("Classic", preferences.skin < 2)) preferences.skin %= 2;
+    // The names come from the skins themselves. They were spelled out here as
+    // "Classic" and "Modern", which is two more places to rename and two more
+    // chances for the picker to disagree with what it picks.
+    // Skin::name is a string_view, so it is copied rather than .data()'d: a
+    // view is not required to be null-terminated, and ImGui wants a C string.
+    const auto skins = skin::All();
+    const std::string firstColour(skins[0].name), secondColour(skins[2].name);
+    if (ImGui::RadioButton(firstColour.c_str(), preferences.skin < 2)) preferences.skin %= 2;
     ImGui::SameLine();
-    if (ImGui::RadioButton("Modern", preferences.skin >= 2)) preferences.skin = 2 + preferences.skin % 2;
+    if (ImGui::RadioButton(secondColour.c_str(), preferences.skin >= 2)) preferences.skin = 2 + preferences.skin % 2;
     if (ImGui::CollapsingHeader("About")) {
         ImGui::TextWrapped("Based on Zephkek/MIDIPlusPlus (GPLv3)");
         ImGui::TextWrapped("Dear ImGui and RtMidi (MIT)");

@@ -121,13 +121,51 @@ page, so build against them rather than guessing. `docs/design/README.md` is the
 way in: committed screenshots of every skin and window mode, a loopback server
 for the live page, and where in the source the exact geometry lives.
 
-- Classic is 1090 x 635 px with the velocity editor collapsed, Modern 1090 x 728.
-- The primary strip is 81 px.
+- **Every skin is 1090 x 635 px with the velocity editor collapsed, and every
+  skin has the same geometry.** A skin chooses colour and nothing else. This
+  supersedes the mockup, which still shows two different shapes and two
+  different window heights; see the 2026-09-06 entry below for why.
+- The primary strip is 101 px, and the type scale, control heights and radii are
+  what the mockup calls Modern.
 - Key mapping is a separate 840 px window, because it is set up once and should
   not hold height in the window you keep open.
 - Settings owns the MIDI transport chooser and its latency reading. The strip
   carries only what changes while you play.
 - The velocity editor starts collapsed for the same reason.
+
+Completed 2026-09-06, one shape for every skin (`MIDI++/Skin.hpp`):
+
+- **A skin now chooses colour and nothing else.** It used to choose shape too:
+  Classic was 28px controls, 6/8px radii and 13px Segoe UI, Modern was 32px
+  controls, 12px radii and 14px IBM Plex. The surviving shape is what was
+  Modern's, because the larger type is the one worth keeping.
+- **Why, and it is a build-time decision rather than a design one.** Two shapes
+  meant every panel carried a `modern ? a : b` beside each measurement, the
+  window opened at two different heights, and any layout bug had to be found
+  twice and fixed twice. That last one is not hypothetical: on 2026-09-06 the
+  window height was stated in three places, two were made skin-independent and
+  the third was missed, so Modern still opened 93px taller and nothing corrected
+  it afterwards. `Shape()` is now the only statement of it.
+- **Renamed for the accent, since that is the whole of the difference.**
+  `Classic` and `Classic Dark` are `Blue` and `Blue Dark` (#0B6EC4);
+  `Modern` and `Modern Dark` are `Terracotta` and `Terracotta Dark` (#B5443A,
+  a brick red rather than an orange). The Settings picker reads the names off
+  the skins instead of spelling them again.
+- **Putting per-skin metrics back later is `Shape()` moved into the skins that
+  want to differ.** That is a small change and it should wait until there is a
+  finished layout to vary. Nothing here forecloses it.
+
+Still to do, and it is `ui/` work rather than skin work: the eleven
+`modern ? a : b` branches in `ui/Panels.cpp` are now dead. Every one tests
+`design.type.family == "IBM Plex Sans"`, which every skin satisfies, so they all
+take the branch that is now correct for all four. They give the right answer and
+should still go, along with `SpecFontScale`'s family test and the Segoe UI half
+of `ui/Fonts.cpp`.
+
+Verified: Release shell and `MIDI++.sln` build; `tests/run-shell-tests.ps1
+-Render` passes, and the render suite picked up the new names from `skin::All()`
+without being told. Both colours launch at 1090 x 634 client, measured through
+`GetClientRect` at the display's real 125%.
 
 Completed 2026-09-05:
 
