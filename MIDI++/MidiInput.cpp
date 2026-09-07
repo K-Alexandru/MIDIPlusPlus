@@ -237,7 +237,18 @@ private:
 
 } // namespace
 
+namespace {
+MidiInputFactory g_factory;
+}
+
+void SetMidiInputFactory(MidiInputFactory factory) {
+    g_factory = std::move(factory);
+}
+
 std::unique_ptr<IMidiInput> CreateMidiInput(MidiBackend backend) {
+    if (g_factory) {
+        if (auto substituted = g_factory(backend)) return substituted;
+    }
     if (backend == MidiBackend::WootingAnalog) return CreateWootingAnalogInput();
     if (backend == MidiBackend::WinMM) return std::make_unique<WinMMMidiInput>();
     if (backend == MidiBackend::KernelStreaming) return CreateKernelStreamingInput();

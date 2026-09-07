@@ -7,6 +7,7 @@
 #include "../MIDI++/SheetExport.hpp"
 #include "../MIDI++/MidiStreamSplit.hpp"
 #include "../MIDI++/config.hpp"
+#include "../MIDI++/MIDI2Key.hpp"
 #include <atomic>
 #include <fstream>
 #include <iostream>
@@ -1057,6 +1058,284 @@ void VelocityTelemetryTests() {
 }
 }
 
+// Queue items 1 and 2, defended rather than merely tested once.
+//
+// The panel seat verified both when it built them, in two throwaway programs
+// under build/parity-qa that included this file with wmain macro-renamed and
+// reached MIDI2Key::ProcessMidiMessage through "#define private public". They
+// proved the features work. They also lived in a gitignored build directory,
+// ran in no suite, and would have been deleted by the next clean, so nothing
+// they asserted could ever fail again. Ported here, which is what makes them a
+// gate instead of a receipt.
+//
+// The private-access hack is gone: MIDI2Key is driven through a substituted
+// transport, which is a seam the MIDI output work needs anyway.
+
+// A transport that delivers whatever the test hands it.
+class FakeMidiInput final : public IMidiInput {
+public:
+    MidiBackend backend() const noexcept override { return MidiBackend::WinMM; }
+    std::vector<MidiInputDevice> enumerate() override {
+        return {{L"fake:0|Test piano", L"Test piano", MidiBackend::WinMM}};
+    }
+    bool open(const std::wstring& deviceId, MidiInputCallback callback) override {
+        opened_ = deviceId;
+        callback_ = std::move(callback);
+        return true;
+    }
+    void close() override { callback_ = nullptr; opened_.clear(); }
+    bool isOpen() const noexcept override { return static_cast<bool>(callback_); }
+    const std::wstring& openedDeviceId() const noexcept override { return opened_; }
+    void Deliver(std::initializer_list<uint8_t> message) {
+        if (callback_) callback_(0, message.begin(), message.size());
+    }
+private:
+    MidiInputCallback callback_;
+    std::wstring opened_;
+};
+
+int ArrowPresses(const std::vector<Captured>& events) {
+    int count = 0;
+    for (const auto& event : events)
+        if (IsNotePress(event) && (event.input.ki.wScan == 0x4b || event.input.ki.wScan == 0x4d)) ++count;
+    return count;
+}
+
+// The 61-key layout was unreachable: ShellEngine pinned eightyEightKeyModeActive
+// on for every player it built, so anyone on a 61-key game piano got the 88-key
+// map. What has to hold now is not only that the switch exists, but that
+// switching is safe: a key held under the outgoing layout comes up before the
+// incoming one can type anything, and the two layouts keep separate bindings.
+void LayoutTests(const std::filesystem::path& directory) {
+    const auto config = directory / L"layout.json";
+    const auto fixture = directory / L"layout.mid";
+    nlohmann::json settings;
+    { std::ifstream input(directory / L"config.json"); input >> settings; }
+    // Distinct characters per layout, so which map dispatched is visible in the
+    // scancode rather than inferred.
+    settings["KEY_MAPPINGS"]["FULL"]["C4"] = "a";     // 0x1e
+    settings["KEY_MAPPINGS"]["LIMITED"]["C4"] = "b";  // 0x30
+    settings["KEY_MAPPINGS"]["LIMITED"]["C5"] = "d";  // 0x20
+    settings["SHELL_88_KEYS"] = true;
+    { std::ofstream output(config); output << settings; }
+    WriteTrackFixture(fixture);
+
+    const auto caller = GetCurrentThreadId();
+    using A = shell::ShellEngine::Action;
+    {
+        shell::ShellEngine engine(config);
+        engine.Send({A::Load, fixture});
+        Await([&] { return !engine.Snapshot()->loaded.empty(); }, "the fixture never loaded");
+        const auto generation = engine.Snapshot()->generation;
+        engine.Send({A::Solo, {}, generation, 1, true});
+        engine.Send({A::Play, {}, generation});
+        Await([&] {
+            std::lock_guard lock(capturedMutex);
+            return std::any_of(captured.begin(), captured.end(),
+                [](const Captured& e) { return IsNotePress(e) && e.input.ki.wScan == 0x1e; });
+        }, "the 88-key layout never attacked its note");
+
+        engine.Send({A::EightyEightKeys, {}, 0, 0, false});
+        Await([&] { return !engine.Snapshot()->eightyEightKeys; }, "the layout never switched");
+        Require(!engine.Snapshot()->playing, "switching layout pauses playback");
+        const auto released = TakeCaptured();
+        Require(std::any_of(released.begin(), released.end(), [](const Captured& e) {
+            return e.input.ki.wScan == 0x1e && (e.input.ki.dwFlags & KEYEVENTF_KEYUP); }),
+            "a key held under the outgoing layout must be released by the switch");
+        for (const auto& event : released)
+            Require(event.thread != caller, "the release stayed off the calling thread");
+
+        const auto playExpecting = [&](WORD expected, const char* what) {
+            TakeCaptured();
+            engine.Send({A::Restart, {}, generation});
+            engine.Send({A::Play, {}, generation});
+            Await([&] { return engine.Snapshot()->playing; }, "playback never started");
+            Await([&] { return !engine.Snapshot()->playing; }, "playback never finished");
+            int attacks = 0;
+            for (const auto& event : TakeCaptured()) {
+                Require(event.thread != caller, "dispatch stayed off the calling thread");
+                if (IsNotePress(event)) { ++attacks; Require(event.input.ki.wScan == expected, what); }
+            }
+            Require(attacks == 1, "the soloed part is one note");
+        };
+        playExpecting(0x30, "the 61-key layout types its own binding, not the 88-key one");
+
+        engine.Send({A::Remap, {}, 0, 60, false, 0, "c"});
+        Await([&] { return engine.Snapshot()->keyMappings.at("C4") == "c"; }, "the 61-key remap never applied");
+        playExpecting(0x2e, "a remap under 61 keys reaches dispatch");
+
+        engine.Send({A::Transpose, {}, generation, 0, false, 12});
+        Await([&] { return engine.Snapshot()->transpose == 12; }, "transpose never applied");
+        playExpecting(0x20, "transpose resolves against the selected layout");
+
+        engine.Send({A::EightyEightKeys, {}, 0, 0, true});
+        Await([&] { return engine.Snapshot()->eightyEightKeys; }, "the layout never switched back");
+        Require(engine.Snapshot()->keyMappings.at("C4") == "a",
+                "remapping one layout must not edit the other");
+        engine.Send({A::EightyEightKeys, {}, 0, 0, false});
+        Await([&] { return !engine.Snapshot()->eightyEightKeys; }, "the layout never switched again");
+    }
+    {
+        shell::ShellEngine engine(config);
+        Await([&] { return !engine.Snapshot()->curves.empty(); }, "the engine never came up");
+        Require(!engine.Snapshot()->eightyEightKeys, "the layout choice survives a restart");
+        Require(engine.Snapshot()->keyMappings.at("C4") == "c", "and so does its own binding");
+
+        // The snapshot agreeing is not the same as dispatch agreeing, and this
+        // is the path the pin actually lived on. ensurePlayer builds the player
+        // once, on first use, and the switch action sets the flag again on its
+        // way through, so a test that switches and then plays proves nothing
+        // about a session that never switches. Restoring the old
+        // `= true` pin left every assertion above passing.
+        //
+        // This is that session: 61 keys chosen last time, app restarted, play
+        // pressed, nothing touched in between.
+        engine.Send({A::Load, fixture});
+        Await([&] { return !engine.Snapshot()->loaded.empty(); }, "the fixture never loaded");
+        const auto generation = engine.Snapshot()->generation;
+        engine.Send({A::Solo, {}, generation, 1, true});
+        TakeCaptured();
+        engine.Send({A::Play, {}, generation});
+        Await([&] { return engine.Snapshot()->playing; }, "playback never started");
+        Await([&] { return !engine.Snapshot()->playing; }, "playback never finished");
+        int attacks = 0;
+        for (const auto& event : TakeCaptured())
+            if (IsNotePress(event)) {
+                ++attacks;
+                Require(event.input.ki.wScan == 0x2e,
+                        "a restarted session dispatches the saved layout, not the 88-key map");
+            }
+        Require(attacks == 1, "the soloed part is one note");
+    }
+    std::cout << "PASS layout switch: held release, selected dispatch, transpose, separate bindings, restart dispatch\n";
+}
+
+// AutoVol drives the game's volume by typing arrows at it, so the failure that
+// matters is not that it does nothing, it is that it does something without
+// being asked: 59 keystrokes into whatever window had focus. Every assertion
+// below is about when the sweep must NOT happen.
+void AutoVolumeTests(const std::filesystem::path& config, const std::filesystem::path& fixture) {
+    struct WindowHost : shell::AutoVolumeHost {
+        shell::GameWindow target{1, 2, "Test game"};
+        bool exists = true, focusWorks = true, foreground = true;
+        std::atomic<int> focused{0};
+        std::vector<shell::GameWindow> Windows() override {
+            return exists ? std::vector{target} : std::vector<shell::GameWindow>{};
+        }
+        bool Focus(const shell::GameWindow&) override { ++focused; return focusWorks; }
+        bool IsForeground(const shell::GameWindow&) override { return foreground; }
+    };
+
+    // Live input honours the flag, driven through a substituted transport
+    // rather than through MIDI2Key's private members.
+    {
+        auto* fake = new FakeMidiInput();
+        SetMidiInputFactory([fake](MidiBackend) {
+            return std::unique_ptr<IMidiInput>(fake);   // one open, one test
+        });
+        struct Restore { ~Restore() { SetMidiInputFactory({}); } } restore;
+
+        VirtualPianoPlayer player(false, config);
+        player.eightyEightKeyModeActive = true;
+        MIDI2Key live(&player);
+        player.toggle_volume_adjustment();
+        live.SetActive(true);
+        live.OpenDevice(L"winmm:0|Test piano");
+        Require(!live.GetSelectedDevice().empty(), "the substituted transport opened");
+
+        TakeCaptured();
+        fake->Deliver({0x90, 60, 127});
+        Require(ArrowPresses(TakeCaptured()) > 0, "live input adjusts volume while AutoVol is on");
+        fake->Deliver({0x80, 60, 0});
+
+        player.toggle_volume_adjustment();
+        TakeCaptured();
+        fake->Deliver({0x90, 60, 1});
+        Require(ArrowPresses(TakeCaptured()) == 0, "and sends no arrows at all while it is off");
+        fake->Deliver({0x80, 60, 0});
+        live.SetActive(false);
+        live.CloseDevice();
+    }
+
+    auto host = std::make_shared<WindowHost>();
+    shell::ShellEngine engine(config, host);
+    using A = shell::ShellEngine::Action;
+    Await([&] { return !engine.Snapshot()->curves.empty(); }, "the engine never came up");
+    Require(!engine.Snapshot()->autoVolume, "AutoVol is off until it is asked for");
+
+    const auto arm = [&] {
+        shell::ShellEngine::Command command{A::AutoVolumeCalibrate, {}, engine.Snapshot()->generation};
+        command.window = host->target;
+        engine.Send(command);
+        Await([&] { return engine.Snapshot()->autoVolumeCountdown == 3; }, "the countdown never armed");
+    };
+
+    TakeCaptured();
+    arm();
+    Require(ArrowPresses(TakeCaptured()) == 0 && host->focused == 0,
+            "arming the countdown neither focuses nor types");
+    engine.Send({A::AutoVolumeCancel});
+    Await([&] { return !engine.Snapshot()->autoVolumeCountdown; }, "cancel never took");
+    std::this_thread::sleep_for(3100ms);
+    Require(ArrowPresses(TakeCaptured()) == 0 && host->focused == 0,
+            "a cancelled calibration never runs, however long you wait");
+
+    arm();
+    Await([&] { return engine.Snapshot()->autoVolume; }, "calibration never completed");
+    const auto sweep = TakeCaptured();
+    // 50 down then 9 up, from the default INITIAL_VOLUME and VOLUME_STEP. The
+    // count is the assertion: toggle_volume_adjustment() already calibrates,
+    // and the original calls calibrate_volume() again straight after, so a
+    // shell that copied the original would show 118 here.
+    Require(ArrowPresses(sweep) == 59, "exactly one sweep, not the original's two");
+    Require(host->focused == 1, "one focus request");
+    for (const auto& event : sweep)
+        Require(event.thread != GetCurrentThreadId(), "calibration is worker owned");
+
+    engine.Send({A::Load, fixture});
+    Await([&] { return !engine.Snapshot()->loaded.empty(); }, "the fixture never loaded");
+    Require(!engine.Snapshot()->autoVolume && engine.Snapshot()->autoVolumeNeedsCalibration,
+            "loading a file invalidates the calibration rather than trusting it");
+    Require(ArrowPresses(TakeCaptured()) == 0 && host->focused == 1,
+            "and never silently recalibrates, which is what the original did");
+
+    arm();
+    Await([&] { return engine.Snapshot()->autoVolume; }, "recalibration never completed");
+    TakeCaptured();
+    const auto generation = engine.Snapshot()->generation;
+    engine.Send({A::Solo, {}, generation, 1, true});
+    engine.Send({A::Play, {}, generation});
+    Await([&] { return engine.Snapshot()->playing; }, "playback never started");
+    Await([&] { return !engine.Snapshot()->playing; }, "playback never finished");
+    Require(ArrowPresses(TakeCaptured()) > 0, "autoplay adjusts volume from velocity");
+
+    engine.Send({A::AutoVolumeOff});
+    Await([&] { return !engine.Snapshot()->autoVolume && !engine.Snapshot()->autoVolumeNeedsCalibration; },
+          "AutoVol never switched off");
+
+    host->focusWorks = false;
+    arm();
+    Await([&] { return !engine.Snapshot()->error.empty(); }, "a focus failure was never reported");
+    Require(!engine.Snapshot()->autoVolume && ArrowPresses(TakeCaptured()) == 0,
+            "a window that cannot be focused gets no keystrokes");
+
+    host->focusWorks = true;
+    host->foreground = false;
+    arm();
+    Await([&] { return !engine.Snapshot()->error.empty(); }, "a foreground mismatch was never reported");
+    Require(!engine.Snapshot()->autoVolume && ArrowPresses(TakeCaptured()) == 0,
+            "a window that did not come forward gets no keystrokes either");
+
+    host->foreground = true;
+    arm();
+    engine.Send({A::Stop});
+    Await([&] { return !engine.Snapshot()->autoVolumeCountdown; }, "Stop never cancelled the countdown");
+    std::this_thread::sleep_for(3100ms);
+    Require(ArrowPresses(TakeCaptured()) == 0, "Stop prevents a calibration that was counting down");
+
+    std::cout << "PASS AutoVol: countdown, cancel, Stop, focus failure, one sweep, reload, autoplay\n";
+}
+
 int wmain() {
     // Before anything constructs a player, not partway through the run.
     //
@@ -1091,6 +1370,8 @@ int wmain() {
         ReleaseTests(directory / L"config.json");
         FolderScanTests(directory / L"config.json");
         ControllerTests(directory / L"config.json", fixture);
+        LayoutTests(directory);
+        AutoVolumeTests(directory / L"config.json", fixture);
         std::cout << "PASS all shell tests (injection captured in process)\n";
         return 0;
     } catch (const std::exception& error) {

@@ -59,6 +59,15 @@ bool KernelStreamingIdentifies(const std::wstring& deviceId);
 
 std::unique_ptr<IMidiInput> CreateMidiInput(MidiBackend backend);
 
+// Tests substitute a transport here, so a note can be delivered to MIDI2Key
+// without a keyboard on the desk. Same pattern and the same reason as
+// InjectInput in InputHeader.h: the indirection exists only so the thing under
+// test can be driven, and the default is the real backend. Passing {} restores
+// it. Set it before opening a device and leave it alone afterwards; nothing
+// synchronises it, because nothing but a test ever writes it.
+using MidiInputFactory = std::function<std::unique_ptr<IMidiInput>(MidiBackend)>;
+void SetMidiInputFactory(MidiInputFactory factory);
+
 // Device list for the UI: WinRT if it reports anything, WinMM otherwise. The
 // ids carry their own backend, so a caller can open whatever it picked without
 // tracking which list an entry came from.
