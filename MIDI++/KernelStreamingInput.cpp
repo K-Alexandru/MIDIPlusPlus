@@ -45,6 +45,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cstring>
+#include <iostream>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -117,6 +118,37 @@ bool KsProperty(HANDLE handle, const GUID& set, ULONG id, ULONG flags,
     return ok != FALSE;
 }
 
+// Closes a handle however the caller leaves.
+struct ScopedHandle {
+    HANDLE value;
+    ~ScopedHandle() { if (value) CloseHandle(value); }
+};
+
+// One overlapped pin-property call, with the OVERLAPPED and its event reset
+// first.
+//
+// This is not tidying. Both queries below are a size probe followed by a
+// fetch, and both used to run the second call on the OVERLAPPED the first had
+// finished with. A manual-reset event left signalled makes the next
+// GetOverlappedResult return at once, reporting the operation that already
+// completed, before the driver has written anything into the new buffer. The
+// buffer is value-initialised, so a pin whose fetch was answered that way
+// reads as having no data ranges at all, and a real MIDI pin quietly does not
+// appear in the device list. It depends on how fast the driver answers, so it
+// is a device-and-machine lottery rather than something that shows up here.
+bool PinProperty(HANDLE filter, KSP_PIN& request, void* out, ULONG outBytes,
+                 DWORD& returned, HANDLE event) {
+    OVERLAPPED overlapped{};
+    overlapped.hEvent = event;
+    ResetEvent(event);
+    returned = 0;
+    BOOL ok = DeviceIoControl(filter, IOCTL_KS_PROPERTY, &request, sizeof(request),
+                              out, outBytes, &returned, &overlapped);
+    if (!ok && GetLastError() == ERROR_IO_PENDING)
+        ok = GetOverlappedResult(filter, &overlapped, &returned, TRUE);
+    return ok != FALSE;
+}
+
 // A pin carries MIDI if any of its data ranges says music/MIDI. Both the plain
 // subtype and the MIDI-with-timecode variant count: the timecode form is what
 // several class drivers advertise, and the payload framing is identical.
@@ -127,21 +159,19 @@ bool PinCarriesMidi(HANDLE filter, ULONG pin) {
     request.Property.Flags = KSPROPERTY_TYPE_GET;
     request.PinId = pin;
 
-    DWORD bytes = 0;
-    OVERLAPPED overlapped{};
-    overlapped.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    if (!overlapped.hEvent) return false;
-    DeviceIoControl(filter, IOCTL_KS_PROPERTY, &request, sizeof(request), nullptr, 0, &bytes, &overlapped);
-    if (GetLastError() == ERROR_IO_PENDING) GetOverlappedResult(filter, &overlapped, &bytes, TRUE);
-    if (bytes == 0 || bytes > (1u << 20)) { CloseHandle(overlapped.hEvent); return false; }
+    ScopedHandle event{CreateEventW(nullptr, TRUE, FALSE, nullptr)};
+    if (!event.value) return false;
 
-    std::vector<uint8_t> blob(bytes);
-    BOOL ok = DeviceIoControl(filter, IOCTL_KS_PROPERTY, &request, sizeof(request),
-                              blob.data(), bytes, &bytes, &overlapped);
-    if (!ok && GetLastError() == ERROR_IO_PENDING)
-        ok = GetOverlappedResult(filter, &overlapped, &bytes, TRUE);
-    CloseHandle(overlapped.hEvent);
-    if (!ok || bytes < sizeof(KSMULTIPLE_ITEM)) return false;
+    // The probe is expected to fail with the size in hand, so its result is
+    // not the question; the size is.
+    DWORD size = 0;
+    PinProperty(filter, request, nullptr, 0, size, event.value);
+    if (size < sizeof(KSMULTIPLE_ITEM) || size > (1u << 20)) return false;
+
+    std::vector<uint8_t> blob(size);
+    DWORD bytes = 0;
+    if (!PinProperty(filter, request, blob.data(), size, bytes, event.value)) return false;
+    if (bytes < sizeof(KSMULTIPLE_ITEM)) return false;
 
     const auto* items = reinterpret_cast<const KSMULTIPLE_ITEM*>(blob.data());
     const uint8_t* cursor = blob.data() + sizeof(KSMULTIPLE_ITEM);
@@ -196,22 +226,20 @@ std::wstring PinName(HANDLE filter, ULONG pin, const std::wstring& fallback) {
     request.Property.Flags = KSPROPERTY_TYPE_GET;
     request.PinId = pin;
 
-    DWORD bytes = 0;
-    OVERLAPPED overlapped{};
-    overlapped.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    if (!overlapped.hEvent) return fallback;
-    DeviceIoControl(filter, IOCTL_KS_PROPERTY, &request, sizeof(request), nullptr, 0, &bytes, &overlapped);
-    if (GetLastError() == ERROR_IO_PENDING) GetOverlappedResult(filter, &overlapped, &bytes, TRUE);
+    ScopedHandle event{CreateEventW(nullptr, TRUE, FALSE, nullptr)};
+    if (!event.value) return fallback;
+
+    DWORD size = 0;
+    PinProperty(filter, request, nullptr, 0, size, event.value);
     std::wstring name;
-    if (bytes >= sizeof(wchar_t) && bytes < 4096) {
-        std::vector<uint8_t> blob(bytes + sizeof(wchar_t), 0);
-        BOOL ok = DeviceIoControl(filter, IOCTL_KS_PROPERTY, &request, sizeof(request),
-                                  blob.data(), bytes, &bytes, &overlapped);
-        if (!ok && GetLastError() == ERROR_IO_PENDING)
-            ok = GetOverlappedResult(filter, &overlapped, &bytes, TRUE);
-        if (ok) name = reinterpret_cast<const wchar_t*>(blob.data());
+    if (size >= sizeof(wchar_t) && size < 4096) {
+        // One wchar_t of slack, always zero, so a driver that does not
+        // terminate its own string cannot be read past the end of the buffer.
+        std::vector<uint8_t> blob(size + sizeof(wchar_t), 0);
+        DWORD bytes = 0;
+        if (PinProperty(filter, request, blob.data(), size, bytes, event.value))
+            name = reinterpret_cast<const wchar_t*>(blob.data());
     }
-    CloseHandle(overlapped.hEvent);
     return name.empty() ? fallback : name;
 }
 
@@ -421,9 +449,16 @@ private:
                 ok = GetOverlappedResult(pin_, &overlapped, &bytes, TRUE);
             if (stop_.load(std::memory_order_acquire)) break;
             if (!ok) {
-                // A cancelled read is the ordinary way close() ends this loop.
-                // Anything else means the device went away.
-                if (GetLastError() == ERROR_OPERATION_ABORTED) break;
+                // A cancelled read is the ordinary way close() ends this loop
+                // and is silent. Anything else means the device went away, and
+                // both used to break without a word, so live input stopped and
+                // the app said nothing at all. Both branches still break,
+                // because there is nothing to recover to, but the second is a
+                // failure and is now reported as one.
+                const DWORD error = GetLastError();
+                if (error != ERROR_OPERATION_ABORTED)
+                    std::wcerr << L"Kernel Streaming read failed, live input has stopped. Error "
+                               << error << std::endl;
                 break;
             }
 
