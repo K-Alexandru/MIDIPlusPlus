@@ -50,7 +50,7 @@ Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'release-README.txt') -Destinati
 @'
 Put your .mid files in this folder, then press Refresh in the app.
 
-Folder scans are not recursive, so files in sub-folders are not listed.
+Sub-folders are searched too, so you can drop a whole library in here.
 You can also point the app at any other folder with the folder button.
 '@ | Out-File -LiteralPath (Join-Path $stage 'midi\PUT-MIDI-FILES-HERE.txt') -Encoding utf8
 

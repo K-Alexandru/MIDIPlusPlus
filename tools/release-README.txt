@@ -32,7 +32,8 @@ while you play.
                  pick your device. Play.
   MIDI files     Put .mid files in the midi folder beside the exe and press
                  Refresh, or drag a file onto the window, or use the folder
-                 button.
+                 button. Sub-folders are searched too, so a whole library
+                 works; files below the folder show their path.
 
 Key Mapping (the keyboard icon, top right) shows which computer key each note
 types, and lets you change any of them. Click a key on the piano, then press
