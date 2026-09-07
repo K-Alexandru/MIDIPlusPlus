@@ -1,6 +1,7 @@
 #pragma once
 #include "TrackModel.hpp"
 #include "VelocityModel.hpp"
+#include "AutoVolume.hpp"
 #include "../MIDI++/VelocityTelemetry.hpp"
 #include <condition_variable>
 #include <deque>
@@ -34,6 +35,16 @@ struct EngineSnapshot {
     bool velocity = false;
     bool sustain = true;
     bool eightyEightKeys = true;
+    bool autoVolume = false;
+    bool autoVolumeNeedsCalibration = false;
+    int autoVolumeCountdown = 0;
+    bool autoVolumeFocusing = false;
+    uint64_t autoVolumeRevision = 0;
+    std::vector<GameWindow> volumeWindows;
+    GameWindow volumeTarget;
+    std::string volumeDownKey;
+    std::string volumeUpKey;
+    int volumeInitial = 100;
     double position = 0;
     double duration = 0;
     // Live MIDI input. Devices are opaque backend-specific ids, never indices:
@@ -78,7 +89,8 @@ public:
                         CopySheet,
                         CurveSelect, CurveAdjust, CurveStep, CurveCompare, CurveNew,
                         CurveDuplicate, CurveRename, SustainCutoff, CurveSteps,
-                        WootingTriggerThreshold, WootingShiftAmount, WootingVelocityScale, EightyEightKeys };
+                        WootingTriggerThreshold, WootingShiftAmount, WootingVelocityScale, EightyEightKeys,
+                        AutoVolumeScan, AutoVolumeCalibrate, AutoVolumeOff, AutoVolumeCancel };
     struct Command {
         Action action;
         std::filesystem::path path;
@@ -89,8 +101,9 @@ public:
         std::string key;
         std::wstring device;
         std::array<float, 32> samples{};
+        GameWindow window;
     };
-    explicit ShellEngine(std::filesystem::path config);
+    explicit ShellEngine(std::filesystem::path config, std::shared_ptr<AutoVolumeHost> volumeHost = {});
     ~ShellEngine();
     void Send(Command command);
     std::shared_ptr<const EngineSnapshot> Snapshot() const;
@@ -98,6 +111,7 @@ private:
     void Run(std::stop_token stop);
     void Publish(const EngineSnapshot& state);
     std::filesystem::path config_;
+    std::shared_ptr<AutoVolumeHost> volumeHost_;
     mutable std::mutex mutex_;
     std::condition_variable wake_;
     std::deque<Command> commands_;

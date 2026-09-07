@@ -200,7 +200,7 @@ bool StatePill(const char* label, bool on, const Fonts& fonts, const skin::Skin&
     return clicked;
 }
 
-void StatePills(const Fonts& fonts, const skin::Skin& design, float dpi, ShellEngine& engine, bool compact) {
+bool StatePills(const Fonts& fonts, const skin::Skin& design, float dpi, ShellEngine& engine, bool compact) {
     const auto state = engine.Snapshot();
     const float pad = (compact ? 8.f : 12.f) * dpi;
     if (StatePill("Midi2Key", state->liveActive, fonts, design, dpi, compact ? pad : 16 * dpi,
@@ -220,6 +220,14 @@ void StatePills(const Fonts& fonts, const skin::Skin& design, float dpi, ShellEn
         engine.Send({ShellEngine::Action::EightyEightKeys, {}, 0, 0, !state->eightyEightKeys});
     ImGui::SameLine();
     StatePill("MidiConnect", false, fonts, design, dpi, pad, false, "Unavailable in this shell.");
+    if (!compact) {
+        ImGui::SameLine();
+        const char* label = state->autoVolume ? "AutoVol: on" :
+            state->autoVolumeNeedsCalibration ? "AutoVol: calibrate" : "AutoVol: off";
+        return StatePill(label, state->autoVolume, fonts, design, dpi, pad, true,
+            "Adjust game volume from note velocity. Open calibration and controls.");
+    }
+    return false;
 }
 
 void DevicePill(const std::string& name, float maxWidth, const skin::Skin& s, float dpi) {
@@ -518,6 +526,90 @@ void Panels::DrawKeyMapping(const Fonts& fonts, const skin::Skin& design, float 
     ImGui::PopFont();
     ImGui::GetStyle() = previousStyle;
     ImGui::End();
+}
+
+void Panels::DrawAutoVolume(const Fonts& fonts, const skin::Skin& design, float dpi, ShellEngine& engine) {
+    using A = ShellEngine::Action;
+    const auto state = engine.Snapshot();
+    const bool pending = state->autoVolumeCountdown > 0 || state->autoVolumeFocusing;
+    if (!autoVolumeOpen) {
+        if (volumeWasOpen_ && pending) engine.Send({A::AutoVolumeCancel});
+        volumeWasOpen_ = false;
+        return;
+    }
+    if (!volumeWasOpen_) {
+        engine.Send({A::AutoVolumeScan});
+        volumeWindow_ = state->volumeTarget;
+        ImGui::SetNextWindowPos(ImVec2(ImGui::GetMainViewport()->Pos.x + 24 * dpi,
+                                      ImGui::GetMainViewport()->Pos.y + 112 * dpi));
+        volumeWasOpen_ = true;
+    }
+    ImGuiWindowClass windowClass;
+    windowClass.ViewportFlagsOverrideSet = ImGuiViewportFlags_NoAutoMerge;
+    ImGui::SetNextWindowClass(&windowClass);
+    ImGui::SetNextWindowSize(ImVec2(440 * dpi, 0));
+    const auto s = skin::ScaleGeometry(design, dpi);
+    FontScope font(fonts, design, design.type.body * SpecFontScale(design));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16 * dpi, 16 * dpi));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12 * dpi, (s.metric.controlHeight - ImGui::GetTextLineHeight()) / 2));
+    if (ImGui::Begin("AutoVol", &autoVolumeOpen, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking)) {
+        ImGui::TextWrapped("Adjusts game volume from note velocity using the volume keys.");
+        ImGui::Spacing();
+        if (state->autoVolume) {
+            ImGui::TextUnformatted("On");
+            ImGui::TextWrapped("Calibrated for: %s", state->volumeTarget.title.c_str());
+        } else if (pending) {
+            if (state->autoVolumeFocusing) ImGui::TextUnformatted("Focusing the selected game...");
+            else ImGui::Text("Calibration starts in %d", state->autoVolumeCountdown);
+        } else if (state->autoVolumeNeedsCalibration) ImGui::TextUnformatted("Off: calibration needed");
+        else ImGui::TextUnformatted("Off");
+        ImGui::Spacing();
+        ImGui::BeginDisabled(pending);
+        ImGui::TextUnformatted("Game window");
+        ImGui::SetNextItemWidth(-s.metric.controlHeight - 8 * dpi);
+        const bool selected = std::any_of(state->volumeWindows.begin(), state->volumeWindows.end(), [&](const auto& window) {
+            return window.id == volumeWindow_.id && window.process == volumeWindow_.process && window.title == volumeWindow_.title;
+        });
+        if (ImGui::BeginCombo("##volume-window", selected ? volumeWindow_.title.c_str() : "Select the game window", ImGuiComboFlags_NoArrowButton)) {
+            for (const auto& window : state->volumeWindows) {
+                ImGui::PushID(reinterpret_cast<void*>(window.id));
+                if (ImGui::Selectable(window.title.c_str(), window.id == volumeWindow_.id)) volumeWindow_ = window;
+                ImGui::PopID();
+            }
+            ImGui::EndCombo();
+        }
+        ComboChevron(); ImGui::SameLine();
+        if (IconButton("##volume-refresh", Icon::Refresh, "Refresh game windows", s, dpi)) engine.Send({A::AutoVolumeScan});
+        const auto keyLabel = [](std::string key) {
+            if (key.starts_with("VK_")) key.erase(0, 3);
+            std::transform(key.begin(), key.end(), key.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            if (!key.empty()) key[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(key[0])));
+            std::replace(key.begin(), key.end(), '_', ' ');
+            if (key == "Left" || key == "Right" || key == "Up" || key == "Down") key += " arrow";
+            return key;
+        };
+        ImGui::TextWrapped("After 3 seconds, focuses this window and sends %s 50 times, then %s to set volume to %d%%.",
+            keyLabel(state->volumeDownKey).c_str(), keyLabel(state->volumeUpKey).c_str(), state->volumeInitial);
+        ImGui::TextWrapped("Playback and live input pause. Resume them when calibration finishes. Load a new file or change game volume, then calibrate again.");
+        ImGui::Spacing();
+        ImGui::BeginDisabled(!selected);
+        if (ImGui::Button("Focus game and calibrate", ImVec2(-1, s.metric.controlHeight))) {
+            ShellEngine::Command command{A::AutoVolumeCalibrate, {}, state->generation};
+            command.window = volumeWindow_;
+            engine.Send(std::move(command));
+        }
+        ImGui::EndDisabled();
+        ImGui::EndDisabled();
+        if (pending) {
+            if (ImGui::Button("Cancel calibration", ImVec2(-1, s.metric.controlHeight))) engine.Send({A::AutoVolumeCancel});
+        } else if (state->autoVolume || state->autoVolumeNeedsCalibration) {
+            if (ImGui::Button("Turn AutoVol off", ImVec2(-1, s.metric.controlHeight))) engine.Send({A::AutoVolumeOff});
+        }
+        if (!state->error.empty()) ImGui::TextWrapped("%s", state->error.c_str());
+    }
+    ImGui::End();
+    ImGui::PopStyleVar(2);
+    if (!autoVolumeOpen && pending) engine.Send({A::AutoVolumeCancel});
 }
 
 Panels::~Panels() { if (measuring_) input_latency::stop(); }
@@ -945,6 +1037,10 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
       ImGui::TextWrapped("Starts after the MIDI transport; ends at the keyboard hook, before the game. Autoplay starts at event dispatch."); }
     ImGui::Separator();
     section("BEHAVIOUR");
+    if (ImGui::Button(state->autoVolume ? "AutoVol: on" : state->autoVolumeNeedsCalibration ? "AutoVol: calibrate" : "AutoVol: off", ImVec2(-1, s.metric.controlHeight))) {
+        autoVolumeOpen = true;
+        ImGui::CloseCurrentPopup();
+    }
     SettingSwitch("Solo piano tracks on load", preferences.autoSolo,
         "Silences non-piano parts when a MIDI file opens.", fonts, design, dpi);
     bool velocity = state->velocity;
@@ -1177,7 +1273,12 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
 
     const ImVec2 origin = ImGui::GetCursorScreenPos();
     const ImVec2 size = ImGui::GetContentRegionAvail();
-    if (miniMode) { DrawMini(hwnd, fonts, design, dpi, engine, origin, size); mappingArmed_ = false; return; }
+    if (miniMode) {
+        DrawMini(hwnd, fonts, design, dpi, engine, origin, size);
+        DrawAutoVolume(fonts, design, dpi, engine);
+        mappingArmed_ = false;
+        return;
+    }
     auto* dl = ImGui::GetWindowDrawList();
     const float stripPad = 12 * dpi;
     const float strip = 101 * dpi, status = 28 * dpi;
@@ -1199,7 +1300,7 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     SettingsControl(fonts, design, dpi, engine,
                     ImVec2(origin.x + size.x - 344 * dpi - s.spacing.windowPad, origin.y + 48 * dpi), size.y - 52 * dpi);
     ImGui::SetCursorScreenPos(ImVec2(origin.x + s.spacing.windowPad, origin.y + strip - s.metric.controlHeight - stripPad - dpi));
-    StatePills(fonts, design, dpi, engine, false);
+    if (StatePills(fonts, design, dpi, engine, false)) autoVolumeOpen = true;
 
     const float top = origin.y + strip + s.spacing.windowPad;
     const float bottom = origin.y + size.y - status - s.spacing.windowPad;
@@ -1502,5 +1603,6 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     DrawStatus(fonts, design, dpi, *state, ImVec2(origin.x, origin.y + size.y - status), size.x, status);
     if (preferences.keyMappingOpen) DrawKeyMapping(fonts, design, dpi, engine);
     else mappingArmed_ = false;
+    DrawAutoVolume(fonts, design, dpi, engine);
 }
 }

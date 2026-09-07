@@ -14,6 +14,44 @@ void ShowSplashScreen(HINSTANCE) {}
 void CloseSplashScreen() {}
 
 namespace shell {
+namespace {
+class NativeAutoVolumeHost final : public AutoVolumeHost {
+    static bool Valid(const GameWindow& window) {
+        const auto hwnd = reinterpret_cast<HWND>(window.id);
+        DWORD process = 0;
+        GetWindowThreadProcessId(hwnd, &process);
+        wchar_t title[1024]{};
+        GetWindowTextW(hwnd, title, static_cast<int>(std::size(title)));
+        return window.id && process == window.process && process != GetCurrentProcessId() &&
+            IsWindow(hwnd) && IsWindowVisible(hwnd) && Utf8(std::filesystem::path(title)) == window.title;
+    }
+public:
+    std::vector<GameWindow> Windows() override {
+        std::vector<GameWindow> result;
+        EnumWindows([](HWND hwnd, LPARAM context) -> BOOL {
+            DWORD process = 0;
+            GetWindowThreadProcessId(hwnd, &process);
+            if (!IsWindowVisible(hwnd) || process == GetCurrentProcessId() || GetWindow(hwnd, GW_OWNER)) return TRUE;
+            wchar_t title[1024]{};
+            if (GetWindowTextW(hwnd, title, static_cast<int>(std::size(title))) == 0) return TRUE;
+            reinterpret_cast<std::vector<GameWindow>*>(context)->push_back(
+                {reinterpret_cast<uintptr_t>(hwnd), process, Utf8(std::filesystem::path(title))});
+            return TRUE;
+        }, reinterpret_cast<LPARAM>(&result));
+        std::sort(result.begin(), result.end(), [](const auto& a, const auto& b) { return a.title < b.title; });
+        return result;
+    }
+    bool Focus(const GameWindow& window) override {
+        if (!Valid(window)) return false;
+        const auto hwnd = reinterpret_cast<HWND>(window.id);
+        if (IsIconic(hwnd)) ShowWindowAsync(hwnd, SW_RESTORE);
+        return SetForegroundWindow(hwnd) != FALSE;
+    }
+    bool IsForeground(const GameWindow& window) override {
+        return Valid(window) && GetForegroundWindow() == reinterpret_cast<HWND>(window.id);
+    }
+};
+}
 std::string NoteName(int note) {
     static constexpr const char* names[]{"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
     return std::string(names[note % 12]) + std::to_string(note / 12 - 1);
@@ -23,8 +61,9 @@ std::string Utf8(const std::filesystem::path& path) {
     return {reinterpret_cast<const char*>(text.data()), text.size()};
 }
 
-ShellEngine::ShellEngine(std::filesystem::path config)
-    : config_(std::move(config)), worker_([this](std::stop_token stop) { Run(stop); }) {}
+ShellEngine::ShellEngine(std::filesystem::path config, std::shared_ptr<AutoVolumeHost> volumeHost)
+    : config_(std::move(config)), volumeHost_(volumeHost ? std::move(volumeHost) : std::make_shared<NativeAutoVolumeHost>()),
+      worker_([this](std::stop_token stop) { Run(stop); }) {}
 
 ShellEngine::~ShellEngine() {
     worker_.request_stop();
@@ -62,6 +101,8 @@ void ShellEngine::Run(std::stop_token stop) {
     std::unique_ptr<MIDI2Key> live;
     uint64_t liveMappings = 0;
     int liveTranspose = 0;
+    std::chrono::steady_clock::time_point volumeDue{};
+    bool volumePending = false;
     std::vector<std::chrono::nanoseconds> scoreTimes;
     // config.json is parsed once and held here. Every reader below reads this
     // copy and every writer edits it, because reparsing and rewriting the whole
@@ -112,6 +153,17 @@ void ShellEngine::Run(std::stop_token stop) {
         player->paused.store(true, std::memory_order_release);
         player->release_all_keys();
         state.playing = false;
+    };
+    const auto cancelVolume = [&] {
+        volumePending = false;
+        state.autoVolumeCountdown = 0;
+        state.autoVolumeFocusing = false;
+    };
+    const auto invalidateVolume = [&] {
+        if (state.autoVolume || volumePending) state.autoVolumeNeedsCalibration = true;
+        cancelVolume();
+        state.autoVolume = false;
+        if (player) player->enable_volume_adjustment.store(false, std::memory_order_release);
     };
     // Only the worker writes the clock fields. No legacy seek/speed calls run
     // concurrently with dispatch. Joining also drains the engine's batch future.
@@ -190,6 +242,9 @@ void ShellEngine::Run(std::stop_token stop) {
     try {
         ensurePlayer();
         applyWootingSettings();
+        state.volumeDownKey = midi::Config::getInstance().hotkeys.VOLUME_DOWN_KEY;
+        state.volumeUpKey = midi::Config::getInstance().hotkeys.VOLUME_UP_KEY;
+        state.volumeInitial = midi::Config::getInstance().volume.INITIAL_VOLUME;
         const std::string keys = "1234567890qwertyuiopasdfghjklzxc";
         for (size_t i = 0; i < 5; ++i) {
             VelocityPreset preset{player->getVelocityCurveName(static_cast<midi::VelocityCurveType>(i))};
@@ -258,7 +313,7 @@ void ShellEngine::Run(std::stop_token stop) {
         {
             std::unique_lock lock(mutex_);
             const auto ready = [&] { return stop.stop_requested() || !commands_.empty(); };
-            if (state.playing) wake_.wait_for(lock, 25ms, ready);
+            if (state.playing || volumePending) wake_.wait_for(lock, 25ms, ready);
             else if (configDirty) wake_.wait_until(lock, configDue, ready);
             else wake_.wait(lock, ready);
             if (stop.stop_requested()) break;
@@ -292,6 +347,12 @@ void ShellEngine::Run(std::stop_token stop) {
                     command.action != Action::LiveOpen && command.action != Action::LiveActive &&
                     command.action != Action::LiveChannel && command.action < Action::CurveSelect;
                 if (scoreCommand && command.generation != state.generation) continue;
+                // A transport or mapping command cancels an armed calibration
+                // before it can focus another window. Reopening the dialog is
+                // not permission to send keys; only Calibrate starts a sweep.
+                if (volumePending && command.action != Action::AutoVolumeCalibrate &&
+                    command.action != Action::AutoVolumeScan && command.action != Action::Scan)
+                    cancelVolume();
                 state.error.clear();
                 switch (command.action) {
                 case Action::Scan: {
@@ -360,6 +421,7 @@ void ShellEngine::Run(std::stop_token stop) {
                     break;
                 }
                 case Action::Load: {
+                    invalidateVolume();
                     // Stop before potentially slow disk parsing, so a load cannot
                     // keep injecting while the command worker is busy.
                     stopPlayback();
@@ -704,6 +766,50 @@ void ShellEngine::Run(std::stop_token stop) {
                     }
                     break;
                 }
+                case Action::AutoVolumeScan:
+                    state.volumeWindows = volumeHost_->Windows();
+                    break;
+                case Action::AutoVolumeCalibrate: {
+                    if (command.generation != state.generation) break;
+                    const auto windows = volumeHost_->Windows();
+                    const auto found = std::find_if(windows.begin(), windows.end(), [&](const auto& window) {
+                        return window.id == command.window.id && window.process == command.window.process &&
+                            window.title == command.window.title;
+                    });
+                    if (found == windows.end()) throw std::runtime_error("That game window changed or closed. Refresh the list and select it again.");
+                    ensurePlayer();
+                    const auto& volume = midi::Config::getInstance().volume;
+                    if (volume.VOLUME_STEP <= 0 || volume.MIN_VOLUME < 0 || volume.MAX_VOLUME > 1000 ||
+                        volume.MAX_VOLUME < volume.MIN_VOLUME || volume.INITIAL_VOLUME < volume.MIN_VOLUME ||
+                        volume.INITIAL_VOLUME > volume.MAX_VOLUME)
+                        throw std::runtime_error("Invalid AutoVol range or step in config.json.");
+                    invalidateVolume();
+                    const auto device = state.liveDevice;
+                    if (live) { live->SetActive(false); live->CloseDevice(); }
+                    stopPlayback();
+                    if (live) { player->release_every_mapped_key(); live.reset(); }
+                    state.liveActive = false;
+                    if (!device.empty()) {
+                        live = std::make_unique<MIDI2Key>(player.get());
+                        live->SetMidiChannel(state.liveChannel);
+                        live->OpenDevice(device);
+                        state.liveDevice = live->GetSelectedDevice();
+                        if (state.liveDevice.empty()) throw std::runtime_error("MIDI input could not reopen. Calibration was not started.");
+                    }
+                    state.volumeTarget = *found;
+                    state.autoVolumeNeedsCalibration = true;
+                    state.autoVolumeCountdown = 3;
+                    volumePending = true;
+                    volumeDue = std::chrono::steady_clock::now() + 3s;
+                    break;
+                }
+                case Action::AutoVolumeOff:
+                    invalidateVolume();
+                    state.autoVolumeNeedsCalibration = false;
+                    break;
+                case Action::AutoVolumeCancel:
+                    cancelVolume();
+                    break;
                 case Action::Velocity:
                     state.velocity = command.value;
                     if (player) player->enable_velocity_keypress = command.value;
@@ -728,6 +834,32 @@ void ShellEngine::Run(std::stop_token stop) {
                     live->SetActive(true);
                 }
             }
+            if (volumePending && !stop.stop_requested()) {
+                const auto now = std::chrono::steady_clock::now();
+                if (!state.autoVolumeFocusing && now >= volumeDue) {
+                    state.autoVolumeCountdown = 0;
+                    if (!volumeHost_->Focus(state.volumeTarget))
+                        throw std::runtime_error("Could not focus the selected game. AutoVol remains off; select the game and try again.");
+                    state.autoVolumeFocusing = true;
+                    volumeDue = now + 500ms;
+                } else if (!state.autoVolumeFocusing) {
+                    state.autoVolumeCountdown = std::max(1, static_cast<int>(std::ceil(
+                        std::chrono::duration<double>(volumeDue - now).count())));
+                }
+                if (state.autoVolumeFocusing) {
+                    if (volumeHost_->IsForeground(state.volumeTarget)) {
+                        // This call already calibrates. Calling calibrate_volume
+                        // as well would repeat the entire key sweep.
+                        player->toggle_volume_adjustment();
+                        state.autoVolume = true;
+                        state.autoVolumeNeedsCalibration = false;
+                        ++state.autoVolumeRevision;
+                        cancelVolume();
+                    } else if (now >= volumeDue) {
+                        throw std::runtime_error("The selected game did not keep focus. AutoVol remains off.");
+                    }
+                }
+            }
             if (state.playing) {
                 state.position = std::clamp(player->get_adjusted_time().count() / 1e9 * state.speed, 0.0, state.duration);
                 if (player->playback_started.load(std::memory_order_acquire) &&
@@ -737,6 +869,7 @@ void ShellEngine::Run(std::stop_token stop) {
                 }
             }
         } catch (const std::exception& error) {
+            if (volumePending) invalidateVolume();
             stopPlayback();
             state.error = error.what();
             state.busy = false;

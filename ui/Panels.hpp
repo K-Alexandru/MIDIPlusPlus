@@ -22,6 +22,7 @@ public:
     bool velocityExpanded = false;
     bool miniMode = false;
     bool miniAutoplay = false;
+    bool autoVolumeOpen = false;
     ~Panels();
     ImVec2 DesiredSize() const;
     void LoadPreferences(const std::filesystem::path& path);
@@ -50,6 +51,9 @@ private:
     bool sheetPending_ = false;
     void DrawVelocity(const Fonts&, const skin::Skin&, float, ShellEngine&, ImVec2, ImVec2);
     void DrawSettings(const Fonts&, const skin::Skin&, float, ShellEngine&);
+    void DrawAutoVolume(const Fonts&, const skin::Skin&, float, ShellEngine&);
+    bool volumeWasOpen_ = false;
+    GameWindow volumeWindow_;
     void SettingsControl(const Fonts&, const skin::Skin&, float, ShellEngine&, ImVec2, float);
     void DrawMini(HWND, const Fonts&, const skin::Skin&, float, ShellEngine&, ImVec2, ImVec2);
     void DrawStatus(const Fonts&, const skin::Skin&, float, const EngineSnapshot&, ImVec2, float, float);
