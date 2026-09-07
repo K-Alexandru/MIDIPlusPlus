@@ -52,11 +52,8 @@ private:
     VirtualPianoPlayer* m_player; // copy 
 
     // Key injection buffers
-    alignas(64) static INPUT m_sustainInput[2];
     alignas(64) static char m_lastVelocityKey;
 
-    // Modifier usage counters (e.g., alt, ctrl, shift)
-    alignas(64) static std::atomic<int> modifierCounts[3];
 
     // For each note [0..127], track if it is pressed
     alignas(64) std::array<std::atomic<bool>, 128> pressed;

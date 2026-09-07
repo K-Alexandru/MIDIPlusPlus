@@ -22,7 +22,6 @@ static void setThreadToRealTime() {
         }
     }
 }
-alignas(64) INPUT MIDI2Key::m_sustainInput[2] = {};
 alignas(64) char  MIDI2Key::m_lastVelocityKey = '\0';
 static __forceinline INPUT makeKeybdInput(WORD wScan, DWORD dwFlags) {
     INPUT inp{};
@@ -554,8 +553,14 @@ void MIDI2Key::ProcessMidiMessage(uint64_t timestampQpc, const uint8_t* bytes, s
         bool shouldPress = (p.currentSustainMode == SustainMode::SPACE_DOWN) ? pedal_on : !pedal_on;
         if (shouldPress != p.isSustainPressed) {
             constexpr WORD spaceScan = 0x39;
-            m_sustainInput[0] = makeKeybdInput(spaceScan, shouldPress ? 0 : KEYEVENTF_KEYUP);
-            input_latency::send(1, m_sustainInput, sizeof(INPUT));
+            // KEYEVENTF_SCANCODE, and a local rather than the shared static.
+            // makeKeybdInput leaves wVk zero because every other caller passes
+            // the flag; without it this asked Windows to inject virtual key 0
+            // and the game was never told the pedal moved. The low-level hook
+            // still saw scan 0x39, which is why the latency test passed.
+            INPUT sustain = makeKeybdInput(spaceScan,
+                shouldPress ? KEYEVENTF_SCANCODE : (KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP));
+            input_latency::send(1, &sustain, sizeof(INPUT));
             p.isSustainPressed = shouldPress;
         }
     }

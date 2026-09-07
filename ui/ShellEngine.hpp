@@ -22,7 +22,16 @@ struct EngineSnapshot {
     uint64_t generation = 0;
     bool busy = false;
     bool playing = false;
-    bool velocity = true;
+    // Off, which is what VirtualPianoPlayer itself defaults to. The shell used
+    // to override it to on, and velocity output is not a passive feature: every
+    // changed bucket types ALT plus a character drawn from
+    // "1234567890qwertyuiopasdfghjklzxc", and every one of those characters is
+    // also a note in the FULL mapping. A game whose script does not consume the
+    // ALT-modified keypress hears that character as a second note, so a plain
+    // virtual piano plays a phantom note next to any note whose velocity moved
+    // to a new bucket -- and next to as many notes of a chord as change bucket.
+    // Whoever has the modified script turns it on; nobody gets it unasked.
+    bool velocity = false;
     bool sustain = true;
     double position = 0;
     double duration = 0;
