@@ -23,11 +23,11 @@ browser tab.
 
 Directory ownership is too coarse here, so this names files and cases.
 
-**Engine half — `MIDI++/` and `tests/`.** New files `MidiOutput.hpp` /
+**Engine half.** `MIDI++/` and `tests/`: new files `MidiOutput.hpp` /
 `MidiOutput.cpp`, and edits to `MIDI2Key.cpp`, `PlaybackCore.cpp`,
 `PlaybackSystem.hpp`.
 
-**Panel half — `ui/`.** `ShellEngine::Action`, `EngineSnapshot`, `Panels.cpp`.
+**Panel half.** `ui/`: `ShellEngine::Action`, `EngineSnapshot`, `Panels.cpp`.
 Whoever owns the panel owns those two types; the engine half consumes them and
 never extends them. The exact additions are listed under "What the panel half
 adds" so they can be written once, by their owner, rather than twice.
@@ -61,7 +61,7 @@ MidiBackend BackendForOutputId(const std::wstring& deviceId);
 ```
 
 Backends: WinRT `Windows.Devices.Midi.MidiOutPort`, and WinMM through the
-vendored RtMidi's `RtMidiOut`. Two is enough — Kernel Streaming buys nothing on
+vendored RtMidi's `RtMidiOut`. Two is enough. Kernel Streaming buys nothing on
 the output side, because the reason it exists on input is removing a
 marshalling hop from the latency path and nothing is waiting on output.
 
@@ -86,7 +86,7 @@ std::atomic<OutputTarget> output_target{OutputTarget::Keystrokes};
 Two call sites branch on it, and they are the only two that know a note number
 rather than a scancode:
 
-1. **`MIDI2Key::ProcessMidiMessage`** — it already holds the raw MIDI bytes.
+1. **`MIDI2Key::ProcessMidiMessage`**. It already holds the raw MIDI bytes.
    On the MIDI target, apply transpose to `bytes[1]` and forward the message
    verbatim. Do not route it through `g_adjustedNote`: folding out-of-range
    notes into the 61-key window exists because the *game* has 61 keys, and a
@@ -94,14 +94,14 @@ rather than a scancode:
    keystroke-path concepts and must not reach the wire.
 
 2. **`VirtualPianoPlayer::execute_note_event`** (`PlaybackCore.cpp`, around
-   line 1875) — it holds a note *name* and a velocity. Needs name → number,
+   line 1875). It holds a note *name* and a velocity. Needs name → number,
    which is the inverse of `NOTE_NAME_CACHE`; build the reverse table once
    rather than parsing the string per note. Emit `0x90 note velocity` on
    Press, `0x80 note 0` on Release, and `0xB0 64 (0|127)` for sustain.
 
 Suppress the ALT velocity tap entirely on the MIDI target. Velocity travels in
 the note-on byte there, so the tap is not merely unnecessary, it would be a
-phantom note — that is the bug this whole report started with, see the note
+phantom note, and that is the bug this whole report started with, see the note
 below.
 
 ### Switching targets is a release
@@ -113,7 +113,7 @@ note is held strands it: a keystroke stays down in the game, or a MIDI note
 sounds forever on the synth. So the switch itself has to release first, in this
 order, and nothing may inject between the two steps:
 
-1. Release everything held on the **outgoing** target — `release_all_keys()`
+1. Release everything held on the **outgoing** target: `release_all_keys()`
    for keystrokes, or All Notes Off (`0xB0 123 0`) plus sustain off
    (`0xB0 64 0`) on every channel in use for MIDI.
 2. Then store the new `output_target`.
@@ -129,20 +129,20 @@ switching away.
 ## What the panel half adds
 
 Written here so it is added once, by the seat that owns these types. Mirror the
-live-input members exactly — same names with `output` for `live` — because the
+live-input members exactly, same names with `output` for `live`, because the
 picker is the same picker and a reviewer should be able to diff them.
 
 `ShellEngine::Action`:
 
-- `OutputTarget` — `command.value` is true for MIDI, false for keystrokes.
-- `OutputScan` — refill the device list, same as `LiveScan`.
-- `OutputOpen` — `command.device` is the id, empty closes.
+- `OutputTarget`: `command.value` is true for MIDI, false for keystrokes.
+- `OutputScan`: refill the device list, same as `LiveScan`.
+- `OutputOpen`: `command.device` is the id, empty closes.
 
 `EngineSnapshot`:
 
-- `bool outputMidi = false;` — keystrokes stay the default.
+- `bool outputMidi = false;`, so keystrokes stay the default.
 - `std::wstring outputDevice;`
-- `std::vector<LiveDevice> outputDevices;` — the existing row type, reused
+- `std::vector<LiveDevice> outputDevices;`, the existing row type, reused
   rather than duplicated; a row is an id and a name either way.
 
 Panel: a two-way choice next to the existing MIDI input picker, with the device
@@ -153,7 +153,7 @@ is still being sent, just not as keystrokes.
 ## Tests
 
 `tests/ShellTests.cpp`, which never types into the desktop, and needs a fake
-`IMidiOutput` that records messages — the same shape as the `InjectInput =
+`IMidiOutput` that records messages, the same shape as the `InjectInput =
 Capture` seam already at the top of `wmain`.
 
 Assert, at minimum:
@@ -169,8 +169,8 @@ Assert, at minimum:
 
 ## One thing this does not fix
 
-The reports that started this — double notes, `alt+1` triggering Roblox's
-capture — are the ALT velocity tap on the *keystroke* path, not an output
+The reports that started this, double notes and `alt+1` triggering Roblox
+capture, are the ALT velocity tap on the *keystroke* path, not an output
 problem. `954b3cd` turned that off by default. Routing to MIDI avoids it
 because there is no tap on the wire, but the keystroke path still has it for
 anyone who turns velocity back on, and making the modifier configurable is a

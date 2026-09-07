@@ -804,6 +804,14 @@ carry thumbnails and no prose at all.
 - **Interactive mockups must actually demonstrate the feature.** A static badge
   reading "WinRT" proves nothing about a transport picker; the control has to be
   clickable and visibly change something.
+- **A feature the user cannot find does not exist, and that is the app's fault,
+  never the user's.** Adopted 2026-09-07, after a tester asked for a play
+  keybind the app already had. F1 plays, F2 rewinds, F3 skips and F4 stops, all
+  registered at startup from `HOTKEY_SETTINGS`, and nothing on screen says so.
+  The correct reading of that report is that the transport is undiscoverable,
+  not that the tester failed to read something. When a report turns out to
+  describe a feature that already ships, the bug is the discoverability, and it
+  gets fixed rather than answered.
 
 ### Visual system, adopted 2026-09-04
 
