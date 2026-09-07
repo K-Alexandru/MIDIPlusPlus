@@ -157,9 +157,32 @@ Two defects, and the second is why it feels worse than it looks.
   plays in. Section 12 opens by saying the user cannot tell what to go for;
   a snap target is that answer made concrete.
 
-  Free-draw, holding and sweeping across the graph with the line following the
-  cursor and smoothing on release, is worth having as a second mode once the
-  anchor model exists. It is faster for a big reshape and worse for precision.
+  **Free-draw is wanted as a second mode**, owner 2026-09-07, not as a
+  someday. Hold and sweep across the graph, the line follows the cursor, and it
+  smooths on release. Faster than anchors for a big reshape, worse for
+  precision, which is why both exist.
+
+  Build them on one representation, not two. Draw produces a curve, anchors
+  edit a curve, and a shared model means sweeping a rough shape and then
+  pulling an anchor to refine it is one continuous piece of work rather than a
+  mode switch that discards the last one. That model is a smooth curve sampled
+  to 32, per section 12, never 32 stored values.
+
+  Four things draw has to get right, all the same principle as the clamp above,
+  which is to leave the hand alone and legalise the result:
+
+  - **Only what was swept changes.** Draw over the middle third and the ends
+    keep their shape, blended at the join rather than stepping.
+  - **Smoothing happens on release, not during.** The line follows the cursor
+    exactly while drawing, because a line that fights the hand feels broken,
+    and a light smoothing pass afterwards stops hand jitter becoming 32 jagged
+    buckets.
+  - **Monotonicity is repaired, not enforced.** A sweep that dips, or runs
+    right to left, must be allowed to happen and then be made non-decreasing on
+    release. Blocking the cursor is what makes the current bars miserable.
+  - **One level of undo, at least.** A sweep replaces a whole region in one
+    gesture, so it needs undo far more than dragging an anchor does. A/B
+    compare is preset against preset and does not cover this.
 - **A bar can barely move.** `Panels.cpp:842` clamps each one between its two
   neighbours' current heights, so on a near-linear curve the travel is about
   one step in 31. Making an audible change means dragging all 32 in order, each
