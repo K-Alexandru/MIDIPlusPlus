@@ -8,6 +8,7 @@
 #include "../MIDI++/MidiStreamSplit.hpp"
 #include "../MIDI++/config.hpp"
 #include "../MIDI++/MIDI2Key.hpp"
+#include "../ui/NativeConnectInput.hpp"
 #include <atomic>
 #include <fstream>
 #include <iostream>
@@ -1212,11 +1213,13 @@ void VelocityTelemetryTests() {
 // A transport that delivers whatever the test hands it.
 class FakeMidiInput final : public IMidiInput {
 public:
+    bool allowOpen = true;
     MidiBackend backend() const noexcept override { return MidiBackend::WinMM; }
     std::vector<MidiInputDevice> enumerate() override {
         return {{L"fake:0|Test piano", L"Test piano", MidiBackend::WinMM}};
     }
     bool open(const std::wstring& deviceId, MidiInputCallback callback) override {
+        if (!allowOpen) return false;
         opened_ = deviceId;
         callback_ = std::move(callback);
         return true;
@@ -1474,7 +1477,359 @@ void AutoVolumeTests(const std::filesystem::path& config, const std::filesystem:
     std::cout << "PASS AutoVol: countdown, cancel, Stop, focus failure, one sweep, reload, autoplay\n";
 }
 
-int wmain() {
+void DeviceGroupingTests() {
+    using namespace shell;
+    std::vector<LiveDevice> inputs{
+        {L"rt:piano", "Piano", L"Piano", MidiBackend::WinRT},
+        {L"mm:piano", "Piano", L"Piano", MidiBackend::WinMM},
+        {L"ks:piano", "Piano", L"Piano", MidiBackend::KernelStreaming},
+        {L"rt:loop", "Loop", L"Loop", MidiBackend::WinRT}};
+    const auto groups = GroupDevices(inputs);
+    Require(groups.size() == 2 && groups[0].inputs.size() == 3, "one piano is one row with three transports");
+    Require(PreferredInput(groups[0], {}) == L"ks:piano", "new device selection prefers Kernel Streaming when present");
+    Require(PreferredInput(groups[0], L"mm:piano") == L"mm:piano", "reselection retains the chosen transport");
+    Require(SelectedGroup(groups, L"rt:loop") == &groups[1], "transport selection belongs to the selected device");
+    inputs.push_back({L"rt:second", "Piano", L"Piano", MidiBackend::WinRT});
+    const auto separate = GroupDevices(inputs);
+    Require(separate.size() == 5, "same-name devices must fall back to individual ids, not merge keyboards");
+    std::set<std::wstring> ids;
+    for (const auto& group : separate) {
+        Require(group.inputs.size() == 1, "ambiguous names cannot offer another keyboard as a transport");
+        ids.insert(PreferredInput(group, {}));
+    }
+    Require(ids.size() == inputs.size(), "every ambiguous port stays independently selectable");
+    Require(GroupDevices({{L"one", "Same"}, {L"two", "Same"}}).size() == 2, "missing group metadata falls back to ids");
+    std::cout << "PASS device grouping, transport retention and same-name id fallback\n";
+}
+
+void ShellLogTests(const std::filesystem::path& config) {
+    auto& log = shell::ShellLog::Instance();
+    log.Clear();
+    auto* oldOut = std::cout.rdbuf(); auto* oldErr = std::cerr.rdbuf();
+    auto* oldWide = std::wcerr.rdbuf(); auto* oldClog = std::clog.rdbuf();
+    {
+        shell::CaptureShellLog capture;
+        std::cout << "output line\n";
+        std::cerr << "read failed\n";
+        std::wcerr << L"Kernel Streaming \u97f3\u4e50 read failed\n";
+        std::wcout << L"wide output\n";
+        std::clog << "diagnostic\n"; std::wclog << L"wide diagnostic\n";
+        std::cout << "partial";
+        const auto first = log.Snapshot();
+        Require(first->find("partial") != std::string::npos, "partial messages are visible without a newline");
+        Require(first->find("[error] read failed") != std::string::npos, "stderr reaches the visible log");
+        Require(first->find("Kernel Streaming \xe9\x9f\xb3\xe4\xb9\x90 read failed") != std::string::npos, "wide KS errors preserve Unicode");
+        Require(first->find("wide output") != std::string::npos && first->find("wide diagnostic") != std::string::npos,
+                "wide and diagnostic streams are captured");
+        std::vector<std::thread> writers;
+        for (int i = 0; i < 4; ++i) writers.emplace_back([] { for (int j = 0; j < 100; ++j) std::cout << "writer line\n"; });
+        for (auto& writer : writers) writer.join();
+        const auto concurrent = log.Snapshot();
+        size_t count = 0, pos = 0;
+        while ((pos = concurrent->find("writer line", pos)) != std::string::npos) { ++count; ++pos; }
+        Require(count == 400, "concurrent log writers lose no messages");
+        Require(first->find("writer line") == std::string::npos, "published log snapshots remain immutable");
+        std::cout << std::string(shell::ShellLog::Capacity + 100, 'x');
+        Require(log.Snapshot()->size() <= shell::ShellLog::Capacity, "log history is bounded");
+        shell::ShellEngine engine(config);
+        Await([&] { return !engine.Snapshot()->curves.empty(); }, "log test engine did not initialize");
+        engine.Send({shell::ShellEngine::Action::ClearLog});
+        Await([&] { return engine.Snapshot()->log->empty(); }, "Clear Log did not clear the engine snapshot");
+        std::wcerr << L"idle callback error\n";
+        Await([&] { return engine.Snapshot()->log->find("idle callback error") != std::string::npos; },
+              "log snapshot did not refresh while the engine worker slept");
+    }
+    Require(std::cout.rdbuf() == oldOut && std::cerr.rdbuf() == oldErr && std::wcerr.rdbuf() == oldWide &&
+        std::clog.rdbuf() == oldClog, "capture restores the host streams");
+    log.Clear();
+    std::cout << "PASS shell log: wide errors, partial messages, concurrency, retention, idle refresh and Clear Log\n";
+}
+
+void WriteHeldNoteFixture(const std::filesystem::path& path, uint8_t note) {
+    const std::vector<uint8_t> bytes{'M','T','h','d',0,0,0,6,0,0,0,1,1,0xe0,
+        'M','T','r','k',0,0,0,13,0,0x90,note,80,0x8f,0,0x80,note,0,0,0xff,0x2f,0};
+    std::ofstream output(path, std::ios::binary);
+    output.write(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+}
+
+bool HasKey(const std::vector<Captured>& events, WORD scan, bool down) {
+    return std::any_of(events.begin(), events.end(), [&](const Captured& e) {
+        return e.input.ki.wScan == scan && ((e.input.ki.dwFlags & KEYEVENTF_KEYUP) == 0) == down;
+    });
+}
+bool OnlyModifierReleases(const std::vector<Captured>& events) {
+    return std::all_of(events.begin(), events.end(), [](const Captured& event) {
+        return (event.input.ki.dwFlags & KEYEVENTF_KEYUP) &&
+            (event.input.ki.wVk == VK_MENU || event.input.ki.wVk == VK_CONTROL);
+    });
+}
+void AwaitKey(WORD scan, bool down, const char* error) {
+    Await([&] { std::lock_guard lock(capturedMutex); return HasKey(captured, scan, down); }, error);
+}
+
+void OutRangeSwitchTests(const std::filesystem::path& directory) {
+    using A = shell::ShellEngine::Action;
+    const auto config = directory / L"out-range-switch.json", fixture = directory / L"held-low.mid";
+    nlohmann::json settings;
+    { std::ifstream file(directory / L"config.json"); file >> settings; }
+    settings["SHELL_88_KEYS"] = false;
+    settings["SHELL_OUT_RANGE"] = true;
+    settings["KEY_MAPPINGS"]["LIMITED"]["A2"] = "a";
+    { std::ofstream file(config); file << settings; }
+    WriteHeldNoteFixture(fixture, 21);
+    FakeMidiInput* input = nullptr;
+    SetMidiInputFactory([&](MidiBackend) { auto fake = std::make_unique<FakeMidiInput>(); input = fake.get(); return fake; });
+    struct Restore { ~Restore() { SetMidiInputFactory({}); } } restore;
+    const auto caller = GetCurrentThreadId();
+    {
+        shell::ShellEngine engine(config);
+        engine.Send({A::Load, fixture});
+        Await([&] { return engine.Snapshot()->loaded == fixture; }, "OutRange fixture did not load");
+        const auto generation = engine.Snapshot()->generation;
+        Require(engine.Snapshot()->outRange, "OutRange choice was not restored");
+        TakeCaptured();
+        engine.Send({A::Play, {}, generation});
+        AwaitKey(0x1e, true, "OutRange autoplay did not fold A0 to the A2 binding");
+        TakeCaptured();
+        engine.Send({A::OutRange, {}, 0, 0, false});
+        Await([&] { return !engine.Snapshot()->outRange; }, "OutRange did not switch off");
+        const auto releases = TakeCaptured();
+        Require(HasKey(releases, 0x1e, false), "OutRange switch left the folded autoplay key held");
+        Require(!engine.Snapshot()->playing, "OutRange switch must pause autoplay before changing the fold");
+        for (const auto& event : releases) Require(event.thread != caller, "OutRange release ran on the UI thread");
+        engine.Send({A::OutRange, {}, 0, 0, true});
+        shell::ShellEngine::Command open{A::LiveOpen}; open.device = L"winmm:0|Test piano"; engine.Send(open);
+        Await([&] { return engine.Snapshot()->liveActive; }, "live OutRange input did not open");
+        TakeCaptured(); input->Deliver({0x90, 21, 80});
+        Require(HasKey(TakeCaptured(), 0x1e, true), "live OutRange did not fold the low note");
+        engine.Send({A::OutRange, {}, 0, 0, false});
+        Await([&] { return !engine.Snapshot()->outRange; }, "live OutRange switch did not finish");
+        Require(engine.Snapshot()->liveActive, "live input should reopen after changing OutRange");
+        const auto liveRelease = TakeCaptured();
+        Require(HasKey(liveRelease, 0x1e, false), "OutRange switch left the folded live key held");
+        for (const auto& event : liveRelease) Require(event.thread != caller, "live OutRange release ran on the UI thread");
+        input->Deliver({0x90, 21, 80});
+        Require(!HasKey(TakeCaptured(), 0x1e, true), "disabled OutRange still folds live input");
+        engine.Send({A::Stop});
+        Await([&] { return !engine.Snapshot()->liveActive; }, "Stop did not disable live input");
+    }
+    {
+        shell::ShellEngine engine(config);
+        Await([&] { return !engine.Snapshot()->curves.empty(); }, "OutRange restart did not initialize");
+        Require(!engine.Snapshot()->outRange, "OutRange switch did not persist");
+    }
+    std::cout << "PASS OutRange switch: folded autoplay and live keys released before remapping, off-UI dispatch, persistence\n";
+}
+
+void CountdownTests(const std::filesystem::path& directory) {
+    using A = shell::ShellEngine::Action;
+    const auto config = directory / L"countdown.json", fixture = directory / L"countdown.mid";
+    nlohmann::json settings;
+    { std::ifstream file(directory / L"config.json"); file >> settings; }
+    settings["SHELL_PLAYBACK_DELAY"] = 1;
+    settings["KEY_MAPPINGS"]["FULL"]["C4"] = "a";
+    settings["SHELL_88_KEYS"] = true;
+    { std::ofstream file(config); file << settings; }
+    WriteHeldNoteFixture(fixture, 60);
+    shell::ShellEngine engine(config, {}, true);
+    engine.Send({A::Load, fixture});
+    Await([&] { return engine.Snapshot()->loaded == fixture; }, "countdown fixture did not load");
+    auto generation = engine.Snapshot()->generation;
+    TakeCaptured();
+    engine.Send({A::Play, {}, generation});
+    Await([&] { return !engine.Snapshot()->error.empty(); }, "unacknowledged autoplay was not rejected");
+    Require(!HasKey(TakeCaptured(), 0x1e, true), "typing warning gate allowed an autoplay note");
+    engine.Send({A::AcknowledgeTyping});
+    Await([&] { return engine.Snapshot()->typingAcknowledged; }, "warning acknowledgment did not apply");
+    TakeCaptured();
+    auto armed = std::chrono::steady_clock::now();
+    engine.Send({A::PlayCountdown, {}, generation});
+    Await([&] { return engine.Snapshot()->playbackCountdown == 1; }, "mouse Play did not arm the countdown");
+    std::this_thread::sleep_for(150ms);
+    Require(!HasKey(TakeCaptured(), 0x1e, true), "countdown typed a note before expiry");
+    AwaitKey(0x1e, true, "countdown expired without starting playback");
+    Require(std::chrono::steady_clock::now() - armed >= 950ms, "countdown started early");
+    engine.Send({A::Stop});
+    Await([&] { return !engine.Snapshot()->playing; }, "countdown playback did not stop");
+    for (const auto cancel : {A::PlayCountdown, A::TogglePlayPause, A::Stop, A::Seek, A::Restart, A::Load}) {
+        TakeCaptured();
+        generation = engine.Snapshot()->generation;
+        engine.Send({A::PlayCountdown, {}, generation});
+        Await([&] { return engine.Snapshot()->playbackCountdown == 1; }, "countdown did not rearm");
+        engine.Send({cancel, cancel == A::Load ? fixture : std::filesystem::path{}, generation});
+        Await([&] { return engine.Snapshot()->playbackCountdown == 0; }, "transport action did not cancel countdown");
+        std::this_thread::sleep_for(1050ms);
+        Require(!HasKey(TakeCaptured(), 0x1e, true), "cancelled countdown still typed a note");
+    }
+    generation = engine.Snapshot()->generation;
+    engine.Send({A::PlayCountdown, {}, generation - 1});
+    engine.Send({A::PlaybackDelay, {}, 0, 0, false, 0});
+    Await([&] { return engine.Snapshot()->playbackDelay == 0; }, "zero countdown did not apply");
+    Require(engine.Snapshot()->playbackCountdown == 0, "a stale generation armed a countdown");
+    TakeCaptured(); engine.Send({A::PlayCountdown, {}, generation});
+    AwaitKey(0x1e, true, "zero-delay mouse Play did not start");
+    engine.Send({A::Stop});
+    Await([&] { return !engine.Snapshot()->playing; }, "zero-delay playback did not stop");
+    std::cout << "PASS mouse countdown: no early output, expiry, cancellation, stale generation, zero delay, warning gate\n";
+}
+
+void LibraryParityTests(const std::filesystem::path& directory) {
+    using A = shell::ShellEngine::Action;
+    using Sort = shell::FileSort;
+    const auto folder = directory / L"parity-library";
+    std::filesystem::create_directories(folder);
+    const auto alpha = folder / L"Alpha.mid", beta = folder / L"beta.mid", gamma = folder / L"Gamma.mid";
+    WriteTrackFixture(alpha); WriteHeldNoteFixture(beta, 60); WriteTrackFixture(gamma);
+    const auto now = std::filesystem::file_time_type::clock::now();
+    std::filesystem::last_write_time(alpha, now - 3h);
+    std::filesystem::last_write_time(beta, now - 1h);
+    std::filesystem::last_write_time(gamma, now - 2h);
+    const auto config = directory / L"library-parity.json";
+    nlohmann::json settings;
+    { std::ifstream file(directory / L"config.json"); file >> settings; }
+    settings["LEGIT_MODE_SETTINGS"]["NOTE_SKIP_CHANCE"] = 1.0;
+    settings["LEGIT_MODE_SETTINGS"]["EXTRA_DELAY_CHANCE"] = 0.0;
+    settings["LEGIT_MODE_SETTINGS"]["TIMING_VARIATION"] = 0.0;
+    { std::ofstream file(config); file << settings; }
+    {
+        shell::ShellEngine engine(config);
+        engine.Send({A::Scan, folder});
+        Await([&] { return engine.Snapshot()->files->size() == 3; }, "library fixture did not scan");
+        const auto sort = [&](Sort by, bool descending, const std::filesystem::path& first, const std::filesystem::path& last) {
+            engine.Send({A::SortFiles, {}, 0, 0, descending, static_cast<double>(by)});
+            Await([&] { const auto s = engine.Snapshot(); return s->fileSort == by && s->descendingFiles == descending &&
+                s->files->front().path == first && s->files->back().path == last; }, "library sort produced the wrong endpoints");
+        };
+        sort(Sort::Name, false, alpha, gamma); sort(Sort::Name, true, gamma, alpha);
+        sort(Sort::Size, false, beta, gamma); sort(Sort::Size, true, gamma, beta);
+        sort(Sort::Modified, false, alpha, beta); sort(Sort::Modified, true, beta, alpha);
+        Require(engine.Snapshot()->files->front().modified == std::filesystem::last_write_time(beta), "scan omitted modification dates");
+        engine.Send({A::Load, beta});
+        Await([&] { return engine.Snapshot()->loaded == beta; }, "library selection did not load");
+        TakeCaptured();
+        const auto step = [&](A action, const std::filesystem::path& expected) {
+            const auto generation = engine.Snapshot()->generation;
+            engine.Send({action, {}, generation});
+            Await([&] { return engine.Snapshot()->generation > generation && engine.Snapshot()->loaded == expected; }, "Prev/Next lost the sorted order or wrap");
+        };
+        step(A::Previous, alpha); step(A::Next, beta); step(A::Next, gamma);
+        Require(!engine.Snapshot()->playing && OnlyModifierReleases(TakeCaptured()), "stopped file navigation typed a note");
+        engine.Send({A::LegitMode, {}, 0, 0, true});
+        Await([&] { return engine.Snapshot()->legitMode; }, "Legit Mode did not enable");
+        step(A::Next, alpha);
+        Require(engine.Snapshot()->legitMode, "Load discarded Legit Mode");
+        TakeCaptured(); engine.Send({A::Play, {}, engine.Snapshot()->generation});
+        Await([&] { return engine.Snapshot()->playing; }, "Legit Mode playback did not start");
+        Await([&] { return !engine.Snapshot()->playing; }, "Legit Mode playback did not finish");
+        const auto skipped = TakeCaptured();
+        Require(std::none_of(skipped.begin(), skipped.end(), IsNotePress), "Load reset the real Legit Mode flag and typed notes that should be skipped");
+        engine.Send({A::LegitMode, {}, 0, 0, false});
+        engine.Send({A::Shuffle, {}, 0, 0, true});
+        Await([&] { return engine.Snapshot()->shuffle; }, "shuffle did not enable");
+        const auto generation = engine.Snapshot()->generation;
+        TakeCaptured(); engine.Send({A::Play, {}, generation});
+        Await([&] { return engine.Snapshot()->generation > generation; }, "shuffle never advanced after playback ended");
+        Require(engine.Snapshot()->loaded != alpha, "shuffle immediately repeated the same file despite alternatives");
+        Await([&] { return engine.Snapshot()->playing; }, "shuffle loaded but did not play the next file");
+        engine.Send({A::Stop});
+        Await([&] { return !engine.Snapshot()->playing; }, "shuffle did not stop");
+        const auto stoppedGeneration = engine.Snapshot()->generation;
+        // Model a completion that had already queued its advance when Stop
+        // arrived. Stop must invalidate that work even with the same score id.
+        engine.Send({A::Next, {}, stoppedGeneration, 0, false, 1});
+        TakeCaptured(); std::this_thread::sleep_for(650ms);
+        Require(!engine.Snapshot()->playing && engine.Snapshot()->generation == stoppedGeneration && TakeCaptured().empty(),
+                "Stop allowed shuffle to start another song");
+        engine.Send({A::LegitMode, {}, 0, 0, true});
+        engine.Send({A::PlaybackDelay, {}, 0, 0, false, 4});
+        Await([&] { return engine.Snapshot()->playbackDelay == 4; }, "saved settings did not apply");
+    }
+    {
+        shell::ShellEngine engine(config);
+        Await([&] { return !engine.Snapshot()->curves.empty(); }, "library settings did not restart");
+        const auto state = engine.Snapshot();
+        Require(state->legitMode && state->shuffle && state->fileSort == Sort::Modified && state->descendingFiles &&
+                state->playbackDelay == 4, "parity settings failed to persist across restart");
+        engine.Send({A::Load, beta});
+        Await([&] { return engine.Snapshot()->loaded == beta; }, "persisted Legit Mode load did not complete");
+        Require(engine.Snapshot()->legitMode, "restarted file load discarded Legit Mode");
+    }
+    std::cout << "PASS library sort, metadata, Prev/Next wrap, stopped navigation, shuffle completion/Stop, parity persistence\n";
+}
+
+void ConnectAndWarningTests(const std::filesystem::path& directory) {
+    using A = shell::ShellEngine::Action;
+    FakeMidiInput* input = nullptr;
+    bool allowOpen = true;
+    std::vector<DWORD> factoryThreads;
+    SetMidiInputFactory([&](MidiBackend) {
+        auto fake = std::make_unique<FakeMidiInput>(); fake->allowOpen = allowOpen; input = fake.get();
+        factoryThreads.push_back(GetCurrentThreadId()); return fake;
+    });
+    struct Restore { ~Restore() { SetMidiInputFactory({}); } } restore;
+    const auto caller = GetCurrentThreadId();
+    const auto config = directory / L"connect-parity.json";
+    std::filesystem::copy_file(directory / L"config.json", config, std::filesystem::copy_options::overwrite_existing);
+    {
+        shell::ShellEngine engine(config, {}, true, [] { return std::make_unique<shell::NativeConnectInput>(); });
+        Await([&] { return !engine.Snapshot()->curves.empty(); }, "warning test did not initialize");
+        for (auto action : {A::PlayCountdown, A::LiveOpen, A::LiveActive, A::MidiConnect, A::AutoVolumeCalibrate}) {
+            engine.Send({A::ClearLog});
+            Await([&] { return engine.Snapshot()->error.empty(); }, "warning error did not reset");
+            TakeCaptured();
+            shell::ShellEngine::Command command{action}; command.value = true; command.device = L"winmm:0|Test piano";
+            engine.Send(command);
+            Await([&] { return !engine.Snapshot()->error.empty(); }, "typing warning failed to reject an output route");
+            Require(OnlyModifierReleases(TakeCaptured()) && factoryThreads.empty(), "unacknowledged output opened an input or typed a key");
+        }
+        engine.Send({A::AcknowledgeTyping});
+        Await([&] { return engine.Snapshot()->typingAcknowledged; }, "warning did not acknowledge");
+        shell::ShellEngine::Command open{A::LiveOpen}; open.device = L"winmm:0|Test piano";
+        engine.Send(open);
+        Await([&] { return engine.Snapshot()->liveActive; }, "acknowledged Midi2Key did not open");
+        TakeCaptured(); input->Deliver({0x90, 60, 80});
+        const auto held = TakeCaptured();
+        const auto key = std::find_if(held.begin(), held.end(), IsNotePress);
+        Require(key != held.end(), "Midi2Key did not attack a held note before route change");
+        engine.Send({A::MidiConnect, {}, 0, 0, true});
+        Await([&] { return engine.Snapshot()->midiConnect; }, "MidiConnect did not activate");
+        Require(!engine.Snapshot()->liveActive, "both input routes remained active");
+        Require(HasKey(TakeCaptured(), key->input.ki.wScan, false), "route change left the Midi2Key note held");
+        input->Deliver({0x90, 60, 80});
+        const auto protocol = TakeCaptured();
+        Require(protocol.size() == 10 && protocol.front().input.ki.wScan == 0x37,
+                "MidiConnect toggle did not route the real ten-event numpad protocol");
+        open.device = L"winmm:1|Second piano"; engine.Send(open);
+        Await([&] { return engine.Snapshot()->liveDevice == open.device; }, "MidiConnect device selection did not change");
+        Require(engine.Snapshot()->midiConnect && !engine.Snapshot()->liveActive && input->openedDeviceId() == open.device,
+                "changing devices lost the MidiConnect route or opened the wrong id");
+        TakeCaptured(); input->Deliver({0x80, 60, 0});
+        Require(TakeCaptured().size() == 10, "new device did not deliver the MidiConnect release protocol");
+        engine.Send({A::Stop});
+        Await([&] { return !engine.Snapshot()->midiConnect; }, "Stop did not close MidiConnect");
+        const auto stopped = TakeCaptured();
+        Require(!stopped.empty(), "Stop omitted the MidiConnect release sweep");
+        for (const auto& event : stopped) Require(event.thread != caller, "MidiConnect release ran on the caller thread");
+        allowOpen = false;
+        engine.Send({A::MidiConnect, {}, 0, 0, true});
+        Await([&] { return !engine.Snapshot()->error.empty(); }, "failed MidiConnect open was not reported");
+        Require(!engine.Snapshot()->midiConnect && !engine.Snapshot()->liveActive, "failed route open left an active snapshot");
+        allowOpen = true;
+        engine.Send({A::MidiConnect, {}, 0, 0, true});
+        Await([&] { return engine.Snapshot()->midiConnect; }, "MidiConnect did not recover after open failure");
+        engine.Send({A::LiveActive, {}, 0, 0, true});
+        Await([&] { return engine.Snapshot()->liveActive; }, "switching back to Midi2Key did not reopen input");
+        Require(!engine.Snapshot()->midiConnect, "switching back left MidiConnect active");
+        engine.Send({A::MidiConnect, {}, 0, 0, true});
+        Await([&] { return engine.Snapshot()->midiConnect; }, "shutdown route did not activate");
+        TakeCaptured();
+    }
+    Require(!TakeCaptured().empty(), "shutdown did not release MidiConnect");
+    for (const auto thread : factoryThreads) Require(thread != caller, "an input was opened on the UI thread");
+    std::cout << "PASS warning gates, real MidiConnect protocol, route/device changes, failed open, Stop/shutdown and worker ownership\n";
+}
+
+int wmain(int argc, wchar_t** argv) {
     // Before anything constructs a player, not partway through the run.
     //
     // InjectInput defaults to the real SendInput, and four tests used to
@@ -1492,6 +1847,19 @@ int wmain() {
         const auto directory = std::filesystem::current_path();
         const auto fixture = directory / L"tracks-\u97f3\u4e50.mid";
         WriteTrackFixture(fixture);
+        // Used by the tracked mutation runner. The process-wide injection hook
+        // above stays installed before any filtered test constructs a player.
+        if (argc == 2) {
+            const std::wstring group = argv[1];
+            if (group == L"grouping") DeviceGroupingTests();
+            else if (group == L"log") ShellLogTests(directory / L"config.json");
+            else if (group == L"out-range") OutRangeSwitchTests(directory);
+            else if (group == L"countdown") CountdownTests(directory);
+            else if (group == L"library") LibraryParityTests(directory);
+            else if (group == L"connect") ConnectAndWarningTests(directory);
+            else throw std::runtime_error("Unknown shell test group");
+            return 0;
+        }
         VelocityTelemetryTests();
         WootingMapTests();
         WootingSettingsTests();
@@ -1511,6 +1879,12 @@ int wmain() {
         ControllerTests(directory / L"config.json", fixture);
         LayoutTests(directory);
         AutoVolumeTests(directory / L"config.json", fixture);
+        DeviceGroupingTests();
+        ShellLogTests(directory / L"config.json");
+        OutRangeSwitchTests(directory);
+        CountdownTests(directory);
+        LibraryParityTests(directory);
+        ConnectAndWarningTests(directory);
         std::cout << "PASS all shell tests (injection captured in process)\n";
         return 0;
     } catch (const std::exception& error) {

@@ -1,108 +1,121 @@
-# Panel batch, 2026-09-07
+# Panel batch, 2026-09-08
 
-Worktree: `D:\Dev\mpp-panels`, branch `astra/shell-parity`, base `0be2c79`.
-This batch is **incomplete**. Changes are uncommitted and confined to `ui/`.
+Worktree: `D:\Dev\mpp-panels`, branch `astra/shell-parity`.
+The initial UI batch was committed as `c254d0a` before merging
+`input-path-r5` at `1de7a8c` through merge commit `15679c2`.
+This report supersedes the incomplete report from September 7.
 
-## Implemented
+## Built
 
-- SOLO labels use the button's content rectangle, including in the final table column.
-- Files sort by name, size or modification date in either direction. The worker
-  owns the ordered list, so mini mode and Prev/Next share the order. Sort choice
-  persists in the shell configuration.
-- Raised-surface highlights follow the upper rounded corners.
-- Regular and mini mode share device-pill typography, state-pill padding,
-  strip rows and the four utility slots. Mini mode is now 640 logical pixels
-  wide so these controls fit without changing their treatment.
-- File refresh is an icon. Export is a menu containing only Copy as sheet.
-- Status drawing clips to the interior below its separator, including Loading.
-- Log is reachable from both status bars. It captures cout, cerr, clog and their
-  wide variants, including the KS read failure on wcerr. History is bounded to
-  256 KB. Clear Log and Copy Log are icon controls. This is C++ stream capture,
-  not interception of third-party DLL output written directly to OS handles.
-- Mouse Play starts a cancellable countdown, default 3 seconds, adjustable in
-  Settings. Global Play/Pause is immediate, or cancels an armed countdown.
-  Configured bindings and failed registrations are shown above the transport.
-- Startup requires acknowledgment of the focused-window typing warning before
-  output can start. A reminder remains in the strip. Stop cancels countdowns,
-  stops autoplay and disables live input and MidiConnect.
-- MidiConnect is wired through a worker-owned ConnectInput interface. The
-  native host supplies the real MIDIConnect implementation. Switching between
-  Midi2Key and MidiConnect closes the outgoing input first. Changing devices
-  while MidiConnect is active preserves that route. No MIDI output was added.
-- Legit Mode is available in Settings and survives file loads and restarts.
-- Shuffle Play persists and selects another library file at song completion.
-  Prev/Next wrap through the sorted library; stopped selection stays stopped,
-  while a selection during playback resumes the next file.
-- Window opacity, 40 to 100 percent, is in Settings and persists with the shell
-  preferences. The native host applies it to the main window.
+All eight items in the Owner's UI pass are implemented:
 
-## Cross-seat work still required
+- SOLO is centred over its button's content rectangle, including the last column.
+- Files sort by name, size or modification date, ascending or descending.
+  The worker owns that order, shared by regular mode, mini mode and Prev/Next.
+- Raised highlights follow the rounded upper corners.
+- Both modes share device-pill typography, state-pill padding, strip rows and
+  the same four utility slots. Mini mode is 640 logical pixels wide.
+- File refresh uses the existing Refresh icon.
+- Export opens a menu containing only Copy as sheet.
+- Status text is clipped below the separator, including Loading.
 
-1. Device grouping: MidiInputDevice currently supplies only a backend-specific
-   opaque id, decorated name and backend. Requested from Claude: a stable
-   device/port grouping identity and undecorated display name, with
-   hardware/software/unknown classification where it can be established.
-   Display-name matching cannot safely distinguish identical keyboards. The
-   existing flat list and backend radios remain pending that seam.
-2. OutRange: do not simply enable the current flag. PlaybackCore.cpp:1037 folds
-   the press through transpose_note(), but release_key() at 1074 looks up the
-   original note. A folded press therefore has no matching release. The live
-   fold in MIDI2Key.cpp:292 and autoplay's transpose_note() also disagree.
-   Requested a shared folding/release correction and engine regression tests.
-   The shell OutRange switch is not implemented pending that correction.
-3. New behavior checks: tests/ belongs to Claude. Asked whether this seat may
-   add the checks to tests/ShellTests.cpp or Claude will add them. No answer
-   received, so no test files were edited and no disposable harness was made.
+Sequencing items 2 through 5 are implemented:
 
-ConnectInput is supplied by the native host, so the existing shell and render
-test projects do not need MIDIConnect.cpp just to link ShellEngine. This
-supersedes the earlier request to add it to both test projects. A test that
-uses NativeConnectInput itself will need that source linked.
+- Log is reachable from both status bars, with Clear Log and Copy Log icons.
+  It captures narrow and wide C++ output/error streams, including KS read
+  errors on wcerr. History is bounded to 256 KB and refreshes while the engine
+  worker sleeps. It does not intercept third-party DLL output sent directly
+  to operating-system handles. The log opens inside the current viewport,
+  including mini mode.
+- Actual configured transport bindings and registration failures appear beside
+  playback. Mouse Play starts a cancellable countdown, default 3 seconds,
+  configurable from 0 to 10. Global Play/Pause remains immediate and cancels
+  an armed countdown. Stop, Load, Seek and Restart also cancel it.
+- Devices group on MidiInputDevice::group. The selected row has a transport
+  selector; changing it retains the device. Duplicate names on one transport
+  fall back to separate opaque IDs, with distinct port labels and ID tooltips.
+  No hardware/software classification is guessed. Native inspection showed
+  four MIDI device groups plus the separate direct Wooting route.
+- MidiConnect uses the real MIDIConnect implementation through a worker-owned
+  ConnectInput interface. Route changes close the outgoing input first.
+  Device changes retain the active MidiConnect route. Stop and shutdown close
+  it and release its keys. This is the existing keyboard protocol, not MIDI output.
+- OutRange is available in Settings for 61-key mode and persists. Switching it
+  closes live callbacks and releases held autoplay/live keys before changing
+  the folding flag, then reopens the selected live input with its prior state.
+  88-key mode disables the fold while preserving the preference.
+- Legit Mode is available in Settings and remains applied after Load and restart.
+- Shuffle Play persists and chooses another library file at song completion.
+  Prev/Next wrap in the sorted list; stopped selection stays stopped and a
+  selection during playback resumes. Stop invalidates a queued shuffle advance.
+- Window opacity, 40 to 100 percent, is available in Settings and persists.
+- A startup warning explains focused-window typing and Ctrl shortcuts before
+  output is enabled. A reminder stays visible in both modes. Acknowledgment
+  gates autoplay, live input, MidiConnect and AutoVol calibration.
 
-## Regression checks to add to ShellTests.cpp
+## Persistent verification
 
-- FileBefore and Scan/SortFiles: both directions, equal size/date tie-breaking,
-  modification metadata, persisted sort, mini and Prev/Next sharing the list.
-- CaptureShellLog: narrow and wide errors, partial output, Unicode, concurrent
-  writers, retention bound, snapshot refresh while the worker sleeps, ClearLog,
-  and restoration of all stream buffers on destruction.
-- PlayCountdown: no note before expiry, output after expiry, second click and
-  Stop cancellation, Load/Seek/Restart cancellation, stale generation rejected,
-  zero delay, configured delay surviving restart. Capture every injected event.
-- Require acknowledgment in the constructor, attempt Play, PlayCountdown,
-  LiveOpen, LiveActive, MidiConnect and AutoVolumeCalibrate, and assert no output
-  before AcknowledgeTyping. Normal output works after acknowledgment.
-- Fake ConnectInput: Open/Activate/Close thread ownership, failed open, switching
-  routes, device change retaining MidiConnect, Stop and shutdown closing it.
-- Legit Mode persists and remains enabled through a fresh Load.
-- Prev/Next wrap in both directions, selecting while stopped emits no notes,
-  playback advances under shuffle without immediate self-repeat when another
-  file exists, and Stop does not start another file.
+Behaviour checks live in `tests/ShellTests.cpp`. InjectInput is captured before
+any player is constructed. NativeConnectInput is tested with the substituted
+MIDI factory, including its actual numpad protocol and worker-thread ownership.
+No behaviour or render test types into the desktop.
 
-Extend RenderTests with 125 percent, mini Live and Autoplay, settings, Log,
-countdown, sort and export menus, and the startup warning. The current test
-renders regular mode only, with Key Mapping obscuring much of Tracks, and
-still uses different canvas heights by skin rather than Panels::DesiredSize.
+Coverage includes grouping and duplicate names; log Unicode, partial messages,
+concurrent writers, retention, Clear Log and idle snapshot refresh; actual
+held-note release during OutRange changes in autoplay and live input; countdown
+expiry, early-output exclusion and cancellation; warning gates; sorting,
+Prev/Next, real Legit Mode behavior after Load, shuffle and persistence; and
+MidiConnect route changes, failed opens, Stop and destruction.
 
-## Verification state
+`tests/run-shell-parity-mutations.ps1` is checked in. All nine deliberate
+regressions were killed by their expected assertion, followed by restored
+baseline passes:
 
-- Baseline tests/run-shell-tests.ps1 passed before edits, including the layout
-  and AutoVol mutation-defended regressions.
-- The final tests/run-shell-tests.ps1 -Render run passed all existing behavior
-  checks and all four skins at 100, 150 and 200 percent, returning to 100.
-- The final Release/x64 build succeeded at
-  `build/shell-parity-verify/MIDIShell.exe`. The usual `build/shell` executable
-  was still open for inspection and could not be overwritten. It is an earlier
-  build and does not contain the final log-placement and route-retention fixes.
-- Native UI inspected on the owner's 125 percent display: startup warning,
-  configured key labels, regular/mini pill and utility-slot consistency, mini
-  Live and Autoplay, and real engine error text in Log.
-- That inspection found Log could open beyond the mini window. Its initial
-  position and size are now constrained; the correction still needs native
-  inspection. Native input stopped after the interruption.
-- No latency suite, physical keyboard performance, real-game MidiConnect,
-  new countdown injection timing, shuffle playback or opacity interaction has
-  been claimed as verified. New behavior checks are still required.
+1. Omit the autoplay release during an OutRange switch.
+2. Omit the live mapped-key release during an OutRange switch.
+3. Merge duplicate device names despite duplicate backend rows.
+4. Stop capturing wide stderr.
+5. Start typing before the countdown expires.
+6. Bypass the startup acknowledgment gate.
+7. Reset the real Legit Mode flag on Load.
+8. Leave MidiConnect running after Stop.
+9. Accept a queued shuffle advance after Stop.
 
+The runner restores original source bytes even on failure and rebuilds the
+baseline. Detailed logs are generated in `build/parity-mutations`.
+
+`tests/run-shell-tests.ps1 -Render` runs the complete behaviour suite, including
+0248ff0/dea0965 regressions, and the actual DX11 renderer. Render scenarios cover
+all four skins at 100, 125, 150 and 200 percent, then return to 100 percent.
+They include regular mode, both mini modes, Log, Settings, sort and export
+menus, full and mini countdowns, the startup warning and mini Log. The harness
+asserts popup isolation and font scaling. PNGs go to `build/render-tests`.
+
+Native inspection at the owner's 125 percent display covered the startup
+warning, visible bindings, Settings through the device pill, grouped device
+names, regular/mini strip consistency, mini Live and Autoplay, log placement,
+real engine errors, Clear Log, and opacity changing to 78 percent and back to
+100 percent. Full layouts were also inspected across every skin and DPI.
+
+Final Release/x64 output is `build/shell/MIDIShell.exe`.
+The earlier native inspection used `build/shell-parity-verify/MIDIShell.exe`;
+the final build also includes the transport selector's matching drawn chevron.
+
+## Checklist corrections and remaining boundaries
+
+SHELL-GAPS.md's claim that the shell pins 88-key mode is stale since 0248ff0.
+The OutRange defect was a guaranteed unmatched release, not a possible one;
+Claude's sounding_note correction is merged, and this batch supplies the
+release-first toggle that the engine correction alone could not provide.
+The old claims that Legit Mode is forced off and the sequencing 2 through 5
+controls are absent are superseded by this implementation.
+
+The duplicate AutoVol call in the original window remains the engine seat's
+item; this batch does not change it. Drum detection, auto-transpose, the
+settable velocity key and other later checklist obligations remain open.
 The velocity editor rewrite, MIDI output and conversion pipeline were not
-started. Nothing in SHELL-GAPS.md was removed or closed as optional.
+started. No item was removed as optional.
+
+Physical MIDI-to-game performance, real-game MidiConnect, acoustic calibration,
+mixed-monitor moves and the desktop-taking latency suite were not verified by
+this batch. The latency suite was not run.

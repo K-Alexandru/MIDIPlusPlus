@@ -108,6 +108,7 @@ void ShellEngine::Run(std::stop_token stop) {
     std::chrono::steady_clock::time_point playbackDue{};
     std::mt19937 random(std::random_device{}());
     bool loadAutoSolo = true;
+    bool shuffleAdvancePending = false;
     std::unique_ptr<VirtualPianoPlayer> player;
     // Destroyed before the player it points at, since it is declared after it.
     std::unique_ptr<MIDI2Key> live;
@@ -130,6 +131,7 @@ void ShellEngine::Run(std::stop_token stop) {
         std::ifstream stream(config_);
         configJson = nlohmann::json::parse(stream);
         state.eightyEightKeys = configJson.value("SHELL_88_KEYS", true);
+        state.outRange = configJson.value("SHELL_OUT_RANGE", false);
         state.playbackDelay = std::clamp(configJson.value("SHELL_PLAYBACK_DELAY", 3), 0, 10);
         state.shuffle = configJson.value("SHELL_SHUFFLE", false);
         state.fileSort = static_cast<FileSort>(std::clamp(configJson.value("SHELL_FILE_SORT", 0), 0, 2));
@@ -162,6 +164,7 @@ void ShellEngine::Run(std::stop_token stop) {
     Publish(state);
     const auto stopPlayback = [&] {
         state.playbackCountdown = 0;
+        shuffleAdvancePending = false;
         if (!player) return;
         player->should_stop.store(true, std::memory_order_release);
         SetEvent(player->command_event);
@@ -245,6 +248,7 @@ void ShellEngine::Run(std::stop_token stop) {
             player->enable_velocity_keypress = state.velocity;
             player->currentSustainMode = state.sustain ? SustainMode::SPACE_DOWN : SustainMode::IG;
             player->eightyEightKeyModeActive = state.eightyEightKeys;
+            player->ENABLE_OUT_OF_RANGE_TRANSPOSE = state.outRange && !state.eightyEightKeys;
             player->legit_mode_active = state.legitMode;
             applyMappings();
         }
@@ -532,6 +536,7 @@ void ShellEngine::Run(std::stop_token stop) {
                 }
                 case Action::Previous:
                 case Action::Next: {
+                    if (command.amount == 1 && (!shuffleAdvancePending || !state.shuffle)) break;
                     if (command.generation != state.generation || state.files->empty()) break;
                     const auto& files = *state.files;
                     const auto found = std::find_if(files.begin(), files.end(), [&](const auto& file) { return file.path == state.loaded; });
@@ -664,7 +669,8 @@ void ShellEngine::Run(std::stop_token stop) {
                 case Action::LiveScan: {
                     state.devices.clear();
                     for (const auto& device : EnumerateMidiInputs())
-                        state.devices.push_back({device.id, Utf8(std::filesystem::path(device.name))});
+                        state.devices.push_back({device.id, Utf8(std::filesystem::path(device.group.empty() ? device.name : device.group)),
+                            device.group, device.backend});
                     break;
                 }
                 case Action::LiveOpen: {
@@ -899,9 +905,12 @@ void ShellEngine::Run(std::stop_token stop) {
                     if (resume && state.position < state.duration) startPlayback();
                     break;
                 }
-                case Action::EightyEightKeys: {
-                    if (state.eightyEightKeys == command.value) break;
-                    auto mappings = configJson.at("KEY_MAPPINGS").at(command.value ? "FULL" : "LIMITED")
+                case Action::EightyEightKeys:
+                case Action::OutRange: {
+                    const bool layoutChange = command.action == Action::EightyEightKeys;
+                    if ((layoutChange ? state.eightyEightKeys : state.outRange) == command.value) break;
+                    const bool layout88 = layoutChange ? command.value : state.eightyEightKeys;
+                    auto mappings = configJson.at("KEY_MAPPINGS").at(layout88 ? "FULL" : "LIMITED")
                         .get<decltype(state.keyMappings)>();
                     const auto device = state.liveDevice;
                     const bool active = state.liveActive;
@@ -912,13 +921,15 @@ void ShellEngine::Run(std::stop_token stop) {
                     stopPlayback();
                     if (live) { player->release_every_mapped_key(); live.reset(); }
                     state.liveActive = false;
-                    state.eightyEightKeys = command.value;
+                    if (layoutChange) state.eightyEightKeys = command.value;
+                    else state.outRange = command.value;
                     state.keyMappings = std::move(mappings);
-                    player->eightyEightKeyModeActive = command.value;
+                    player->eightyEightKeyModeActive = state.eightyEightKeys;
+                    player->ENABLE_OUT_OF_RANGE_TRANSPOSE = state.outRange && !state.eightyEightKeys;
                     applyMappings();
                     ++state.mappingRevision;
                     invalidateSheet();
-                    configJson["SHELL_88_KEYS"] = command.value;
+                    configJson[layoutChange ? "SHELL_88_KEYS" : "SHELL_OUT_RANGE"] = command.value;
                     touchConfig();
                     if (!device.empty() && !state.midiConnect) {
                         live = std::make_unique<MIDI2Key>(player.get());
@@ -1038,8 +1049,10 @@ void ShellEngine::Run(std::stop_token stop) {
                     player->buffer_index.load(std::memory_order_acquire) >= player->note_events.size()) {
                     stopPlayback();
                     state.position = state.duration;
-                    if (state.shuffle && !state.files->empty())
+                    if (state.shuffle && !state.files->empty()) {
+                        shuffleAdvancePending = true;
                         Send({Action::Next, {}, state.generation, 0, loadAutoSolo, 1});
+                    }
                 }
             }
         } catch (const std::exception& error) {

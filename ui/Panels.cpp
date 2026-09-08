@@ -232,15 +232,16 @@ bool StatePills(const Fonts& fonts, const skin::Skin& design, float dpi, ShellEn
     return false;
 }
 
-void DevicePill(const std::string& name, float maxWidth, const skin::Skin& s, float dpi) {
+bool DevicePill(const std::string& name, float maxWidth, const skin::Skin& s, float dpi) {
     const auto min = ImGui::GetCursorScreenPos();
     const float width = std::min(maxWidth, ImGui::CalcTextSize(name.c_str()).x + 26 * dpi);
     skin::RaisedRect(ImGui::GetWindowDrawList(), min, ImVec2(min.x + width, min.y + s.metric.controlHeight),
                      s.radius.control, s, Colour(s.surface.card));
     DrawEllipsis(name, width - 24 * dpi, ImVec2(min.x + 12 * dpi,
         min.y + (s.metric.controlHeight - ImGui::GetTextLineHeight()) / 2));
-    ImGui::Dummy(ImVec2(width, s.metric.controlHeight));
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("%s", name.c_str());
+    const bool clicked = ImGui::InvisibleButton("##device-pill", ImVec2(width, s.metric.controlHeight));
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("%s\nChoose MIDI input in Settings", name.c_str());
+    return clicked;
 }
 
 bool SettingSwitch(const char* label, bool& value, const char* description,
@@ -901,43 +902,52 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
         ImGui::PushStyleColor(ImGuiCol_Text, Colour(s.ink.secondary));
         ImGui::TextUnformatted(label); ImGui::PopStyleColor();
     };
-    section("MIDI INPUT");
+    section("MIDI input");
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12 * dpi, (s.metric.controlHeight - ImGui::GetTextLineHeight()) / 2));
-    // The list and every open command use the ids supplied by ShellEngine.
-    for (const auto backend : {MidiBackend::WinRT, MidiBackend::WinMM,
-                               MidiBackend::KernelStreaming, MidiBackend::WootingAnalog}) {
-        const auto available = std::find_if(state->devices.begin(), state->devices.end(),
-            [&](const LiveDevice& device) { return BackendForDeviceId(device.id) == backend; });
-        ImGui::BeginDisabled(available == state->devices.end());
-        const bool selected = !state->liveDevice.empty() && BackendForDeviceId(state->liveDevice) == backend;
-        if (ImGui::RadioButton(BackendName(backend), selected) && !selected) {
-            ShellEngine::Command command{ShellEngine::Action::LiveOpen}; command.device = available->id; engine.Send(std::move(command));
-        }
-        ImGui::EndDisabled();
-    }
-    ImGui::Separator();
+    const auto groups = GroupDevices(state->devices);
+    const auto* selectedGroup = SelectedGroup(groups, state->liveDevice);
     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - s.metric.controlHeight - 8 * dpi);
     const bool deviceOpen = ImGui::BeginCombo("##midi-input", DeviceName(*state).c_str(), ImGuiComboFlags_NoArrowButton);
     ComboChevron();
     if (deviceOpen) {
         if (ImGui::Selectable("No MIDI input", state->liveDevice.empty())) engine.Send({ShellEngine::Action::LiveOpen});
-        for (size_t i = 0; i < state->devices.size(); ++i) {
-            const auto& device = state->devices[i];
+        for (size_t i = 0; i < groups.size(); ++i) {
+            const auto& group = groups[i];
             ImGui::PushID(static_cast<int>(i));
-            if (ImGui::Selectable(device.name.c_str(), state->liveDevice == device.id)) {
-                ShellEngine::Command command{ShellEngine::Action::LiveOpen}; command.device = device.id; engine.Send(std::move(command));
+            const auto name = group.name + (group.ambiguous ? " (port " + std::to_string(i + 1) + ")" : "");
+            if (ImGui::Selectable(name.c_str(), selectedGroup == &group)) {
+                ShellEngine::Command command{ShellEngine::Action::LiveOpen};
+                command.device = PreferredInput(group, state->liveDevice); engine.Send(std::move(command));
             }
+            if (group.ambiguous && ImGui::IsItemHovered())
+                ImGui::SetTooltip("Same-name ports kept separate.\n%s\n%s", BackendName(group.inputs.front().backend),
+                    Utf8(std::filesystem::path(group.inputs.front().id)).c_str());
             ImGui::PopID();
         }
         ImGui::EndCombo();
     }
     ImGui::SameLine();
     if (IconButton("##scan-midi", Icon::Refresh, "Scan MIDI inputs", s, dpi)) engine.Send({ShellEngine::Action::LiveScan});
+    if (selectedGroup) {
+        ImGui::TextUnformatted("Transport");
+        ImGui::SetNextItemWidth(-1);
+        const bool transportOpen = ImGui::BeginCombo("##device-transport", BackendName(BackendForDeviceId(state->liveDevice)), ImGuiComboFlags_NoArrowButton);
+        ComboChevron();
+        if (transportOpen) {
+            for (const auto& input : selectedGroup->inputs) {
+                if (ImGui::Selectable(BackendName(input.backend), input.id == state->liveDevice)) {
+                    ShellEngine::Command command{ShellEngine::Action::LiveOpen}; command.device = input.id; engine.Send(std::move(command));
+                }
+            }
+            ImGui::EndCombo();
+        }
+    }
+    ImGui::Separator();
     const bool wootingSelected = state->liveDevice == L"wooting:analog" &&
         BackendForDeviceId(state->liveDevice) == MidiBackend::WootingAnalog;
     if (wootingSelected) {
         ImGui::Separator();
-        section("WOOTING ANALOG");
+        section("Wooting Analog");
         const std::array<float, 3> current{
             static_cast<float>(state->wootingTriggerThreshold),
             static_cast<float>(state->wootingShiftAmount),
@@ -1039,7 +1049,14 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
     { FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
       ImGui::TextWrapped("Starts after the MIDI transport; ends at the keyboard hook, before the game. Autoplay starts at event dispatch."); }
     ImGui::Separator();
-    section("BEHAVIOUR");
+    section("Behaviour");
+    ImGui::BeginDisabled(state->eightyEightKeys);
+    bool outRange = state->outRange;
+    if (SettingSwitch("OutRange", outRange,
+        state->eightyEightKeys ? "Switch to 61 Keys to fold notes into its range." :
+        "Folds out-of-range notes into 61 Keys. Changing this pauses autoplay and releases held notes.", fonts, design, dpi))
+        engine.Send({ShellEngine::Action::OutRange, {}, 0, 0, outRange});
+    ImGui::EndDisabled();
     ImGui::TextUnformatted("Mouse play countdown");
     int playbackDelay = state->playbackDelay;
     ImGui::SetNextItemWidth(-1);
@@ -1067,7 +1084,7 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
     SettingSwitch("Always on top", preferences.alwaysOnTop,
         "Keeps the main window above other windows.", fonts, design, dpi);
     ImGui::Separator();
-    section("APPEARANCE");
+    section("Appearance");
     ImGui::TextUnformatted("Window opacity");
     ImGui::SetNextItemWidth(-1);
     ImGui::SliderInt("##window-opacity", &preferences.opacity, 40, 100, "%d%%");
@@ -1229,7 +1246,7 @@ void Panels::DrawMini(HWND hwnd, const Fonts& fonts, const skin::Skin& design, f
     draw->AddRectFilled(origin, ImVec2(origin.x + size.x, origin.y + strip), Colour(s.surface.structure));
     ImGui::SetCursorScreenPos(ImVec2(origin.x + pad, origin.y + 12 * dpi));
     { FontScope deviceFont(fonts, design, design.type.body * SpecFontScale(design), Weight::Medium);
-      DevicePill(DeviceName(*state), std::max(40 * dpi, size.x - 360 * dpi), s, dpi); }
+      if (DevicePill(DeviceName(*state), std::max(40 * dpi, size.x - 360 * dpi), s, dpi)) ImGui::OpenPopup("Settings"); }
     const float utilityX = origin.x + size.x - pad - 4 * control - 3 * s.spacing.s2;
     ImGui::SetCursorScreenPos(ImVec2(utilityX - 172 * dpi, origin.y + 12 * dpi));
     {
@@ -1393,7 +1410,7 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     dl->AddLine(ImVec2(origin.x, origin.y + strip), ImVec2(origin.x + size.x, origin.y + strip), Colour(s.border.hairline));
     ImGui::SetCursorScreenPos(ImVec2(origin.x + s.spacing.windowPad, origin.y + stripPad));
     { FontScope font(fonts, design, design.type.body * SpecFontScale(design), Weight::Medium);
-      DevicePill(DeviceName(*state), size.x - 240 * dpi, s, dpi); }
+      if (DevicePill(DeviceName(*state), size.x - 240 * dpi, s, dpi)) ImGui::OpenPopup("Settings"); }
     ImGui::SetCursorScreenPos(ImVec2(origin.x + size.x - s.spacing.windowPad - 4 * s.metric.controlHeight - 3 * s.spacing.s2,
                                     origin.y + stripPad));
     if (IconButton("##mini-mode", Icon::Mini, "Mini mode", s, dpi)) miniMode = true;

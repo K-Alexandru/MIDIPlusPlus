@@ -5,6 +5,7 @@
 #include "LibraryModel.hpp"
 #include "ShellLog.hpp"
 #include "ConnectInput.hpp"
+#include "DeviceModel.hpp"
 #include "../MIDI++/VelocityTelemetry.hpp"
 #include <condition_variable>
 #include <deque>
@@ -15,7 +16,6 @@
 #include <map>
 
 namespace shell {
-struct LiveDevice { std::wstring id; std::string name; };
 struct EngineSnapshot {
     std::shared_ptr<const std::vector<MidiEntry>> files = std::make_shared<const std::vector<MidiEntry>>();
     std::vector<TrackRow> rows;
@@ -45,6 +45,7 @@ struct EngineSnapshot {
     bool velocity = false;
     bool sustain = true;
     bool eightyEightKeys = true;
+    bool outRange = false;
     bool autoVolume = false;
     bool autoVolumeNeedsCalibration = false;
     int autoVolumeCountdown = 0;
@@ -103,7 +104,7 @@ public:
                         WootingTriggerThreshold, WootingShiftAmount, WootingVelocityScale, EightyEightKeys,
                         AutoVolumeScan, AutoVolumeCalibrate, AutoVolumeOff, AutoVolumeCancel, ClearLog,
                         PlayCountdown, PlaybackDelay, AcknowledgeTyping,
-                        LegitMode, Shuffle, Previous, Next, SortFiles, MidiConnect };
+                        LegitMode, Shuffle, Previous, Next, SortFiles, MidiConnect, OutRange };
     struct Command {
         Action action;
         std::filesystem::path path;

@@ -2,7 +2,9 @@
 // No desktop window, UI input, or keyboard injection is needed.
 #include "../ui/Panels.hpp"
 #include "backends/imgui_impl_dx11.h"
+#include "imgui_internal.h"
 #include "TrackFixture.hpp"
+#include "../MIDI++/InputHeader.h"
 #include <d3d11.h>
 #include <wincodec.h>
 #include <wrl/client.h>
@@ -52,6 +54,9 @@ void SavePng(ID3D11Device* device, ID3D11DeviceContext* context, ID3D11Texture2D
 }
 
 int wmain() {
+    // Render scenarios may arm a countdown. Capture before constructing any
+    // player, just as ShellTests does, so even a regression cannot type out.
+    InjectInput = [](ULONG count, LPINPUT, int) -> UINT { return count; };
     try {
         Check(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED));
         ComPtr<ID3D11Device> device;
@@ -67,21 +72,47 @@ int wmain() {
         const auto fixture = folder / L"tracks.mid";
         WriteTrackFixture(fixture);
         shell::ShellEngine engine(folder / L"config.json");
+        shell::ShellEngine warningEngine(folder / L"config.json", {}, true);
         engine.Send({shell::ShellEngine::Action::Load, fixture, 0, 0, true});
         const auto deadline = std::chrono::steady_clock::now() + 10s;
         while (engine.Snapshot()->loaded.empty() && engine.Snapshot()->error.empty() && std::chrono::steady_clock::now() < deadline)
             std::this_thread::sleep_for(5ms);
         Require(!engine.Snapshot()->loaded.empty(), "fixture failed to load");
+        engine.Send({shell::ShellEngine::Action::LiveScan});
         engine.Send({shell::ShellEngine::Action::Scan, folder});
+        const auto scanDeadline = std::chrono::steady_clock::now() + 15s;
+        while (engine.Snapshot()->folder != folder && std::chrono::steady_clock::now() < scanDeadline)
+            std::this_thread::sleep_for(5ms);
+        Require(engine.Snapshot()->folder == folder, "render fixture scan did not complete");
         shell::Panels panels;
+        panels.preferences.keyMappingOpen = false;
+        panels.transportKeysAvailable.fill(true);
+        panels.stopHotkeyAvailable = true;
         const auto skins = skin::All();
         // Returning to 100% catches cumulative scaling after a monitor move.
-        for (const float dpi : {1.f, 1.5f, 2.f, 1.f}) for (int i = 0; i < 4; ++i) {
+        for (const float dpi : {1.f, 1.25f, 1.5f, 2.f, 1.f}) for (int i = 0; i < 4; ++i)
+        for (int mode = 0; mode < 11; ++mode) {
             panels.preferences.skin = i;
+            panels.miniMode = mode == 1 || mode == 2 || mode == 8 || mode == 10;
+            panels.miniAutoplay = mode == 2 || mode == 8;
+            panels.logOpen = mode == 3 || mode == 10;
+            const char* variants[]{"full", "mini-live", "mini-autoplay", "log", "settings", "sort", "export",
+                                   "countdown", "mini-countdown", "warning", "mini-log"};
+            if (mode == 7 || mode == 8) {
+                engine.Send({shell::ShellEngine::Action::PlaybackDelay, {}, 0, 0, false, 10});
+                engine.Send({shell::ShellEngine::Action::PlayCountdown, {}, engine.Snapshot()->generation});
+                const auto armedBy = std::chrono::steady_clock::now() + 2s;
+                while (!engine.Snapshot()->playbackCountdown && std::chrono::steady_clock::now() < armedBy)
+                    std::this_thread::sleep_for(5ms);
+                Require(engine.Snapshot()->playbackCountdown > 0, "render countdown did not arm");
+            }
+            shell::ShellLog::Instance().Clear();
+            if (panels.logOpen) shell::ShellLog::Instance().Append("[error] Kernel Streaming read failed, live input has stopped.\n");
             skin::ApplyStyle(skins[i], dpi);
             ImGui::GetIO().FontDefault = fonts.Get(skins[i]);
-            const UINT width = static_cast<UINT>(1090 * dpi);
-            const UINT height = static_cast<UINT>((i < 2 ? 635 : 728) * dpi);
+            const auto desired = panels.DesiredSize();
+            const UINT width = static_cast<UINT>(desired.x * dpi);
+            const UINT height = static_cast<UINT>(desired.y * dpi);
             D3D11_TEXTURE2D_DESC desc{};
             desc.Width = width; desc.Height = height; desc.MipLevels = desc.ArraySize = 1;
             desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM; desc.SampleDesc.Count = 1;
@@ -90,11 +121,22 @@ int wmain() {
             ComPtr<ID3D11RenderTargetView> target;
             Check(device->CreateTexture2D(&desc, nullptr, &texture));
             Check(device->CreateRenderTargetView(texture.Get(), nullptr, &target));
-            for (int frame = 0; frame < 4; ++frame) {
+            for (int frame = 0; frame < 7; ++frame) {
+                auto& io = ImGui::GetIO();
+                const auto s = skin::ScaleGeometry(skins[i], dpi);
+                const float leftEdge = s.spacing.windowPad + 336 * dpi - s.spacing.panelPad;
+                const float buttonY = 125 * dpi + s.spacing.windowPad + s.spacing.panelPad + s.metric.controlHeight / 2;
+                if (mode == 5) io.AddMousePosEvent(leftEdge - 1.5f * s.metric.controlHeight - s.spacing.s2, buttonY);
+                else if (mode == 6) io.AddMousePosEvent(width - s.spacing.windowPad - s.spacing.panelPad - 40 * dpi, buttonY);
+                else io.AddMousePosEvent(-1000, -1000);
+                io.AddMouseButtonEvent(0, (mode == 5 || mode == 6) && frame == 3);
                 ImGui::GetIO().DisplaySize = ImVec2(static_cast<float>(width), static_cast<float>(height));
                 ImGui::GetIO().DeltaTime = 1.f / 60;
                 ImGui_ImplDX11_NewFrame();
                 ImGui::NewFrame();
+                // Each capture is independent. Escape only closes a focused
+                // popup and can leave the preceding scenario on screen.
+                if (frame == 0) ImGui::ClosePopupsOverWindow(nullptr, false);
                 ImGui::PushFont(fonts.Get(skins[i]), skins[i].type.body);
                 // ImGui rounds baked font sizes to whole pixels after scaling.
                 Require(std::abs(ImGui::GetFontSize() - skins[i].type.body * dpi) <= .5f, "font scaled more than once");
@@ -104,7 +146,10 @@ int wmain() {
                 ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0);
                 ImGui::Begin("##shell", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoScrollbar);
                 ImGui::PopStyleVar(2);
-                panels.Draw(nullptr, fonts, skins[i], dpi, engine);
+                if (mode == 4 && frame == 2) ImGui::OpenPopup("Settings");
+                panels.Draw(nullptr, fonts, skins[i], dpi, mode == 9 ? warningEngine : engine);
+                if (frame == 6) Require(ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) == ((mode >= 4 && mode <= 6) || mode == 9),
+                                        "render scenario popup did not open or leaked from a previous capture");
                 ImGui::End(); ImGui::PopFont(); ImGui::Render();
                 Require(ImGui::GetDrawData()->TotalVtxCount > 1000, "blank or incomplete frame");
                 const float clear[4]{1, 0, 1, 1};
@@ -113,8 +158,15 @@ int wmain() {
                 ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
             }
             SavePng(device.Get(), context.Get(), texture.Get(),
-                    folder / ("skin-" + std::to_string(i) + "-" + std::to_string(static_cast<int>(dpi * 100)) + ".png"));
-            std::cout << "PASS " << skins[i].name << " at " << static_cast<int>(dpi * 100) << "%\n";
+                    folder / ("skin-" + std::to_string(i) + "-" + std::to_string(static_cast<int>(dpi * 100)) + "-" + variants[mode] + ".png"));
+            if (mode == 7 || mode == 8) {
+                engine.Send({shell::ShellEngine::Action::Stop});
+                const auto stoppedBy = std::chrono::steady_clock::now() + 2s;
+                while (engine.Snapshot()->playbackCountdown && std::chrono::steady_clock::now() < stoppedBy)
+                    std::this_thread::sleep_for(5ms);
+                Require(!engine.Snapshot()->playbackCountdown, "render countdown did not cancel");
+            }
+            std::cout << "PASS " << skins[i].name << " at " << static_cast<int>(dpi * 100) << "% " << variants[mode] << '\n';
         }
         ImGui_ImplDX11_Shutdown(); ImGui::DestroyContext(); CoUninitialize();
         return 0;
