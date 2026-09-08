@@ -77,7 +77,8 @@ public:
             auto devices = winrt::Windows::Devices::Enumeration::DeviceInformation::FindAllAsync(selector).get();
             out.reserve(devices.Size());
             for (auto const& info : devices) {
-                out.push_back({ std::wstring(info.Id()), std::wstring(info.Name()), MidiBackend::WinRT });
+                out.push_back({ std::wstring(info.Id()), std::wstring(info.Name()), MidiBackend::WinRT,
+                                std::wstring(info.Name()) });
             }
         }
         catch (winrt::hresult_error const&) {
@@ -159,7 +160,7 @@ public:
                     std::count(stripped.begin(), stripped.end(), name) > 1;
                 std::wstring shown = ambiguous ? name + L" " + std::to_wstring(i) : name;
                 out.push_back({ kWinMMPrefix + std::to_wstring(i) + L"|" + name,
-                                std::move(shown), MidiBackend::WinMM });
+                                std::move(shown), MidiBackend::WinMM, name });
             }
         }
         catch (RtMidiError const&) {
@@ -273,8 +274,12 @@ std::vector<MidiInputDevice> EnumerateMidiInputs() {
     for (auto& device : winmmInput.enumerate()) {
         // Almost every port shows up on both transports, so say which one this
         // row is, rather than showing the same piano twice with one name.
+        //
+        // `group` keeps the unsuffixed name, so a caller that would rather show
+        // one device with a choice of transport than three near-identical rows
+        // has the answer this comparison already worked out.
         const bool alsoOnWinRT = std::any_of(devices.begin(), devices.begin() + winrtCount,
-            [&](const MidiInputDevice& other) { return other.name == device.name; });
+            [&](const MidiInputDevice& other) { return other.group == device.group; });
         if (alsoOnWinRT) device.name += L" (WinMM)";
         devices.push_back(std::move(device));
     }
@@ -289,6 +294,7 @@ std::vector<MidiInputDevice> EnumerateMidiInputs() {
     {
         auto kernel = CreateKernelStreamingInput();
         for (auto& device : kernel->enumerate()) {
+            device.group = device.name;   // before the suffix, same as the others
             device.name += L" (KS)";
             devices.push_back(std::move(device));
         }
@@ -296,7 +302,13 @@ std::vector<MidiInputDevice> EnumerateMidiInputs() {
 
     if (WootingAnalogAvailable()) {
         auto wooting = CreateWootingAnalogInput();
-        for (auto& device : wooting->enumerate()) devices.push_back(std::move(device));
+        // A Wooting is one row and shares its socket with nothing, so it groups
+        // with itself rather than being left with an empty key that would pool
+        // it together with anything else missing one.
+        for (auto& device : wooting->enumerate()) {
+            if (device.group.empty()) device.group = device.name;
+            devices.push_back(std::move(device));
+        }
     }
     return devices;
 }

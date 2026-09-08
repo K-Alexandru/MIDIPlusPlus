@@ -28,6 +28,20 @@ struct MidiInputDevice {
     std::wstring id;     // opaque, backend-specific, stable enough to reopen with
     std::wstring name;   // for display
     MidiBackend  backend = MidiBackend::WinRT;
+
+    // Which physical device this row is, so rows that are one socket reached
+    // three ways can be grouped instead of listed three times.
+    //
+    // EnumerateMidiInputs already worked this out, to decide whether a name
+    // needed a transport suffix, and then discarded it. So a tester hunting
+    // through three entries for their piano was a matter of the answer being
+    // computed and thrown away.
+    //
+    // It is the display name before any suffix. The limit worth knowing: two
+    // devices that genuinely share a name group together, which is the same
+    // ambiguity the index suffix exists to break, so anything that groups
+    // should still be able to fall back to the id to separate them.
+    std::wstring group;
 };
 
 // timestampQpc is QueryPerformanceCounter ticks taken on entry to the backend
