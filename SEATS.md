@@ -69,8 +69,21 @@ Two consequences worth stating plainly:
   nothing. That is the distinction, and it is the only one. DeepSWE hands the
   model the issue **and** the repo's test; a Discord thread hands it neither.
   Once this seat has named the file and the line, the fix goes to Astra.
-- **Tests.** `tests/` is already this seat's, tests are read-heavy and
-  run-light, and they cost half as much here.
+- **Tests.** `tests/` is this seat's, tests are read-heavy and run-light, and
+  they cost half as much here.
+
+  **But owning the directory does not mean writing every test in it.** Asked by
+  the panel seat on 2026-09-07, and the answer is that whoever built a
+  behaviour writes the check for it, in `tests/ShellTests.cpp`, in the same
+  batch. Handing a list of cases across a seam so the other seat can turn them
+  into assertions is a translation step that buys nothing and loses detail: the
+  panel seat has already had to do it once, when its own checks sat in
+  `build/parity-qa` and were ported by hand.
+
+  What this seat keeps is the file's shape and its invariants: `InjectInput`
+  stays hooked before anything constructs a player, no test types into the
+  desktop, and a test named for a regression has to be shown to fail on it. It
+  reviews what lands rather than writing it.
 - **Holding the repo's history in view.** Which decisions were made, what
   `HANDOFF.md` already answers, and which reported bug is a known open item
   rather than a new one.

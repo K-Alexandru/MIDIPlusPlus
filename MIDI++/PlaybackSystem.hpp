@@ -332,6 +332,7 @@ private:
     // two have to reach the system as one batch.
     void press_key(std::string_view note, char velocityKey = 0) noexcept;
     void release_key(std::string_view note) noexcept;
+    std::string sounding_note(std::string_view note);
     std::string transpose_note(std::string_view note);
     int note_name_to_midi(std::string_view note_name);
     std::string get_note_name(int midi_note);

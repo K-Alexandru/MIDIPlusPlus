@@ -1034,10 +1034,23 @@ void VirtualPianoPlayer::releaseKey(WORD vk) {
     sendVirtualKey(vk, false);
 }
 
+// Which note this one is actually played as.
+//
+// Both halves of a note have to answer this the same way or the release goes
+// looking for a key that was never pressed. press_key folded and release_key
+// did not, so with out-of-range transpose on, an A0 pressed the key mapped to
+// A2 and then released nothing at all: pressed_keys["A0"] was false because
+// the press had set pressed_keys["A2"]. The key stayed down until the panic
+// sweep. It was invisible only because the setting is off by default and the
+// shell pinned 88-key mode, which is what made the fold unreachable.
+//
+// Found by the panel seat on 2026-09-07 while making OutRange reachable.
+std::string VirtualPianoPlayer::sounding_note(std::string_view note) {
+    return ENABLE_OUT_OF_RANGE_TRANSPOSE ? transpose_note(note) : std::string(note);
+}
+
 void VirtualPianoPlayer::press_key(std::string_view note, char velocityKey) noexcept {
-    std::string actual = ENABLE_OUT_OF_RANGE_TRANSPOSE
-                         ? transpose_note(note)
-                         : std::string(note);
+    std::string actual = sounding_note(note);
     const std::string& key = (eightyEightKeyModeActive
                               ? full_key_mappings[actual]
                               : limited_key_mappings[actual]);
@@ -1072,11 +1085,12 @@ void VirtualPianoPlayer::press_key(std::string_view note, char velocityKey) noex
 }
 
 void VirtualPianoPlayer::release_key(std::string_view note) noexcept {
+    const std::string actual = sounding_note(note);
     const std::string& key = (eightyEightKeyModeActive
-                              ? full_key_mappings[std::string(note)]
-                              : limited_key_mappings[std::string(note)]);
+                              ? full_key_mappings[actual]
+                              : limited_key_mappings[actual]);
     if (!key.empty() &&
-        pressed_keys[std::string(note)].exchange(false, std::memory_order_relaxed))
+        pressed_keys[actual].exchange(false, std::memory_order_relaxed))
     {
         KeyPress(key, false);
     }

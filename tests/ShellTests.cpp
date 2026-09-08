@@ -144,6 +144,53 @@ void ReleaseAllKeysTests(const std::filesystem::path& config) {
     player.release_every_mapped_key();
     const auto swept = noteUps(TakeCaptured());
     Require(swept.size() > 40, "the panic path releases every mapped key, held or not");
+    // Out-of-range transpose, which the shell is about to make reachable for
+    // the first time. press_key folded the note and stored pressed_keys under
+    // the folded name; release_key looked up the original. So an A0 pressed the
+    // key mapped to A2 and released nothing, and that key stayed down until the
+    // panic sweep. Found by the panel seat, 2026-09-07.
+    player.ENABLE_OUT_OF_RANGE_TRANSPOSE = true;
+    player.eightyEightKeyModeActive = true;
+    player.note_events = {{0ns, "A0", EventType::Press, 64, 0}, {20ms, "A0", EventType::Release, 0, 0}};
+    TakeCaptured();
+    player.restart_song();
+    std::vector<Captured> folded;
+    const auto isNoteKey = [](const Captured& e) {
+        const WORD scan = e.input.ki.wScan;
+        // The unconditional alt and ctrl events KeyPress emits are not notes.
+        return scan && scan != 0x1D && scan != 0x2A && scan != 0x36 && scan != 0x38;
+    };
+    Await([&] {
+        for (auto& event : TakeCaptured()) folded.push_back(event);
+        return std::any_of(folded.begin(), folded.end(), [&](const Captured& e) {
+            return isNoteKey(e) && (e.input.ki.dwFlags & KEYEVENTF_KEYUP); });
+    }, "the folded note never came back up, which is the stuck key");
+    player.should_stop = true;
+    SetEvent(player.command_event); player.playback_cv.notify_all();
+    player.playback_thread->join(); player.playback_thread.reset();
+    // Drain once more: anything sent between the last poll and the join is
+    // still sitting in the recorder.
+    for (auto& event : TakeCaptured()) folded.push_back(event);
+
+    // A0 is below the 61-key window, so the fold sends it to A2, whose binding
+    // is "6". Both halves have to agree on that or the release goes looking for
+    // A0's own key and finds nothing pressed.
+    constexpr WORD six = 0x07;
+    int downs = 0, ups = 0;
+    for (const auto& event : folded) {
+        const WORD scan = event.input.ki.wScan;
+        // The unconditional alt and ctrl events KeyPress emits are not notes.
+        if (!scan || scan == 0x1D || scan == 0x2A || scan == 0x36 || scan == 0x38) continue;
+        Require(scan == six, "a folded note plays the key its fold chose");
+        (event.input.ki.dwFlags & KEYEVENTF_KEYUP) ? ++ups : ++downs;
+    }
+    Require(downs == 1 && ups == 1, "one press and one release, not a press and silence");
+
+    TakeCaptured();
+    player.release_all_keys();
+    Require(noteUps(TakeCaptured()).empty(), "nothing is left held for the panic sweep to find");
+    player.ENABLE_OUT_OF_RANGE_TRANSPOSE = false;
+
     std::cout << "PASS release_all_keys releases only the keys that are down, and the panic path releases all of them\n";
 }
 
@@ -962,7 +1009,22 @@ void PortResolutionTests() {
         Require(port >= 0 && static_cast<size_t>(port) < live.size(), "an enumerated port must resolve to itself");
         Require(taken.insert(port).second, "two rows must never resolve to the same port");
     }
-    std::cout << "PASS WinMM port resolution across renumbering, duplicates and absent devices\n";
+    // Grouping, asked for by the panel seat so the device list can show one
+    // piano with a choice of transport instead of three near-identical rows.
+    // The answer was already being computed to decide the "(WinMM)" suffix and
+    // then discarded, which is why a tester had to hunt for their keyboard.
+    const auto listed = EnumerateMidiInputs();
+    for (const auto& device : listed) {
+        Require(!device.group.empty(), "every row says which device it is");
+        Require(device.name.rfind(device.group, 0) == 0,
+                "the group is the display name before any transport suffix");
+    }
+    std::map<std::wstring, std::set<int>> byGroup;
+    for (const auto& device : listed) byGroup[device.group].insert(static_cast<int>(device.backend));
+    for (const auto& [group, backends] : byGroup)
+        Require(backends.size() <= 4, "a group is one socket, not an accumulation of unrelated rows");
+    std::cout << "PASS WinMM port resolution across renumbering, duplicates and absent devices ("
+              << listed.size() << " rows in " << byGroup.size() << " device groups)\n";
 }
 
 // Two devices present at once has never actually been confirmed, only designed
