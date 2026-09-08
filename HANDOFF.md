@@ -578,9 +578,11 @@ across five snapshot fields and a mode other controls disable themselves during,
 which is a parallel state machine for one button. The original argument for it
 was that it cost almost nothing to build. That half turned out to be wrong.
 
-So: build undo and redo, remove the compare mode. If a pinned reference is
-missed once undo exists, it returns as "pin" on a preset row, which is a
-bookmark rather than a second edit state.
+So: build undo and redo as the primary control. A/B is kept rather than
+removed, owner 2026-09-07, and moves to Settings as a hidden option. It works,
+removing working code to make a point is worse than leaving it, and keeping it
+one release longer is how we find out whether the pinned reference is missed.
+It just stops occupying a button in the editor, where undo and redo belong.
 
 Supporting requirements:
 
