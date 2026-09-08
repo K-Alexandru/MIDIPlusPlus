@@ -592,9 +592,7 @@ void Panels::DrawAutoVolume(const Fonts& fonts, const skin::Skin& design, float 
             if (key == "Left" || key == "Right" || key == "Up" || key == "Down") key += " arrow";
             return key;
         };
-        ImGui::TextWrapped("After 3 seconds, focuses this window and sends %s 50 times, then %s to set volume to %d%%.",
-            keyLabel(state->volumeDownKey).c_str(), keyLabel(state->volumeUpKey).c_str(), state->volumeInitial);
-        ImGui::TextWrapped("Playback and live input pause. Resume them when calibration finishes. Load a new file or change game volume, then calibrate again.");
+        ImGui::TextWrapped("Presses the volume keys in the selected game to find a known level. Playback pauses.");
         ImGui::Spacing();
         ImGui::BeginDisabled(!selected);
         if (ImGui::Button("Focus game and calibrate", ImVec2(-1, s.metric.controlHeight))) {
@@ -602,6 +600,13 @@ void Panels::DrawAutoVolume(const Fonts& fonts, const skin::Skin& design, float 
             command.window = volumeWindow_;
             engine.Send(std::move(command));
         }
+        // The key-by-key account is here rather than in the panel body: it
+        // matters when a sweep misbehaves, not every time the dialog opens.
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("After 3 seconds, focuses the game and sends %s 50 times, then %s to reach %d%%.\n"
+                              "Calibrate again after loading a new file or changing the game's volume.",
+                              keyLabel(state->volumeDownKey).c_str(), keyLabel(state->volumeUpKey).c_str(),
+                              state->volumeInitial);
         ImGui::EndDisabled();
         ImGui::EndDisabled();
         if (pending) {
