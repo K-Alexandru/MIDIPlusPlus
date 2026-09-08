@@ -107,7 +107,7 @@ void ShellEngine::Run(std::stop_token stop) {
     state.typingAcknowledged = !requireTypingAcknowledgement_;
     std::chrono::steady_clock::time_point playbackDue{};
     std::mt19937 random(std::random_device{}());
-    bool loadAutoSolo = true;
+    bool loadAutoSolo = false;
     bool shuffleAdvancePending = false;
     std::unique_ptr<VirtualPianoPlayer> player;
     // Destroyed before the player it points at, since it is declared after it.

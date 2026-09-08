@@ -10,7 +10,7 @@
 namespace shell {
 struct Preferences {
     int skin = 0;
-    bool autoSolo = true;
+    bool autoSolo = false;
     bool keyMappingOpen = true;
     bool alwaysOnTop = false;
     int opacity = 100;

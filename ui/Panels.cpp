@@ -345,7 +345,7 @@ void Panels::LoadPreferences(const std::filesystem::path& path) {
         if (!stream) return;
         const auto json = nlohmann::json::parse(stream);
         preferences.skin = std::clamp(json.value("skin", 0), 0, 3);
-        preferences.autoSolo = json.value("autoSoloPiano", true);
+        preferences.autoSolo = json.value("autoSoloPiano", false);
         preferences.keyMappingOpen = json.value("keyMappingOpen", true);
         preferences.alwaysOnTop = json.value("alwaysOnTop", false);
         preferences.opacity = std::clamp(json.value("opacity", 100), 40, 100);
@@ -624,8 +624,11 @@ void Panels::DrawAutoVolume(const Fonts& fonts, const skin::Skin& design, float 
 Panels::~Panels() { if (measuring_) input_latency::stop(); }
 
 ImVec2 Panels::DesiredSize() const {
-    if (miniMode) return ImVec2(640, miniAutoplay ? 360.f : 240.f);
-    return ImVec2(1090, velocityExpanded ? 1009.f : 635.f);
+    // Mini has no panel that stretches, so its height is the content: the
+    // 100dpi strip, the rows, one windowPad of air, and the status bar. The old
+    // 240/360 left the difference as blank window below the last control.
+    if (miniMode) return ImVec2(640, miniAutoplay ? 276.f : 184.f);
+    return ImVec2(1090, velocityExpanded ? 984.f : 610.f);
 }
 
 namespace {
@@ -1231,14 +1234,18 @@ void Panels::DrawMini(HWND hwnd, const Fonts& fonts, const skin::Skin& design, f
     FontScope font(fonts, design, design.type.body * SpecFontScale(design));
     const float control = s.metric.controlHeight, pad = s.spacing.windowPad;
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12 * dpi, (control - ImGui::GetTextLineHeight()) / 2));
-    const float strip = 125 * dpi, status = 28 * dpi;
+    // Two rows -- device pill, then state pills -- with equal air above, between
+    // and below. 125dpi was that plus a third row for the typing caption, and
+    // outlived it as dead space.
+    const float stripPad = 12 * dpi;
+    const float strip = 3 * stripPad + 2 * control, status = 28 * dpi;
     auto* draw = ImGui::GetWindowDrawList();
     draw->AddRectFilled(origin, ImVec2(origin.x + size.x, origin.y + strip), Colour(s.surface.structure));
-    ImGui::SetCursorScreenPos(ImVec2(origin.x + pad, origin.y + 12 * dpi));
+    ImGui::SetCursorScreenPos(ImVec2(origin.x + pad, origin.y + stripPad));
     { FontScope deviceFont(fonts, design, design.type.body * SpecFontScale(design), Weight::Medium);
       if (DevicePill(DeviceName(*state), std::max(40 * dpi, size.x - 360 * dpi), s, dpi)) ImGui::OpenPopup("Settings"); }
     const float utilityX = origin.x + size.x - pad - 4 * control - 3 * s.spacing.s2;
-    ImGui::SetCursorScreenPos(ImVec2(utilityX - 172 * dpi, origin.y + 12 * dpi));
+    ImGui::SetCursorScreenPos(ImVec2(utilityX - 172 * dpi, origin.y + stripPad));
     {
         FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
         const auto well = ImGui::GetCursorScreenPos();
@@ -1260,7 +1267,7 @@ void Panels::DrawMini(HWND hwnd, const Fonts& fonts, const skin::Skin& design, f
         ImGui::PopStyleVar(2);
         ImGui::SetCursorScreenPos(ImVec2(well.x + segmentWidth + 8 * dpi, well.y));
     }
-    ImGui::SetCursorScreenPos(ImVec2(utilityX, origin.y + 12 * dpi));
+    ImGui::SetCursorScreenPos(ImVec2(utilityX, origin.y + stripPad));
     if (IconButton("##restore-full", Icon::Expand, "Full window", s, dpi)) miniMode = false;
     ImGui::SameLine();
     ImGui::BeginDisabled();
@@ -1270,7 +1277,7 @@ void Panels::DrawMini(HWND hwnd, const Fonts& fonts, const skin::Skin& design, f
     ImGui::SameLine();
     SettingsControl(fonts, design, dpi, engine,
                     ImVec2(origin.x + size.x - 344 * dpi - s.spacing.windowPad, origin.y + 48 * dpi), 544 * dpi);
-    ImGui::SetCursorScreenPos(ImVec2(origin.x + pad, origin.y + 101 * dpi - control - 13 * dpi));
+    ImGui::SetCursorScreenPos(ImVec2(origin.x + pad, origin.y + 2 * stripPad + control));
     if (StatePills(fonts, design, dpi, engine, true)) autoVolumeOpen = true;
     const float row = origin.y + strip + 8 * dpi;
     ImGui::SetCursorScreenPos(ImVec2(origin.x + pad, row));
@@ -1391,7 +1398,7 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     }
     auto* dl = ImGui::GetWindowDrawList();
     const float stripPad = 12 * dpi;
-    const float strip = 125 * dpi, status = 28 * dpi;
+    const float strip = 3 * stripPad + 2 * s.metric.controlHeight, status = 28 * dpi;
     dl->AddRectFilled(origin, ImVec2(origin.x + size.x, origin.y + strip), Colour(s.surface.structure));
     dl->AddLine(ImVec2(origin.x, origin.y + strip), ImVec2(origin.x + size.x, origin.y + strip), Colour(s.border.hairline));
     ImGui::SetCursorScreenPos(ImVec2(origin.x + s.spacing.windowPad, origin.y + stripPad));
@@ -1409,7 +1416,7 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     ImGui::SameLine();
     SettingsControl(fonts, design, dpi, engine,
                     ImVec2(origin.x + size.x - 344 * dpi - s.spacing.windowPad, origin.y + 48 * dpi), size.y - 52 * dpi);
-    ImGui::SetCursorScreenPos(ImVec2(origin.x + s.spacing.windowPad, origin.y + 101 * dpi - s.metric.controlHeight - stripPad - dpi));
+    ImGui::SetCursorScreenPos(ImVec2(origin.x + s.spacing.windowPad, origin.y + 2 * stripPad + s.metric.controlHeight));
     if (StatePills(fonts, design, dpi, engine, false)) autoVolumeOpen = true;
 
     const float top = origin.y + strip + s.spacing.windowPad;

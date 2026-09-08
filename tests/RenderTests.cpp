@@ -124,7 +124,7 @@ int wmain() {
                 auto& io = ImGui::GetIO();
                 const auto s = skin::ScaleGeometry(skins[i], dpi);
                 const float leftEdge = s.spacing.windowPad + 336 * dpi - s.spacing.panelPad;
-                const float buttonY = 125 * dpi + s.spacing.windowPad + s.spacing.panelPad + s.metric.controlHeight / 2;
+                const float buttonY = 36 * dpi + 2 * s.metric.controlHeight + s.spacing.windowPad + s.spacing.panelPad + s.metric.controlHeight / 2;
                 if (mode == 5) io.AddMousePosEvent(leftEdge - 1.5f * s.metric.controlHeight - s.spacing.s2, buttonY);
                 else if (mode == 6) io.AddMousePosEvent(width - s.spacing.windowPad - s.spacing.panelPad - 40 * dpi, buttonY);
                 else io.AddMousePosEvent(-1000, -1000);
