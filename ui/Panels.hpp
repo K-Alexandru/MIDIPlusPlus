@@ -58,7 +58,6 @@ private:
     void DrawSettings(const Fonts&, const skin::Skin&, float, ShellEngine&);
     void DrawAutoVolume(const Fonts&, const skin::Skin&, float, ShellEngine&);
     void DrawLog(HWND, const Fonts&, const skin::Skin&, float, ShellEngine&);
-    void DrawTypingWarning(const Fonts&, const skin::Skin&, float, ShellEngine&);
     std::string TransportHints() const;
     bool volumeWasOpen_ = false;
     GameWindow volumeWindow_;

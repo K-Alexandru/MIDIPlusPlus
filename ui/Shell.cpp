@@ -245,7 +245,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     shell::Panels panels;
     panels.LoadPreferences(preferencesPath);
     shell::CaptureShellLog captureLog;
-    shell::ShellEngine engine(directory / L"config.json", {}, true,
+    shell::ShellEngine engine(directory / L"config.json", {}, false,
         [] { return std::make_unique<shell::NativeConnectInput>(); });
     g_engine = &engine;
     g_panels = &panels;

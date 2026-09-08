@@ -1150,7 +1150,9 @@ void Panels::DrawStatus(const Fonts& fonts, const skin::Skin& design, float dpi,
     }
     const auto tracks = std::to_string(SilentTracks(state.rows)) + " of " + std::to_string(state.rows.size()) +
         (state.eightyEightKeys ? " tracks silent \xc2\xb7 88-key" : " tracks silent \xc2\xb7 61-key");
-    const float logWidth = 56 * dpi;
+    // Sized from the label. A fixed 56dpi left the caller's frame padding to
+    // clip "Log" inside the button in mini mode.
+    const float logWidth = ImGui::CalcTextSize("Log").x + 24 * dpi;
     const float suffix = logWidth + (miniMode ? 0 : ImGui::CalcTextSize(tracks.c_str()).x + 24 * dpi);
     const float end = min.x + width - s.spacing.windowPad - suffix;
     float x = text.x;
@@ -1167,13 +1169,15 @@ void Panels::DrawStatus(const Fonts& fonts, const skin::Skin& design, float dpi,
         if (x < end) DrawEllipsis(field, end - x, ImVec2(x, text.y));
         x += ImGui::CalcTextSize(field.c_str()).x;
     }
-    if (!miniMode) draw->AddText(ImVec2(min.x + width - s.spacing.windowPad - logWidth - ImGui::CalcTextSize(tracks.c_str()).x, text.y), Colour(s.ink.secondary), tracks.c_str());
+    if (!miniMode) draw->AddText(ImVec2(min.x + width - s.spacing.windowPad - logWidth - 8 * dpi - ImGui::CalcTextSize(tracks.c_str()).x, text.y), Colour(s.ink.secondary), tracks.c_str());
     draw->PopClipRect();
     ImGui::SetCursorScreenPos(text);
     ImGui::InvisibleButton("##status", ImVec2(width - 2 * s.spacing.windowPad - logWidth, ImGui::GetTextLineHeight()));
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", summary.c_str());
-    ImGui::SetCursorScreenPos(ImVec2(min.x + width - s.spacing.windowPad - logWidth + 8 * dpi, min.y + 2 * dpi));
-    if (ImGui::Button("Log", ImVec2(logWidth - 8 * dpi, height - 4 * dpi))) logOpen = !logOpen;
+    ImGui::SetCursorScreenPos(ImVec2(min.x + width - s.spacing.windowPad - logWidth, min.y + 2 * dpi));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+    if (ImGui::Button("Log", ImVec2(logWidth, height - 4 * dpi))) logOpen = !logOpen;
+    ImGui::PopStyleVar();
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Engine output and errors");
 }
 
@@ -1213,25 +1217,6 @@ std::string Panels::TransportHints() const {
         if (!transportKeysAvailable[i]) text += " (unavailable)";
     }
     return text;
-}
-
-void Panels::DrawTypingWarning(const Fonts& fonts, const skin::Skin& design, float dpi, ShellEngine& engine) {
-    if (engine.Snapshot()->typingAcknowledged) return;
-    FontScope font(fonts, design, design.type.body * SpecFontScale(design));
-    ImGui::OpenPopup("Before you play");
-    ImGui::SetNextWindowSize(ImVec2(440 * dpi, 0));
-    if (ImGui::BeginPopupModal("Before you play", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::TextWrapped("MIDI++ types into whichever window has focus. Select your game before playing MIDI notes or starting autoplay.");
-        ImGui::Spacing();
-        ImGui::TextWrapped("Some notes use Ctrl shortcuts. For example, G#1 in the default 88-key layout sends Ctrl+W and can close a browser tab.");
-        ImGui::Spacing();
-        ImGui::TextWrapped("Stop output before returning to another app. The Stop control also turns off live input.");
-        if (ImGui::Button("I understand", ImVec2(-1, 0))) {
-            engine.Send({ShellEngine::Action::AcknowledgeTyping});
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::EndPopup();
-    }
 }
 
 void Panels::DrawMini(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float dpi, ShellEngine& engine,
@@ -1282,9 +1267,6 @@ void Panels::DrawMini(HWND hwnd, const Fonts& fonts, const skin::Skin& design, f
                     ImVec2(origin.x + size.x - 344 * dpi - s.spacing.windowPad, origin.y + 48 * dpi), 544 * dpi);
     ImGui::SetCursorScreenPos(ImVec2(origin.x + pad, origin.y + 101 * dpi - control - 13 * dpi));
     if (StatePills(fonts, design, dpi, engine, true)) autoVolumeOpen = true;
-    { FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
-      DrawEllipsis("Types into the focused window. Select your game before playing.", size.x - 2 * pad,
-                   ImVec2(origin.x + pad, origin.y + 101 * dpi)); }
     const float row = origin.y + strip + 8 * dpi;
     ImGui::SetCursorScreenPos(ImVec2(origin.x + pad, row));
     const auto number = [&](ShellEngine::Action action, double value) { engine.Send({action, {}, state->generation, 0, false, value}); };
@@ -1399,7 +1381,6 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
         DrawMini(hwnd, fonts, design, dpi, engine, origin, size);
         DrawAutoVolume(fonts, design, dpi, engine);
         DrawLog(hwnd, fonts, design, dpi, engine);
-        DrawTypingWarning(fonts, design, dpi, engine);
         mappingArmed_ = false;
         return;
     }
@@ -1425,9 +1406,6 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
                     ImVec2(origin.x + size.x - 344 * dpi - s.spacing.windowPad, origin.y + 48 * dpi), size.y - 52 * dpi);
     ImGui::SetCursorScreenPos(ImVec2(origin.x + s.spacing.windowPad, origin.y + 101 * dpi - s.metric.controlHeight - stripPad - dpi));
     if (StatePills(fonts, design, dpi, engine, false)) autoVolumeOpen = true;
-    { FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
-      DrawEllipsis("Types into the focused window. Select your game before playing.", size.x - 2 * s.spacing.windowPad,
-                   ImVec2(origin.x + s.spacing.windowPad, origin.y + 101 * dpi)); }
 
     const float top = origin.y + strip + s.spacing.windowPad;
     const float bottom = origin.y + size.y - status - s.spacing.windowPad;
@@ -1755,6 +1733,5 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     else mappingArmed_ = false;
     DrawAutoVolume(fonts, design, dpi, engine);
     DrawLog(hwnd, fonts, design, dpi, engine);
-    DrawTypingWarning(fonts, design, dpi, engine);
 }
 }
