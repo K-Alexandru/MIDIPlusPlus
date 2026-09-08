@@ -103,6 +103,12 @@ bool TransportButton(const char* id, const char* label, const skin::Skin& s,
 // shell is a Lucide stroke, so the arrow is suppressed and one drawn here.
 // Sized off the combo's own height rather than a passed skin, so it can be
 // called from helpers that were never given one.
+// A true minus sign for the back label, matching the transpose control; the
+// hotkey hints use the hyphen because they are set in the monospace meta face.
+std::string SeekLabel(int seconds, bool forward) {
+    return (forward ? "+" : "\xe2\x88\x92") + std::to_string(seconds) + "s";
+}
+
 void ComboChevron() {
     const ImVec2 min = ImGui::GetItemRectMin(), max = ImGui::GetItemRectMax();
     const float height = max.y - min.y;
@@ -224,10 +230,12 @@ bool StatePills(const Fonts& fonts, const skin::Skin& design, float dpi, ShellEn
         engine.Send({ShellEngine::Action::MidiConnect, {}, 0, 0, !state->midiConnect});
     {
         ImGui::SameLine();
-        const char* label = state->autoVolume ? "AutoVol: on" :
-            state->autoVolumeNeedsCalibration ? "AutoVol: calibrate" : "AutoVol: off";
-        return StatePill(label, state->autoVolume, fonts, design, dpi, pad, true,
-            "Adjust game volume from note velocity. Open calibration and controls.");
+        // Every other pill is its name, with the fill carrying on and off. This
+        // one spelled its state out as well, so it read as a different kind of
+        // control -- and the tooltip then said "AutoVol: off: off".
+        return StatePill("AutoVol", state->autoVolume, fonts, design, dpi, pad, true,
+            state->autoVolumeNeedsCalibration ? "Adjust game volume from note velocity. Calibration needed; click to open it."
+                                              : "Adjust game volume from note velocity. Open calibration and controls.");
     }
     return false;
 }
@@ -278,15 +286,29 @@ void BeginPanel(const char* id, ImVec2 min, ImVec2 max, const skin::Skin& s, ImG
     ImGui::PopStyleVar();
 }
 
+// IFileOpenDialog, as PickFolder already uses. GetOpenFileNameW is the legacy
+// common dialog, and under this window -- layered for the opacity setting, and
+// topmost whenever Always on top is on -- it returned without ever showing.
+// The click reached here; nothing appeared. The two pickers now share an API.
 std::filesystem::path PickFile(HWND hwnd) {
-    wchar_t filename[32768]{};
-    OPENFILENAMEW open{sizeof(open)};
-    open.hwndOwner = hwnd;
-    open.lpstrFilter = L"MIDI files\0*.mid;*.midi\0All files\0*.*\0";
-    open.lpstrFile = filename;
-    open.nMaxFile = static_cast<DWORD>(std::size(filename));
-    open.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
-    return GetOpenFileNameW(&open) ? std::filesystem::path(filename) : std::filesystem::path();
+    IFileOpenDialog* dialog = nullptr;
+    if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))) return {};
+    DWORD options = 0;
+    dialog->GetOptions(&options);
+    dialog->SetOptions(options | FOS_FILEMUSTEXIST | FOS_PATHMUSTEXIST | FOS_FORCEFILESYSTEM | FOS_NOCHANGEDIR);
+    const COMDLG_FILTERSPEC filters[]{{L"MIDI files", L"*.mid;*.midi"}, {L"All files", L"*.*"}};
+    dialog->SetFileTypes(static_cast<UINT>(std::size(filters)), filters);
+    std::filesystem::path path;
+    if (SUCCEEDED(dialog->Show(hwnd))) {
+        IShellItem* item = nullptr;
+        if (SUCCEEDED(dialog->GetResult(&item))) {
+            PWSTR text = nullptr;
+            if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &text))) { path = text; CoTaskMemFree(text); }
+            item->Release();
+        }
+    }
+    dialog->Release();
+    return path;
 }
 
 std::filesystem::path PickFolder(HWND hwnd) {
@@ -620,6 +642,8 @@ void Panels::DrawAutoVolume(const Fonts& fonts, const skin::Skin& design, float 
     ImGui::PopStyleVar(2);
     if (!autoVolumeOpen && pending) engine.Send({A::AutoVolumeCancel});
 }
+
+std::function<std::filesystem::path(HWND)> PickMidiFile = [](HWND hwnd) { return PickFile(hwnd); };
 
 Panels::~Panels() { if (measuring_) input_latency::stop(); }
 
@@ -1071,7 +1095,15 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
     if (ImGui::SliderInt("##playback-delay", &playbackDelay, 0, 10, "%d seconds"))
         engine.Send({ShellEngine::Action::PlaybackDelay, {}, 0, 0, false, static_cast<double>(playbackDelay)});
     ImGui::TextWrapped("Global play starts immediately in the focused window. During a countdown it cancels the start.");
-    if (ImGui::Button(state->autoVolume ? "AutoVol: on" : state->autoVolumeNeedsCalibration ? "AutoVol: calibrate" : "AutoVol: off", ImVec2(-1, s.metric.controlHeight))) {
+    ImGui::TextUnformatted("Skip step");
+    int seekStep = state->seekStep;
+    ImGui::SetNextItemWidth(-1);
+    if (ImGui::SliderInt("##seek-step", &seekStep, 1, 60, "%d seconds"))
+        engine.Send({ShellEngine::Action::SeekStep, {}, 0, 0, false, static_cast<double>(seekStep)});
+    ImGui::TextWrapped("How far the seek buttons and the F2 and F3 hotkeys move.");
+    // On and off are already on the pill. Calibration pending is not, and it is
+    // the one state that wants something from you, so it keeps its suffix.
+    if (ImGui::Button(state->autoVolumeNeedsCalibration ? "AutoVol: calibrate" : "AutoVol", ImVec2(-1, s.metric.controlHeight))) {
         autoVolumeOpen = true;
         ImGui::CloseCurrentPopup();
     }
@@ -1216,8 +1248,9 @@ void Panels::DrawLog(HWND hwnd, const Fonts& fonts, const skin::Skin& design, fl
     ImGui::End();
 }
 
-std::string Panels::TransportHints() const {
-    const char* actions[]{"Play/Pause", "-10s", "+10s", "Stop"};
+std::string Panels::TransportHints(int seekStep) const {
+    const auto back = "-" + std::to_string(seekStep) + "s", forward = "+" + std::to_string(seekStep) + "s";
+    const std::string actions[]{"Play/Pause", back, forward, "Stop"};
     std::string text;
     for (size_t i = 0; i < transportKeys.size(); ++i) {
         if (i) text += "   ";
@@ -1314,7 +1347,7 @@ void Panels::DrawMini(HWND hwnd, const Fonts& fonts, const skin::Skin& design, f
         }
         ImGui::SameLine();
         if (IconButton("##mini-open", Icon::Open, "Open MIDI file", s, dpi)) {
-            const auto path = PickFile(hwnd);
+            const auto path = PickMidiFile(hwnd);
             if (!path.empty()) engine.Send({ShellEngine::Action::Load, path, 0, 0, preferences.autoSolo});
         }
         ImGui::SameLine(); ImGui::BeginDisabled(state->rows.empty());
@@ -1335,9 +1368,12 @@ void Panels::DrawMini(HWND hwnd, const Fonts& fonts, const skin::Skin& design, f
         ImGui::SameLine();
         if (IconButton("##mini-restart", Icon::Refresh, "Restart", s, dpi)) engine.Send({ShellEngine::Action::Restart, {}, state->generation});
         ImGui::SameLine();
-        if (IconButton("##mini-back10", Icon::Back, "Back 10 seconds", s, dpi)) engine.Send({ShellEngine::Action::Back10, {}, state->generation});
+        // Labelled, as in the full window. The icons saved width on a row that
+        // has width to spare, at the cost of making two seek buttons read as
+        // two different controls between the layouts.
+        if (TransportButton("##mini-back10", SeekLabel(state->seekStep, false).c_str(), s, dpi)) engine.Send({ShellEngine::Action::Back10, {}, state->generation});
         ImGui::SameLine();
-        if (IconButton("##mini-forward10", Icon::Forward, "Forward 10 seconds", s, dpi)) engine.Send({ShellEngine::Action::Forward10, {}, state->generation});
+        if (TransportButton("##mini-forward10", SeekLabel(state->seekStep, true).c_str(), s, dpi)) engine.Send({ShellEngine::Action::Forward10, {}, state->generation});
         ImGui::EndDisabled();
         ImGui::SameLine(); ImGui::BeginDisabled(state->files->empty());
         if (IconButton("##mini-prev", Icon::Left, "Previous MIDI file", s, dpi)) engine.Send({ShellEngine::Action::Previous, {}, state->generation});
@@ -1350,7 +1386,7 @@ void Panels::DrawMini(HWND hwnd, const Fonts& fonts, const skin::Skin& design, f
         draw->AddText(ImVec2(origin.x + size.x - pad - ImGui::CalcTextSize(time.c_str()).x,
             row + control + 38 * dpi + (control - ImGui::GetTextLineHeight()) / 2), Colour(s.ink.secondary), time.c_str());
         { FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
-          DrawEllipsis(TransportHints(), size.x - 2 * pad,
+          DrawEllipsis(TransportHints(state->seekStep), size.x - 2 * pad,
               ImVec2(origin.x + pad, row + 2 * control + 44 * dpi)); }
     }
     DrawStatus(fonts, design, dpi, *state, ImVec2(origin.x, origin.y + size.y - status), size.x, status);
@@ -1454,7 +1490,7 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 2 * s.metric.controlHeight - 2 * s.spacing.s2);
     ImGui::InputTextWithHint("##search", "Search MIDI files", search_, sizeof(search_));
     ImGui::SameLine();
-    if (IconButton("##open", Icon::Open, "Open MIDI file", s, dpi)) load(PickFile(hwnd));
+    if (IconButton("##open", Icon::Open, "Open MIDI file", s, dpi)) load(PickMidiFile(hwnd));
     ImGui::SameLine();
     ImGui::BeginDisabled(state->playing || state->busy);
     if (IconButton("##folder", Icon::Folder, "Choose MIDI folder", s, dpi)) {
@@ -1553,7 +1589,7 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
         DrawEllipsis(sheetNote, contentWidth, ImVec2(content.x, content.y + titleHeight + 2 * dpi));
     }
     { FontScope font(fonts, design, design.type.meta * SpecFontScale(design));
-      DrawEllipsis(TransportHints(), contentWidth, ImVec2(content.x, content.y + titleHeight + 20 * dpi)); }
+      DrawEllipsis(TransportHints(state->seekStep), contentWidth, ImVec2(content.x, content.y + titleHeight + 20 * dpi)); }
     const auto number = [&](ShellEngine::Action action, double amount) {
         engine.Send({action, {}, state->generation, 0, false, amount});
     };
@@ -1579,9 +1615,9 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     ImGui::SameLine();
     if (IconButton("##restart", Icon::Refresh, "Restart", s, dpi)) send(ShellEngine::Action::Restart);
     ImGui::SameLine();
-    if (TransportButton("##back10", "−10s", s, dpi)) send(ShellEngine::Action::Back10);
+    if (TransportButton("##back10", SeekLabel(state->seekStep, false).c_str(), s, dpi)) send(ShellEngine::Action::Back10);
     ImGui::SameLine();
-    if (TransportButton("##forward10", "+10s", s, dpi)) send(ShellEngine::Action::Forward10);
+    if (TransportButton("##forward10", SeekLabel(state->seekStep, true).c_str(), s, dpi)) send(ShellEngine::Action::Forward10);
     ImGui::EndDisabled();
     ImGui::SameLine(); ImGui::BeginDisabled(state->files->empty() || state->busy);
     if (IconButton("##previous", Icon::Left, "Previous MIDI file", s, dpi)) send(ShellEngine::Action::Previous);

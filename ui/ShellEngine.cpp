@@ -133,6 +133,7 @@ void ShellEngine::Run(std::stop_token stop) {
         state.eightyEightKeys = configJson.value("SHELL_88_KEYS", true);
         state.outRange = configJson.value("SHELL_OUT_RANGE", false);
         state.playbackDelay = std::clamp(configJson.value("SHELL_PLAYBACK_DELAY", 3), 0, 10);
+        state.seekStep = std::clamp(configJson.value("SHELL_SEEK_STEP", 10), 1, 60);
         state.shuffle = configJson.value("SHELL_SHUFFLE", false);
         state.fileSort = static_cast<FileSort>(std::clamp(configJson.value("SHELL_FILE_SORT", 0), 0, 2));
         state.descendingFiles = configJson.value("SHELL_FILE_DESCENDING", false);
@@ -452,6 +453,13 @@ void ShellEngine::Run(std::stop_token stop) {
                         state.playbackCountdown = 0;
                     }
                     break;
+                case Action::SeekStep:
+                    if (std::isfinite(command.amount)) {
+                        state.seekStep = static_cast<int>(std::clamp(command.amount, 1.0, 60.0));
+                        configJson["SHELL_SEEK_STEP"] = state.seekStep;
+                        touchConfig();
+                    }
+                    break;
                 case Action::PlayCountdown:
                     if (command.generation != state.generation) break;
                     if (state.playing || state.playbackCountdown) { stopPlayback(); break; }
@@ -630,8 +638,8 @@ void ShellEngine::Run(std::stop_token stop) {
                         switch (command.action) {
                         case Action::Restart: state.position = 0; break;
                         case Action::Seek: state.position = command.amount; break;
-                        case Action::Back10: state.position -= 10; break;
-                        case Action::Forward10: state.position += 10; break;
+                        case Action::Back10: state.position -= state.seekStep; break;
+                        case Action::Forward10: state.position += state.seekStep; break;
                         case Action::Speed: state.speed = std::clamp(command.amount, .25, 2.0); break;
                         case Action::Transpose:
                             state.transpose = static_cast<int>(std::round(std::clamp(command.amount, -12.0, 12.0)));

@@ -8,6 +8,11 @@
 #include <windows.h>
 
 namespace shell {
+// The Open buttons run a modal Win32 dialog, which no test can drive. Routing
+// them through a hook lets a render test click the button and see whether the
+// click arrived -- the part that was broken -- without a dialog on screen.
+extern std::function<std::filesystem::path(HWND)> PickMidiFile;
+
 struct Preferences {
     int skin = 0;
     bool autoSolo = false;
@@ -58,7 +63,7 @@ private:
     void DrawSettings(const Fonts&, const skin::Skin&, float, ShellEngine&);
     void DrawAutoVolume(const Fonts&, const skin::Skin&, float, ShellEngine&);
     void DrawLog(HWND, const Fonts&, const skin::Skin&, float, ShellEngine&);
-    std::string TransportHints() const;
+    std::string TransportHints(int seekStep) const;
     bool volumeWasOpen_ = false;
     GameWindow volumeWindow_;
     void SettingsControl(const Fonts&, const skin::Skin&, float, ShellEngine&, ImVec2, float);

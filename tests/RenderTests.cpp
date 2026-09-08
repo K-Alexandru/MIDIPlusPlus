@@ -87,16 +87,21 @@ int wmain() {
         panels.preferences.keyMappingOpen = false;
         panels.transportKeysAvailable.fill(true);
         panels.stopHotkeyAvailable = true;
+        // Counted, not answered: returning a path would load a file mid-capture
+        // and change every later scenario. Reaching the hook is the assertion.
+        int pickerCalls = 0;
+        shell::PickMidiFile = [&](HWND) { ++pickerCalls; return std::filesystem::path{}; };
         const auto skins = skin::All();
         // Returning to 100% catches cumulative scaling after a monitor move.
         for (const float dpi : {1.f, 1.25f, 1.5f, 2.f, 1.f}) for (int i = 0; i < 4; ++i)
-        for (int mode = 0; mode < 10; ++mode) {
+        for (int mode = 0; mode < 11; ++mode) {
             panels.preferences.skin = i;
-            panels.miniMode = mode == 1 || mode == 2 || mode == 8 || mode == 9;
-            panels.miniAutoplay = mode == 2 || mode == 8;
+            panels.miniMode = mode == 1 || mode == 2 || mode == 8 || mode == 9 || mode == 10;
+            panels.miniAutoplay = mode == 2 || mode == 8 || mode == 10;
             panels.logOpen = mode == 3 || mode == 9;
             const char* variants[]{"full", "mini-live", "mini-autoplay", "log", "settings", "sort", "export",
-                                   "countdown", "mini-countdown", "mini-log"};
+                                   "countdown", "mini-countdown", "mini-log", "mini-open"};
+            const int picksBefore = pickerCalls;
             if (mode == 7 || mode == 8) {
                 engine.Send({shell::ShellEngine::Action::PlaybackDelay, {}, 0, 0, false, 10});
                 engine.Send({shell::ShellEngine::Action::PlayCountdown, {}, engine.Snapshot()->generation});
@@ -125,10 +130,15 @@ int wmain() {
                 const auto s = skin::ScaleGeometry(skins[i], dpi);
                 const float leftEdge = s.spacing.windowPad + 336 * dpi - s.spacing.panelPad;
                 const float buttonY = 36 * dpi + 2 * s.metric.controlHeight + s.spacing.windowPad + s.spacing.panelPad + s.metric.controlHeight / 2;
+                // Second control from the right on mini's first body row: the
+                // strip, one row gap, and back past Solo Piano and one spacing.
+                const float openX = width - s.spacing.windowPad - 1.5f * s.metric.controlHeight - s.spacing.s2;
+                const float openY = 36 * dpi + 2 * s.metric.controlHeight + 8 * dpi + s.metric.controlHeight / 2;
                 if (mode == 5) io.AddMousePosEvent(leftEdge - 1.5f * s.metric.controlHeight - s.spacing.s2, buttonY);
                 else if (mode == 6) io.AddMousePosEvent(width - s.spacing.windowPad - s.spacing.panelPad - 40 * dpi, buttonY);
+                else if (mode == 10) io.AddMousePosEvent(openX, openY);
                 else io.AddMousePosEvent(-1000, -1000);
-                io.AddMouseButtonEvent(0, (mode == 5 || mode == 6) && frame == 3);
+                io.AddMouseButtonEvent(0, (mode == 5 || mode == 6 || mode == 10) && frame == 3);
                 ImGui::GetIO().DisplaySize = ImVec2(static_cast<float>(width), static_cast<float>(height));
                 ImGui::GetIO().DeltaTime = 1.f / 60;
                 ImGui_ImplDX11_NewFrame();
@@ -158,6 +168,7 @@ int wmain() {
             }
             SavePng(device.Get(), context.Get(), texture.Get(),
                     folder / ("skin-" + std::to_string(i) + "-" + std::to_string(static_cast<int>(dpi * 100)) + "-" + variants[mode] + ".png"));
+            if (mode == 10) Require(pickerCalls > picksBefore, "mini Open MIDI file did not reach the picker");
             if (mode == 7 || mode == 8) {
                 engine.Send({shell::ShellEngine::Action::Stop});
                 const auto stoppedBy = std::chrono::steady_clock::now() + 2s;

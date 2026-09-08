@@ -28,6 +28,8 @@ struct EngineSnapshot {
     bool playing = false;
     int playbackCountdown = 0;
     int playbackDelay = 3;
+    // Seconds the -Ns / +Ns transport buttons and the F2/F3 hotkeys move by.
+    int seekStep = 10;
     bool typingAcknowledged = true;
     bool legitMode = false;
     bool shuffle = false;
@@ -104,7 +106,7 @@ public:
                         WootingTriggerThreshold, WootingShiftAmount, WootingVelocityScale, EightyEightKeys,
                         AutoVolumeScan, AutoVolumeCalibrate, AutoVolumeOff, AutoVolumeCancel, ClearLog,
                         PlayCountdown, PlaybackDelay, AcknowledgeTyping,
-                        LegitMode, Shuffle, Previous, Next, SortFiles, MidiConnect, OutRange };
+                        LegitMode, Shuffle, Previous, Next, SortFiles, MidiConnect, OutRange, SeekStep };
     struct Command {
         Action action;
         std::filesystem::path path;

@@ -1743,13 +1743,19 @@ void LibraryParityTests(const std::filesystem::path& directory) {
         engine.Send({A::LegitMode, {}, 0, 0, true});
         engine.Send({A::PlaybackDelay, {}, 0, 0, false, 4});
         Await([&] { return engine.Snapshot()->playbackDelay == 4; }, "saved settings did not apply");
+        engine.Send({A::SeekStep, {}, 0, 0, false, 900});
+        Await([&] { return engine.Snapshot()->seekStep == 60; }, "seek step did not clamp to its maximum");
+        engine.Send({A::SeekStep, {}, 0, 0, false, 0});
+        Await([&] { return engine.Snapshot()->seekStep == 1; }, "seek step did not clamp to its minimum");
+        engine.Send({A::SeekStep, {}, 0, 0, false, 25});
+        Await([&] { return engine.Snapshot()->seekStep == 25; }, "seek step did not apply");
     }
     {
         shell::ShellEngine engine(config);
         Await([&] { return !engine.Snapshot()->curves.empty(); }, "library settings did not restart");
         const auto state = engine.Snapshot();
         Require(state->legitMode && state->shuffle && state->fileSort == Sort::Modified && state->descendingFiles &&
-                state->playbackDelay == 4, "parity settings failed to persist across restart");
+                state->playbackDelay == 4 && state->seekStep == 25, "parity settings failed to persist across restart");
         engine.Send({A::Load, beta});
         Await([&] { return engine.Snapshot()->loaded == beta; }, "persisted Legit Mode load did not complete");
         Require(engine.Snapshot()->legitMode, "restarted file load discarded Legit Mode");
