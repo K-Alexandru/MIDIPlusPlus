@@ -139,11 +139,13 @@ void RaisedRect(ImDrawList* dl, ImVec2 min, ImVec2 max, float rounding,
     dl->AddRectFilled(min, max, fill, rounding);
     dl->AddRect(min, max, ToImU32(s.border.hairline), rounding);
     if (topHighlight) {
-        // One pixel lighter, inside the top edge. Inset by the radius so the
-        // line stops where the corner starts curving.
-        dl->AddLine(ImVec2(min.x + rounding, min.y + 1.f),
-                    ImVec2(max.x - rounding, min.y + 1.f),
-                    ToImU32(s.border.topHighlight));
+        // Follow both rounded shoulders as well as the straight top edge.
+        const float radius = std::max(0.f, rounding - 1.f);
+        dl->PathArcTo(ImVec2(min.x + rounding, min.y + rounding), radius,
+                      3.14159265f, 4.71238898f);
+        dl->PathArcTo(ImVec2(max.x - rounding, min.y + rounding), radius,
+                      4.71238898f, 6.28318531f);
+        dl->PathStroke(ToImU32(s.border.topHighlight), 0, 1.f);
     }
 }
 

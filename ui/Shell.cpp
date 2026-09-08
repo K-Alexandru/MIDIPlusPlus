@@ -14,6 +14,7 @@
 #include "SkinDraw.hpp"
 #include "Fonts.hpp"
 #include "Panels.hpp"
+#include "NativeConnectInput.hpp"
 #include "imgui.h"
 #include "backends/imgui_impl_dx11.h"
 #include "backends/imgui_impl_win32.h"
@@ -40,7 +41,7 @@ static shell::Panels* g_panels = nullptr;
 // The legacy app kept the game focused and drove playback from the four
 // configured keys. The shell disabled that listener and re-registered only F4,
 // so the Playback card grew a three-second countdown to let you alt-tab.
-// Registering the configured keys removes the reason for one.
+// Mouse starts keep a countdown; global hotkeys act while the game has focus.
 //
 // WM_HOTKEY arrives on the message loop thread, so these handlers only enqueue
 // an engine command. Nothing here may touch the player or inject a keystroke:
@@ -48,7 +49,10 @@ static shell::Panels* g_panels = nullptr;
 // message loop, and that is the bug this rewrite exists to avoid.
 namespace {
 enum Hotkey { HotkeyPlayPause = 1, HotkeyRewind, HotkeySkip, HotkeyStop };
-struct Registered { bool playPause = false, rewind = false, skip = false, stop = false; };
+struct Registered {
+    bool playPause = false, rewind = false, skip = false, stop = false;
+    std::array<std::string, 4> names;
+};
 
 // Config names are the upstream "VK_F1" spelling. Unknown names register
 // nothing rather than guessing at a keycode.
@@ -102,6 +106,8 @@ Registered RegisterHotkeys(HWND hwnd, const std::filesystem::path& config) {
     done.rewind    = add(HotkeyRewind, rewind);
     done.skip      = add(HotkeySkip, skip);
     done.stop      = add(HotkeyStop, stop);
+    done.names = {playPause, rewind, skip, stop};
+    for (auto& name : done.names) if (name.rfind("VK_", 0) == 0) name.erase(0, 3);
     return done;
 }
 
@@ -238,7 +244,9 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     const auto preferencesPath = directory / L"shell-settings.json";
     shell::Panels panels;
     panels.LoadPreferences(preferencesPath);
-    shell::ShellEngine engine(directory / L"config.json");
+    shell::CaptureShellLog captureLog;
+    shell::ShellEngine engine(directory / L"config.json", {}, true,
+        [] { return std::make_unique<shell::NativeConnectInput>(); });
     g_engine = &engine;
     g_panels = &panels;
     g_dpi = ImGui_ImplWin32_GetDpiScaleForMonitor(MonitorFromPoint(POINT{100, 100}, MONITOR_DEFAULTTOPRIMARY));
@@ -269,6 +277,8 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     DragAcceptFiles(hwnd, TRUE);
     const Registered hotkeys = RegisterHotkeys(hwnd, directory / L"config.json");
     panels.stopHotkeyAvailable = hotkeys.stop;
+    panels.transportKeys = hotkeys.names;
+    panels.transportKeysAvailable = {hotkeys.playPause, hotkeys.rewind, hotkeys.skip, hotkeys.stop};
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -300,6 +310,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
 
     bool running = true;
     bool appliedTopmost = false;
+    int appliedOpacity = 100;
     while (running) {
         MSG msg;
         while (::PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
@@ -308,6 +319,16 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
             if (msg.message == WM_QUIT) running = false;
         }
         if (!running) break;
+        if (appliedOpacity != panels.preferences.opacity) {
+            const auto style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style | WS_EX_LAYERED);
+            if (SetLayeredWindowAttributes(hwnd, 0, static_cast<BYTE>(panels.preferences.opacity * 255 / 100), LWA_ALPHA))
+                appliedOpacity = panels.preferences.opacity;
+            else {
+                panels.preferences.opacity = appliedOpacity;
+                shell::ShellLog::Instance().Append("[error] Could not change window opacity.\n");
+            }
+        }
         if (appliedTopmost != panels.preferences.alwaysOnTop) {
             if (SetWindowPos(hwnd, panels.preferences.alwaysOnTop ? HWND_TOPMOST : HWND_NOTOPMOST,
                 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE))

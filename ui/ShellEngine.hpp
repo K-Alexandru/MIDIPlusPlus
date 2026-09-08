@@ -2,6 +2,9 @@
 #include "TrackModel.hpp"
 #include "VelocityModel.hpp"
 #include "AutoVolume.hpp"
+#include "LibraryModel.hpp"
+#include "ShellLog.hpp"
+#include "ConnectInput.hpp"
 #include "../MIDI++/VelocityTelemetry.hpp"
 #include <condition_variable>
 #include <deque>
@@ -12,7 +15,6 @@
 #include <map>
 
 namespace shell {
-struct MidiEntry { std::filesystem::path path; std::string name; uintmax_t bytes = 0; };
 struct LiveDevice { std::wstring id; std::string name; };
 struct EngineSnapshot {
     std::shared_ptr<const std::vector<MidiEntry>> files = std::make_shared<const std::vector<MidiEntry>>();
@@ -20,9 +22,17 @@ struct EngineSnapshot {
     std::filesystem::path folder;
     std::filesystem::path loaded;
     std::string error;
+    std::shared_ptr<const std::string> log = std::make_shared<const std::string>();
     uint64_t generation = 0;
     bool busy = false;
     bool playing = false;
+    int playbackCountdown = 0;
+    int playbackDelay = 3;
+    bool typingAcknowledged = true;
+    bool legitMode = false;
+    bool shuffle = false;
+    FileSort fileSort = FileSort::Name;
+    bool descendingFiles = false;
     // Off, which is what VirtualPianoPlayer itself defaults to. The shell used
     // to override it to on, and velocity output is not a passive feature: every
     // changed bucket types ALT plus a character drawn from
@@ -52,6 +62,7 @@ struct EngineSnapshot {
     std::vector<LiveDevice> devices;
     std::wstring liveDevice;
     bool liveActive = false;
+    bool midiConnect = false;
     int liveChannel = -1;  // -1 listens on every channel
     double speed = 1.0;
     int transpose = 0;
@@ -90,7 +101,9 @@ public:
                         CurveSelect, CurveAdjust, CurveStep, CurveCompare, CurveNew,
                         CurveDuplicate, CurveRename, SustainCutoff, CurveSteps,
                         WootingTriggerThreshold, WootingShiftAmount, WootingVelocityScale, EightyEightKeys,
-                        AutoVolumeScan, AutoVolumeCalibrate, AutoVolumeOff, AutoVolumeCancel };
+                        AutoVolumeScan, AutoVolumeCalibrate, AutoVolumeOff, AutoVolumeCancel, ClearLog,
+                        PlayCountdown, PlaybackDelay, AcknowledgeTyping,
+                        LegitMode, Shuffle, Previous, Next, SortFiles, MidiConnect };
     struct Command {
         Action action;
         std::filesystem::path path;
@@ -103,7 +116,8 @@ public:
         std::array<float, 32> samples{};
         GameWindow window;
     };
-    explicit ShellEngine(std::filesystem::path config, std::shared_ptr<AutoVolumeHost> volumeHost = {});
+    explicit ShellEngine(std::filesystem::path config, std::shared_ptr<AutoVolumeHost> volumeHost = {},
+                         bool requireTypingAcknowledgement = false, ConnectFactory connectFactory = {});
     ~ShellEngine();
     void Send(Command command);
     std::shared_ptr<const EngineSnapshot> Snapshot() const;
@@ -112,6 +126,8 @@ private:
     void Publish(const EngineSnapshot& state);
     std::filesystem::path config_;
     std::shared_ptr<AutoVolumeHost> volumeHost_;
+    bool requireTypingAcknowledgement_;
+    ConnectFactory connectFactory_;
     mutable std::mutex mutex_;
     std::condition_variable wake_;
     std::deque<Command> commands_;

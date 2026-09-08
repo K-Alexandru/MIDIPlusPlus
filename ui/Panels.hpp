@@ -13,16 +13,20 @@ struct Preferences {
     bool autoSolo = true;
     bool keyMappingOpen = true;
     bool alwaysOnTop = false;
+    int opacity = 100;
     std::filesystem::path folder;
 };
 class Panels {
 public:
     Preferences preferences;
     bool stopHotkeyAvailable = false;
+    std::array<std::string, 4> transportKeys{"F1", "F2", "F3", "F4"};
+    std::array<bool, 4> transportKeysAvailable{};
     bool velocityExpanded = false;
     bool miniMode = false;
     bool miniAutoplay = false;
     bool autoVolumeOpen = false;
+    bool logOpen = false;
     ~Panels();
     ImVec2 DesiredSize() const;
     void LoadPreferences(const std::filesystem::path& path);
@@ -31,7 +35,8 @@ public:
               float dpi, ShellEngine& engine);
 private:
     char search_[256]{};
-    bool descendingNames_ = false;
+    FileSort fileSort_ = FileSort::Name;
+    bool descendingFiles_ = false;
     std::shared_ptr<const std::vector<MidiEntry>> filteredFiles_;
     std::string filteredQuery_;
     std::vector<size_t> fileFilter_;
@@ -52,6 +57,9 @@ private:
     void DrawVelocity(const Fonts&, const skin::Skin&, float, ShellEngine&, ImVec2, ImVec2);
     void DrawSettings(const Fonts&, const skin::Skin&, float, ShellEngine&);
     void DrawAutoVolume(const Fonts&, const skin::Skin&, float, ShellEngine&);
+    void DrawLog(HWND, const Fonts&, const skin::Skin&, float, ShellEngine&);
+    void DrawTypingWarning(const Fonts&, const skin::Skin&, float, ShellEngine&);
+    std::string TransportHints() const;
     bool volumeWasOpen_ = false;
     GameWindow volumeWindow_;
     void SettingsControl(const Fonts&, const skin::Skin&, float, ShellEngine&, ImVec2, float);

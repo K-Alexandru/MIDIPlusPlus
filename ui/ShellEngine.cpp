@@ -6,6 +6,7 @@
 #include <fstream>
 #include <cmath>
 #include <intrin.h>
+#include <random>
 
 // The engine's legacy host hooks. The shell owns its own UI and commands.
 VirtualPianoPlayer* g_player = nullptr;
@@ -61,8 +62,11 @@ std::string Utf8(const std::filesystem::path& path) {
     return {reinterpret_cast<const char*>(text.data()), text.size()};
 }
 
-ShellEngine::ShellEngine(std::filesystem::path config, std::shared_ptr<AutoVolumeHost> volumeHost)
+ShellEngine::ShellEngine(std::filesystem::path config, std::shared_ptr<AutoVolumeHost> volumeHost,
+                         bool requireTypingAcknowledgement, ConnectFactory connectFactory)
     : config_(std::move(config)), volumeHost_(volumeHost ? std::move(volumeHost) : std::make_shared<NativeAutoVolumeHost>()),
+      requireTypingAcknowledgement_(requireTypingAcknowledgement),
+      connectFactory_(std::move(connectFactory)),
       worker_([this](std::stop_token stop) { Run(stop); }) {}
 
 ShellEngine::~ShellEngine() {
@@ -78,10 +82,12 @@ void ShellEngine::Send(Command command) {
 
 std::shared_ptr<const EngineSnapshot> ShellEngine::Snapshot() const {
     const auto played = velocity_telemetry::snapshot();
+    const auto log = ShellLog::Instance().Snapshot();
     std::lock_guard lock(mutex_);
-    if (played.revision != snapshot_->playedVelocities.revision) {
+    if (played.revision != snapshot_->playedVelocities.revision || log != snapshot_->log) {
         auto copy = std::make_shared<EngineSnapshot>(*snapshot_);
         copy->playedVelocities = played;
+        copy->log = log;
         snapshot_ = std::move(copy);
     }
     return snapshot_;
@@ -90,15 +96,22 @@ std::shared_ptr<const EngineSnapshot> ShellEngine::Snapshot() const {
 void ShellEngine::Publish(const EngineSnapshot& state) {
     auto copy = std::make_shared<const EngineSnapshot>(state);
     std::lock_guard lock(mutex_);
+    if (!state.error.empty() && state.error != snapshot_->error)
+        ShellLog::Instance().Append("[error] " + state.error + "\n");
     snapshot_ = std::move(copy);
 }
 
 void ShellEngine::Run(std::stop_token stop) {
     using namespace std::chrono_literals;
     EngineSnapshot state;
+    state.typingAcknowledged = !requireTypingAcknowledgement_;
+    std::chrono::steady_clock::time_point playbackDue{};
+    std::mt19937 random(std::random_device{}());
+    bool loadAutoSolo = true;
     std::unique_ptr<VirtualPianoPlayer> player;
     // Destroyed before the player it points at, since it is declared after it.
     std::unique_ptr<MIDI2Key> live;
+    std::unique_ptr<ConnectInput> connect;
     uint64_t liveMappings = 0;
     int liveTranspose = 0;
     std::chrono::steady_clock::time_point volumeDue{};
@@ -117,6 +130,12 @@ void ShellEngine::Run(std::stop_token stop) {
         std::ifstream stream(config_);
         configJson = nlohmann::json::parse(stream);
         state.eightyEightKeys = configJson.value("SHELL_88_KEYS", true);
+        state.playbackDelay = std::clamp(configJson.value("SHELL_PLAYBACK_DELAY", 3), 0, 10);
+        state.shuffle = configJson.value("SHELL_SHUFFLE", false);
+        state.fileSort = static_cast<FileSort>(std::clamp(configJson.value("SHELL_FILE_SORT", 0), 0, 2));
+        state.descendingFiles = configJson.value("SHELL_FILE_DESCENDING", false);
+        if (configJson.contains("LEGIT_MODE_SETTINGS"))
+            state.legitMode = configJson["LEGIT_MODE_SETTINGS"].value("ENABLED", false);
         state.keyMappings = configJson.at("KEY_MAPPINGS").at(state.eightyEightKeys ? "FULL" : "LIMITED").get<decltype(state.keyMappings)>();
     } catch (const std::exception& error) { state.error = error.what(); }
     const auto touchConfig = [&] {
@@ -142,6 +161,7 @@ void ShellEngine::Run(std::stop_token stop) {
     };
     Publish(state);
     const auto stopPlayback = [&] {
+        state.playbackCountdown = 0;
         if (!player) return;
         player->should_stop.store(true, std::memory_order_release);
         SetEvent(player->command_event);
@@ -153,6 +173,19 @@ void ShellEngine::Run(std::stop_token stop) {
         player->paused.store(true, std::memory_order_release);
         player->release_all_keys();
         state.playing = false;
+    };
+    const auto stopConnect = [&] {
+        if (connect) { connect->Close(); connect.reset(); }
+        state.midiConnect = false;
+    };
+    const auto stopLive = [&] {
+        if (live) {
+            live->SetActive(false);
+            live->CloseDevice();
+            if (state.liveActive && player) player->release_every_mapped_key();
+            live.reset();
+        }
+        state.liveActive = false;
     };
     const auto cancelVolume = [&] {
         volumePending = false;
@@ -168,7 +201,9 @@ void ShellEngine::Run(std::stop_token stop) {
     // Only the worker writes the clock fields. No legacy seek/speed calls run
     // concurrently with dispatch. Joining also drains the engine's batch future.
     const auto startPlayback = [&] {
+        if (!state.typingAcknowledged) throw std::runtime_error("Read the typing warning in the app before starting output.");
         if (!player || state.loaded.empty() || state.rows.empty() || state.duration <= 0) return;
+        stopConnect();
         // The inherited scheduler waits in wall nanoseconds. Scale its event
         // times here, so rates above 1x do not oversleep their next note.
         for (size_t i = 0; i < scoreTimes.size(); ++i)
@@ -210,6 +245,7 @@ void ShellEngine::Run(std::stop_token stop) {
             player->enable_velocity_keypress = state.velocity;
             player->currentSustainMode = state.sustain ? SustainMode::SPACE_DOWN : SustainMode::IG;
             player->eightyEightKeyModeActive = state.eightyEightKeys;
+            player->legit_mode_active = state.legitMode;
             applyMappings();
         }
     };
@@ -313,7 +349,7 @@ void ShellEngine::Run(std::stop_token stop) {
         {
             std::unique_lock lock(mutex_);
             const auto ready = [&] { return stop.stop_requested() || !commands_.empty(); };
-            if (state.playing || volumePending) wake_.wait_for(lock, 25ms, ready);
+            if (state.playing || volumePending || state.playbackCountdown) wake_.wait_for(lock, 25ms, ready);
             else if (configDirty) wake_.wait_until(lock, configDue, ready);
             else wake_.wait(lock, ready);
             if (stop.stop_requested()) break;
@@ -347,6 +383,12 @@ void ShellEngine::Run(std::stop_token stop) {
                     command.action != Action::LiveOpen && command.action != Action::LiveActive &&
                     command.action != Action::LiveChannel && command.action < Action::CurveSelect;
                 if (scoreCommand && command.generation != state.generation) continue;
+                if (!state.typingAcknowledged &&
+                    (command.action == Action::LiveOpen && !command.device.empty() ||
+                     command.action == Action::LiveActive && command.value ||
+                     command.action == Action::MidiConnect && command.value ||
+                     command.action == Action::AutoVolumeCalibrate))
+                    throw std::runtime_error("Read the typing warning in the app before starting output.");
                 // A transport or mapping command cancels an armed calibration
                 // before it can focus another window. Reopening the dialog is
                 // not permission to send keys; only Calibrate starts a sweep.
@@ -355,6 +397,69 @@ void ShellEngine::Run(std::stop_token stop) {
                     cancelVolume();
                 state.error.clear();
                 switch (command.action) {
+                case Action::MidiConnect:
+                    if (!command.value) { stopConnect(); break; }
+                    if (state.liveDevice.empty()) throw std::runtime_error("Choose a MIDI input before enabling MidiConnect.");
+                    stopPlayback();
+                    stopLive();
+                    stopConnect();
+                    if (!connectFactory_) throw std::runtime_error("MidiConnect is unavailable in this host.");
+                    connect = connectFactory_();
+                    if (!connect || !connect->Open(state.liveDevice)) {
+                        stopConnect();
+                        throw std::runtime_error("Cannot open that MIDI input for MidiConnect.");
+                    }
+                    connect->Activate(true);
+                    state.midiConnect = true;
+                    break;
+                case Action::LegitMode:
+                    state.legitMode = command.value;
+                    midi::Config::getInstance().legit_mode.ENABLED = command.value;
+                    if (player && player->legit_mode_active != command.value) player->toggle_legit_mode();
+                    configJson["LEGIT_MODE_SETTINGS"]["ENABLED"] = command.value;
+                    touchConfig();
+                    break;
+                case Action::Shuffle:
+                    state.shuffle = command.value;
+                    configJson["SHELL_SHUFFLE"] = command.value;
+                    touchConfig();
+                    break;
+                case Action::SortFiles: {
+                    if (!std::isfinite(command.amount)) break;
+                    state.fileSort = static_cast<FileSort>(static_cast<int>(std::clamp(command.amount, 0.0, 2.0)));
+                    state.descendingFiles = command.value;
+                    auto files = std::make_shared<std::vector<MidiEntry>>(*state.files);
+                    std::sort(files->begin(), files->end(), [&](const auto& a, const auto& b) {
+                        return FileBefore(a, b, state.fileSort, state.descendingFiles);
+                    });
+                    state.files = std::move(files);
+                    configJson["SHELL_FILE_SORT"] = static_cast<int>(state.fileSort);
+                    configJson["SHELL_FILE_DESCENDING"] = state.descendingFiles;
+                    touchConfig();
+                    break;
+                }
+                case Action::ClearLog: ShellLog::Instance().Clear(); break;
+                case Action::AcknowledgeTyping: state.typingAcknowledged = true; break;
+                case Action::PlaybackDelay:
+                    if (std::isfinite(command.amount)) {
+                        state.playbackDelay = static_cast<int>(std::clamp(command.amount, 0.0, 10.0));
+                        configJson["SHELL_PLAYBACK_DELAY"] = state.playbackDelay;
+                        touchConfig();
+                        state.playbackCountdown = 0;
+                    }
+                    break;
+                case Action::PlayCountdown:
+                    if (command.generation != state.generation) break;
+                    if (state.playing || state.playbackCountdown) { stopPlayback(); break; }
+                    if (!state.typingAcknowledged) throw std::runtime_error("Read the typing warning in the app before starting output.");
+                    if (state.loaded.empty() || state.rows.empty()) break;
+                    if (state.position >= state.duration) state.position = 0;
+                    if (state.playbackDelay == 0) startPlayback();
+                    else {
+                        state.playbackCountdown = state.playbackDelay;
+                        playbackDue = std::chrono::steady_clock::now() + std::chrono::seconds(state.playbackDelay);
+                    }
+                    break;
                 case Action::Scan: {
                     if (state.playing) {
                         state.error = "Stop playback before changing the MIDI folder.";
@@ -400,7 +505,10 @@ void ShellEngine::Run(std::stop_token stop) {
                                 const auto bytes = entry.file_size(sizeError);
                                 auto shown = std::filesystem::relative(entry.path(), command.path, relativeError);
                                 if (relativeError || shown.empty()) shown = entry.path().filename();
-                                files->push_back({entry.path(), Utf8(shown), sizeError ? 0 : bytes});
+                                std::error_code timeError;
+                                const auto modified = entry.last_write_time(timeError);
+                                files->push_back({entry.path(), Utf8(shown), sizeError ? 0 : bytes,
+                                    timeError ? std::filesystem::file_time_type{} : modified});
                             }
                         }
                         if (files->size() >= kMaxFiles) {
@@ -415,12 +523,34 @@ void ShellEngine::Run(std::stop_token stop) {
                         // carrying on would spin on the same entry.
                         if (step) break;
                     }
-                    std::sort(files->begin(), files->end(), [](const auto& a, const auto& b) { return a.name < b.name; });
+                    std::sort(files->begin(), files->end(), [&](const auto& a, const auto& b) {
+                        return FileBefore(a, b, state.fileSort, state.descendingFiles);
+                    });
                     state.files = std::move(files);
                     state.folder = command.path;
                     break;
                 }
+                case Action::Previous:
+                case Action::Next: {
+                    if (command.generation != state.generation || state.files->empty()) break;
+                    const auto& files = *state.files;
+                    const auto found = std::find_if(files.begin(), files.end(), [&](const auto& file) { return file.path == state.loaded; });
+                    size_t index = command.action == Action::Previous ? files.size() - 1 : 0;
+                    if (found != files.end()) {
+                        const auto current = static_cast<size_t>(found - files.begin());
+                        index = command.action == Action::Previous ? (current + files.size() - 1) % files.size() : (current + 1) % files.size();
+                        if (command.amount == 1 && state.shuffle && files.size() > 1) {
+                            index = std::uniform_int_distribution<size_t>(0, files.size() - 2)(random);
+                            if (index >= current) ++index;
+                        }
+                    }
+                    command.path = files[index].path;
+                    command.amount = state.playing || command.amount == 1 ? 1 : 0;
+                    command.value = loadAutoSolo;
+                    [[fallthrough]];
+                }
                 case Action::Load: {
+                    const bool resumeAfterLoad = command.action != Action::Load && command.amount == 1;
                     invalidateVolume();
                     // Stop before potentially slow disk parsing, so a load cannot
                     // keep injecting while the command worker is busy.
@@ -446,7 +576,7 @@ void ShellEngine::Run(std::stop_token stop) {
                     auto& config = midi::Config::getInstance();
                     config.midi.DETECT_DRUMS = false;
                     config.auto_transpose.ENABLED = false;
-                    player->legit_mode_active = false;
+                    player->legit_mode_active = state.legitMode;
                     player->enable_velocity_keypress = state.velocity;
                     applyCurve();
                     player->currentSustainMode = state.sustain ? SustainMode::SPACE_DOWN : SustainMode::IG;
@@ -467,12 +597,16 @@ void ShellEngine::Run(std::stop_token stop) {
                         state.duration = static_cast<double>(player->note_events.back().time.count()) / 1e9;
                     player->midiFileSelected = true;
                     state.loaded = command.path;
+                    loadAutoSolo = command.value;
+                    if (resumeAfterLoad) startPlayback();
                     break;
                 }
                 case Action::TogglePlayPause:
+                    if (state.playbackCountdown) { stopPlayback(); break; }
                     if (state.playing) { stopPlayback(); break; }
                     [[fallthrough]];
                 case Action::Play:
+                    state.playbackCountdown = 0;
                     if (!state.playing) {
                         if (state.position >= state.duration) state.position = 0;
                         startPlayback();
@@ -533,11 +667,27 @@ void ShellEngine::Run(std::stop_token stop) {
                         state.devices.push_back({device.id, Utf8(std::filesystem::path(device.name))});
                     break;
                 }
-                case Action::LiveOpen:
+                case Action::LiveOpen: {
+                    const bool connectRoute = state.midiConnect;
+                    stopConnect();
+                    stopLive();
                     if (command.device.empty()) {
                         if (live) { live->SetActive(false); live->CloseDevice(); }
                         state.liveDevice.clear();
                         state.liveActive = false;
+                        break;
+                    }
+                    if (connectRoute) {
+                        if (!connectFactory_) throw std::runtime_error("MidiConnect is unavailable in this host.");
+                        state.liveDevice.clear();
+                        connect = connectFactory_();
+                        if (!connect || !connect->Open(command.device)) {
+                            stopConnect();
+                            throw std::runtime_error("Cannot open that MIDI input for MidiConnect.");
+                        }
+                        state.liveDevice = command.device;
+                        connect->Activate(true);
+                        state.midiConnect = true;
                         break;
                     }
                     ensurePlayer();
@@ -551,10 +701,25 @@ void ShellEngine::Run(std::stop_token stop) {
                     liveMappings = state.mappingRevision;
                     liveTranspose = state.transpose;
                     break;
+                }
                 case Action::LiveActive:
-                    if (!live || state.liveDevice.empty()) break;
+                    if (command.value) stopConnect();
+                    if (state.liveDevice.empty()) break;
+                    if (!live && command.value) {
+                        ensurePlayer();
+                        live = std::make_unique<MIDI2Key>(player.get());
+                        live->SetMidiChannel(state.liveChannel);
+                        live->OpenDevice(state.liveDevice);
+                        if (live->GetSelectedDevice().empty()) throw std::runtime_error("Cannot reopen that MIDI input.");
+                    }
+                    if (!live) break;
                     live->SetActive(command.value);
                     state.liveActive = command.value;
+                    if (!command.value) {
+                        live->CloseDevice();
+                        player->release_every_mapped_key();
+                        live.reset();
+                    }
                     break;
                 case Action::LiveChannel:
                     state.liveChannel = std::clamp(static_cast<int>(command.amount), -1, 15);
@@ -593,6 +758,8 @@ void ShellEngine::Run(std::stop_token stop) {
                 case Action::Stop:
                     stopPlayback();
                     state.position = 0;
+                    stopLive();
+                    stopConnect();
                     break;
                 case Action::Mute:
                 case Action::Solo:
@@ -753,7 +920,7 @@ void ShellEngine::Run(std::stop_token stop) {
                     invalidateSheet();
                     configJson["SHELL_88_KEYS"] = command.value;
                     touchConfig();
-                    if (!device.empty()) {
+                    if (!device.empty() && !state.midiConnect) {
                         live = std::make_unique<MIDI2Key>(player.get());
                         live->SetMidiChannel(state.liveChannel);
                         live->OpenDevice(device);
@@ -860,12 +1027,19 @@ void ShellEngine::Run(std::stop_token stop) {
                     }
                 }
             }
+            if (state.playbackCountdown && !stop.stop_requested()) {
+                const auto remaining = std::chrono::duration<double>(playbackDue - std::chrono::steady_clock::now()).count();
+                if (remaining <= 0) { state.playbackCountdown = 0; startPlayback(); }
+                else state.playbackCountdown = static_cast<int>(std::ceil(remaining));
+            }
             if (state.playing) {
                 state.position = std::clamp(player->get_adjusted_time().count() / 1e9 * state.speed, 0.0, state.duration);
                 if (player->playback_started.load(std::memory_order_acquire) &&
                     player->buffer_index.load(std::memory_order_acquire) >= player->note_events.size()) {
                     stopPlayback();
                     state.position = state.duration;
+                    if (state.shuffle && !state.files->empty())
+                        Send({Action::Next, {}, state.generation, 0, loadAutoSolo, 1});
                 }
             }
         } catch (const std::exception& error) {
@@ -882,6 +1056,8 @@ void ShellEngine::Run(std::stop_token stop) {
         Publish(state);
     }
     stopPlayback();
+    stopLive();
+    stopConnect();
     // Last chance to write a settling edit. The window is already going, so
     // there is nowhere left to report a failure to; the rename is atomic, so a
     // failure leaves the previous config intact rather than a damaged one.

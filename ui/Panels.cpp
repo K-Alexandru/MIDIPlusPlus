@@ -202,8 +202,8 @@ bool StatePill(const char* label, bool on, const Fonts& fonts, const skin::Skin&
 
 bool StatePills(const Fonts& fonts, const skin::Skin& design, float dpi, ShellEngine& engine, bool compact) {
     const auto state = engine.Snapshot();
-    const float pad = (compact ? 8.f : 12.f) * dpi;
-    if (StatePill("Midi2Key", state->liveActive, fonts, design, dpi, compact ? pad : 16 * dpi,
+    const float pad = 8.f * dpi;
+    if (StatePill("Midi2Key", state->liveActive, fonts, design, dpi, pad,
                   !state->liveDevice.empty(), state->liveDevice.empty() ? "Select a MIDI input in Settings." : nullptr))
         engine.Send({ShellEngine::Action::LiveActive, {}, 0, 0, !state->liveActive});
     ImGui::SameLine();
@@ -219,8 +219,10 @@ bool StatePills(const Fonts& fonts, const skin::Skin& design, float dpi, ShellEn
                   fonts, design, dpi, pad, true, "Switch game layout. Pauses autoplay and releases held notes."))
         engine.Send({ShellEngine::Action::EightyEightKeys, {}, 0, 0, !state->eightyEightKeys});
     ImGui::SameLine();
-    StatePill("MidiConnect", false, fonts, design, dpi, pad, false, "Unavailable in this shell.");
-    if (!compact) {
+    if (StatePill("MidiConnect", state->midiConnect, fonts, design, dpi, pad, !state->liveDevice.empty(),
+        "Sends the MIDIConnect numpad protocol. Replaces Midi2Key; requires a compatible game script."))
+        engine.Send({ShellEngine::Action::MidiConnect, {}, 0, 0, !state->midiConnect});
+    {
         ImGui::SameLine();
         const char* label = state->autoVolume ? "AutoVol: on" :
             state->autoVolumeNeedsCalibration ? "AutoVol: calibrate" : "AutoVol: off";
@@ -345,6 +347,7 @@ void Panels::LoadPreferences(const std::filesystem::path& path) {
         preferences.autoSolo = json.value("autoSoloPiano", true);
         preferences.keyMappingOpen = json.value("keyMappingOpen", true);
         preferences.alwaysOnTop = json.value("alwaysOnTop", false);
+        preferences.opacity = std::clamp(json.value("opacity", 100), 40, 100);
         const auto folder = json.value("midiFolder", std::string());
         preferences.folder = std::filesystem::path(std::u8string(folder.begin(), folder.end()));
     } catch (const std::exception&) { preferences = {}; }
@@ -353,7 +356,7 @@ void Panels::LoadPreferences(const std::filesystem::path& path) {
 void Panels::SavePreferences(const std::filesystem::path& path) const {
     nlohmann::json json{{"skin", preferences.skin}, {"autoSoloPiano", preferences.autoSolo},
                         {"midiFolder", Utf8(preferences.folder)}, {"keyMappingOpen", preferences.keyMappingOpen},
-                        {"alwaysOnTop", preferences.alwaysOnTop}};
+                        {"alwaysOnTop", preferences.alwaysOnTop}, {"opacity", preferences.opacity}};
     std::ofstream stream(path);
     if (stream) stream << json.dump(2) << '\n';
 }
@@ -615,7 +618,7 @@ void Panels::DrawAutoVolume(const Fonts& fonts, const skin::Skin& design, float 
 Panels::~Panels() { if (measuring_) input_latency::stop(); }
 
 ImVec2 Panels::DesiredSize() const {
-    if (miniMode) return ImVec2(480, miniAutoplay ? 264.f : 166.f);
+    if (miniMode) return ImVec2(640, miniAutoplay ? 360.f : 240.f);
     return ImVec2(1090, velocityExpanded ? 1009.f : 635.f);
 }
 
@@ -1037,12 +1040,26 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
       ImGui::TextWrapped("Starts after the MIDI transport; ends at the keyboard hook, before the game. Autoplay starts at event dispatch."); }
     ImGui::Separator();
     section("BEHAVIOUR");
+    ImGui::TextUnformatted("Mouse play countdown");
+    int playbackDelay = state->playbackDelay;
+    ImGui::SetNextItemWidth(-1);
+    if (ImGui::SliderInt("##playback-delay", &playbackDelay, 0, 10, "%d seconds"))
+        engine.Send({ShellEngine::Action::PlaybackDelay, {}, 0, 0, false, static_cast<double>(playbackDelay)});
+    ImGui::TextWrapped("Global play starts immediately in the focused window. During a countdown it cancels the start.");
     if (ImGui::Button(state->autoVolume ? "AutoVol: on" : state->autoVolumeNeedsCalibration ? "AutoVol: calibrate" : "AutoVol: off", ImVec2(-1, s.metric.controlHeight))) {
         autoVolumeOpen = true;
         ImGui::CloseCurrentPopup();
     }
     SettingSwitch("Solo piano tracks on load", preferences.autoSolo,
         "Silences non-piano parts when a MIDI file opens.", fonts, design, dpi);
+    bool legit = state->legitMode;
+    if (SettingSwitch("Legit Mode", legit,
+        "Humanises autoplay timing and intentionally drops some notes.", fonts, design, dpi))
+        engine.Send({ShellEngine::Action::LegitMode, {}, 0, 0, legit});
+    bool shuffle = state->shuffle;
+    if (SettingSwitch("Shuffle Play", shuffle,
+        "At the end of a song, plays another file from the MIDI folder.", fonts, design, dpi))
+        engine.Send({ShellEngine::Action::Shuffle, {}, 0, 0, shuffle});
     bool velocity = state->velocity;
     if (SettingSwitch("Velocity hotkeys", velocity,
         "Off skips the ALT velocity preamble for live input and autoplay.", fonts, design, dpi))
@@ -1051,6 +1068,9 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
         "Keeps the main window above other windows.", fonts, design, dpi);
     ImGui::Separator();
     section("APPEARANCE");
+    ImGui::TextUnformatted("Window opacity");
+    ImGui::SetNextItemWidth(-1);
+    ImGui::SliderInt("##window-opacity", &preferences.opacity, 40, 100, "%d%%");
     // The names come from the skins themselves. They were spelled out here as
     // "Classic" and "Modern", which is two more places to rename and two more
     // chances for the picker to disagree with what it picks.
@@ -1096,13 +1116,14 @@ void Panels::DrawStatus(const Fonts& fonts, const skin::Skin& design, float dpi,
     auto* draw = ImGui::GetWindowDrawList();
     draw->AddRectFilled(min, ImVec2(min.x + width, min.y + height), Colour(s.surface.structure));
     draw->AddLine(min, ImVec2(min.x + width, min.y), Colour(s.border.hairline), dpi);
+    draw->PushClipRect(ImVec2(min.x, min.y + dpi), ImVec2(min.x + width, min.y + height), true);
     FontScope font(fonts, design, design.type.meta * SpecFontScale(design));
     const ImVec2 text(min.x + s.spacing.windowPad, min.y + (height - ImGui::GetTextLineHeight()) / 2);
     std::vector<std::string> fields;
     if (!state.error.empty()) fields.push_back(state.error);
     else if (state.busy) fields.push_back("Loading...");
     else {
-        fields.push_back(state.playing ? "Playing" : state.liveActive ? "Live" : "Ready");
+        fields.push_back(state.playing ? "Playing" : state.midiConnect ? "MidiConnect" : state.liveActive ? "Live" : "Ready");
         fields.push_back("Curve " + state.ActiveVelocityName());
         std::string input = "Input ";
         input += state.liveDevice.empty() ? "None" : BackendName(BackendForDeviceId(state.liveDevice));
@@ -1112,7 +1133,8 @@ void Panels::DrawStatus(const Fonts& fonts, const skin::Skin& design, float dpi,
     }
     const auto tracks = std::to_string(SilentTracks(state.rows)) + " of " + std::to_string(state.rows.size()) +
         (state.eightyEightKeys ? " tracks silent \xc2\xb7 88-key" : " tracks silent \xc2\xb7 61-key");
-    const float suffix = miniMode ? 0 : ImGui::CalcTextSize(tracks.c_str()).x + 24 * dpi;
+    const float logWidth = 56 * dpi;
+    const float suffix = logWidth + (miniMode ? 0 : ImGui::CalcTextSize(tracks.c_str()).x + 24 * dpi);
     const float end = min.x + width - s.spacing.windowPad - suffix;
     float x = text.x;
     std::string summary;
@@ -1128,10 +1150,71 @@ void Panels::DrawStatus(const Fonts& fonts, const skin::Skin& design, float dpi,
         if (x < end) DrawEllipsis(field, end - x, ImVec2(x, text.y));
         x += ImGui::CalcTextSize(field.c_str()).x;
     }
-    if (!miniMode) draw->AddText(ImVec2(min.x + width - s.spacing.windowPad - ImGui::CalcTextSize(tracks.c_str()).x, text.y), Colour(s.ink.secondary), tracks.c_str());
+    if (!miniMode) draw->AddText(ImVec2(min.x + width - s.spacing.windowPad - logWidth - ImGui::CalcTextSize(tracks.c_str()).x, text.y), Colour(s.ink.secondary), tracks.c_str());
+    draw->PopClipRect();
     ImGui::SetCursorScreenPos(text);
-    ImGui::InvisibleButton("##status", ImVec2(width - 2 * s.spacing.windowPad, ImGui::GetTextLineHeight()));
+    ImGui::InvisibleButton("##status", ImVec2(width - 2 * s.spacing.windowPad - logWidth, ImGui::GetTextLineHeight()));
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", summary.c_str());
+    ImGui::SetCursorScreenPos(ImVec2(min.x + width - s.spacing.windowPad - logWidth + 8 * dpi, min.y + 2 * dpi));
+    if (ImGui::Button("Log", ImVec2(logWidth - 8 * dpi, height - 4 * dpi))) logOpen = !logOpen;
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Engine output and errors");
+}
+
+void Panels::DrawLog(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float dpi, ShellEngine& engine) {
+    if (!logOpen) return;
+    const auto s = skin::ScaleGeometry(design, dpi);
+    FontScope font(fonts, design, design.type.body * SpecFontScale(design));
+    const auto* viewport = ImGui::GetMainViewport();
+    const ImVec2 limit(std::max(320 * dpi, viewport->WorkSize.x - 32 * dpi),
+                       std::max(160 * dpi, viewport->WorkSize.y - 32 * dpi));
+    ImGui::SetNextWindowSizeConstraints(ImVec2(320 * dpi, 160 * dpi), limit);
+    ImGui::SetNextWindowSize(ImVec2(std::min(600 * dpi, limit.x), std::min(320 * dpi, limit.y)), ImGuiCond_Appearing);
+    ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + viewport->WorkSize.x / 2,
+                                  viewport->WorkPos.y + viewport->WorkSize.y / 2), ImGuiCond_Appearing, ImVec2(.5f, .5f));
+    if (ImGui::Begin("Log", &logOpen)) {
+        const auto state = engine.Snapshot();
+        if (IconButton("##clear-log", Icon::Refresh, "Clear Log", s, dpi)) engine.Send({ShellEngine::Action::ClearLog});
+        ImGui::SameLine();
+        if (IconButton("##copy-log", Icon::Copy, "Copy Log", s, dpi)) CopyUtf8ToClipboard(hwnd, *state->log);
+        ImGui::SameLine(); ImGui::AlignTextToFramePadding(); ImGui::TextDisabled("Latest 256 KB");
+        ImGui::BeginChild("##log-output", ImVec2(0, 0), ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar);
+        const bool atBottom = ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 4 * dpi;
+        if (state->log->empty()) ImGui::TextDisabled("No engine messages.");
+        else ImGui::TextUnformatted(state->log->data(), state->log->data() + state->log->size());
+        if (atBottom) ImGui::SetScrollHereY(1.f);
+        ImGui::EndChild();
+    }
+    ImGui::End();
+}
+
+std::string Panels::TransportHints() const {
+    const char* actions[]{"Play/Pause", "-10s", "+10s", "Stop"};
+    std::string text;
+    for (size_t i = 0; i < transportKeys.size(); ++i) {
+        if (i) text += "   ";
+        text += transportKeys[i] + " " + actions[i];
+        if (!transportKeysAvailable[i]) text += " (unavailable)";
+    }
+    return text;
+}
+
+void Panels::DrawTypingWarning(const Fonts& fonts, const skin::Skin& design, float dpi, ShellEngine& engine) {
+    if (engine.Snapshot()->typingAcknowledged) return;
+    FontScope font(fonts, design, design.type.body * SpecFontScale(design));
+    ImGui::OpenPopup("Before you play");
+    ImGui::SetNextWindowSize(ImVec2(440 * dpi, 0));
+    if (ImGui::BeginPopupModal("Before you play", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextWrapped("MIDI++ types into whichever window has focus. Select your game before playing MIDI notes or starting autoplay.");
+        ImGui::Spacing();
+        ImGui::TextWrapped("Some notes use Ctrl shortcuts. For example, G#1 in the default 88-key layout sends Ctrl+W and can close a browser tab.");
+        ImGui::Spacing();
+        ImGui::TextWrapped("Stop output before returning to another app. The Stop control also turns off live input.");
+        if (ImGui::Button("I understand", ImVec2(-1, 0))) {
+            engine.Send({ShellEngine::Action::AcknowledgeTyping});
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
 }
 
 void Panels::DrawMini(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float dpi, ShellEngine& engine,
@@ -1141,12 +1224,14 @@ void Panels::DrawMini(HWND hwnd, const Fonts& fonts, const skin::Skin& design, f
     FontScope font(fonts, design, design.type.body * SpecFontScale(design));
     const float control = s.metric.controlHeight, pad = s.spacing.windowPad;
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12 * dpi, (control - ImGui::GetTextLineHeight()) / 2));
-    const float strip = control + 16 * dpi, status = 28 * dpi;
+    const float strip = 125 * dpi, status = 28 * dpi;
     auto* draw = ImGui::GetWindowDrawList();
     draw->AddRectFilled(origin, ImVec2(origin.x + size.x, origin.y + strip), Colour(s.surface.structure));
-    ImGui::SetCursorScreenPos(ImVec2(origin.x + pad, origin.y + 8 * dpi));
-    DevicePill(DeviceName(*state), std::max(40 * dpi, size.x - 320 * dpi), s, dpi);
-    ImGui::SetCursorScreenPos(ImVec2(origin.x + size.x - 308 * dpi, origin.y + 8 * dpi));
+    ImGui::SetCursorScreenPos(ImVec2(origin.x + pad, origin.y + 12 * dpi));
+    { FontScope deviceFont(fonts, design, design.type.body * SpecFontScale(design), Weight::Medium);
+      DevicePill(DeviceName(*state), std::max(40 * dpi, size.x - 360 * dpi), s, dpi); }
+    const float utilityX = origin.x + size.x - pad - 4 * control - 3 * s.spacing.s2;
+    ImGui::SetCursorScreenPos(ImVec2(utilityX - 172 * dpi, origin.y + 12 * dpi));
     {
         FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
         const auto well = ImGui::GetCursorScreenPos();
@@ -1168,15 +1253,22 @@ void Panels::DrawMini(HWND hwnd, const Fonts& fonts, const skin::Skin& design, f
         ImGui::PopStyleVar(2);
         ImGui::SetCursorScreenPos(ImVec2(well.x + segmentWidth + 8 * dpi, well.y));
     }
+    ImGui::SetCursorScreenPos(ImVec2(utilityX, origin.y + 12 * dpi));
+    if (IconButton("##restore-full", Icon::Expand, "Full window", s, dpi)) miniMode = false;
+    ImGui::SameLine();
+    ImGui::BeginDisabled();
+    IconButton("##mini-key-mapping", Icon::Keyboard, "Key Mapping: open the full window", s, dpi);
+    ImGui::EndDisabled(); ImGui::SameLine();
     if (IconButton("##mini-theme", s.dark ? Icon::Moon : Icon::Sun, "Switch theme", s, dpi)) preferences.skin ^= 1;
     ImGui::SameLine();
     SettingsControl(fonts, design, dpi, engine,
                     ImVec2(origin.x + size.x - 344 * dpi - s.spacing.windowPad, origin.y + 48 * dpi), 544 * dpi);
-    ImGui::SameLine();
-    if (IconButton("##restore-full", Icon::Expand, "Full window", s, dpi)) miniMode = false;
-    ImGui::SetCursorScreenPos(ImVec2(origin.x + pad, origin.y + strip + 8 * dpi));
-    StatePills(fonts, design, dpi, engine, true);
-    const float row = origin.y + strip + 16 * dpi + control;
+    ImGui::SetCursorScreenPos(ImVec2(origin.x + pad, origin.y + 101 * dpi - control - 13 * dpi));
+    if (StatePills(fonts, design, dpi, engine, true)) autoVolumeOpen = true;
+    { FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
+      DrawEllipsis("Types into the focused window. Select your game before playing.", size.x - 2 * pad,
+                   ImVec2(origin.x + pad, origin.y + 101 * dpi)); }
+    const float row = origin.y + strip + 8 * dpi;
     ImGui::SetCursorScreenPos(ImVec2(origin.x + pad, row));
     const auto number = [&](ShellEngine::Action action, double value) { engine.Send({action, {}, state->generation, 0, false, value}); };
     if (!miniAutoplay) {
@@ -1226,8 +1318,9 @@ void Panels::DrawMini(HWND hwnd, const Fonts& fonts, const skin::Skin& design, f
         if (seeking_ && ImGui::IsItemDeactivatedAfterEdit()) { number(ShellEngine::Action::Seek, seekPosition_); seeking_ = false; }
         else if (changed && !ImGui::IsItemActive()) number(ShellEngine::Action::Seek, seekPosition_);
         ImGui::SetCursorScreenPos(ImVec2(origin.x + pad, row + control + 38 * dpi));
-        if (TransportButton("##mini-play", state->playing ? Icon::Pause : Icon::Play, state->playing ? "Pause" : "Play", s, dpi, true))
-            engine.Send({ShellEngine::Action::TogglePlayPause, {}, state->generation});
+        if (TransportButton("##mini-play", state->playing ? Icon::Pause : Icon::Play,
+            state->playing ? "Pause" : state->playbackCountdown ? "Cancel" : "Play", s, dpi, true))
+            engine.Send({ShellEngine::Action::PlayCountdown, {}, state->generation});
         ImGui::SameLine();
         if (IconButton("##mini-restart", Icon::Refresh, "Restart", s, dpi)) engine.Send({ShellEngine::Action::Restart, {}, state->generation});
         ImGui::SameLine();
@@ -1235,9 +1328,19 @@ void Panels::DrawMini(HWND hwnd, const Fonts& fonts, const skin::Skin& design, f
         ImGui::SameLine();
         if (IconButton("##mini-forward10", Icon::Forward, "Forward 10 seconds", s, dpi)) engine.Send({ShellEngine::Action::Forward10, {}, state->generation});
         ImGui::EndDisabled();
-        const auto time = Time(seeking_ ? seekPosition_ : state->position) + " / " + Time(state->duration);
+        ImGui::SameLine(); ImGui::BeginDisabled(state->files->empty());
+        if (IconButton("##mini-prev", Icon::Left, "Previous MIDI file", s, dpi)) engine.Send({ShellEngine::Action::Previous, {}, state->generation});
+        ImGui::SameLine();
+        if (IconButton("##mini-next", Icon::Right, "Next MIDI file", s, dpi)) engine.Send({ShellEngine::Action::Next, {}, state->generation});
+        ImGui::EndDisabled(); ImGui::SameLine();
+        if (IconButton("##mini-stop", Icon::Close, "Stop all output and cancel countdown", s, dpi)) engine.Send({ShellEngine::Action::Stop});
+        const auto time = state->playbackCountdown ? "Starts in " + std::to_string(state->playbackCountdown) + "s" :
+            Time(seeking_ ? seekPosition_ : state->position) + " / " + Time(state->duration);
         draw->AddText(ImVec2(origin.x + size.x - pad - ImGui::CalcTextSize(time.c_str()).x,
             row + control + 38 * dpi + (control - ImGui::GetTextLineHeight()) / 2), Colour(s.ink.secondary), time.c_str());
+        { FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
+          DrawEllipsis(TransportHints(), size.x - 2 * pad,
+              ImVec2(origin.x + pad, row + 2 * control + 44 * dpi)); }
     }
     DrawStatus(fonts, design, dpi, *state, ImVec2(origin.x, origin.y + size.y - status), size.x, status);
     ImGui::PopStyleVar();
@@ -1246,6 +1349,8 @@ void Panels::DrawMini(HWND hwnd, const Fonts& fonts, const skin::Skin& design, f
 void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float dpi, ShellEngine& engine) {
     const auto s = skin::ScaleGeometry(design, dpi);
     auto state = engine.Snapshot();
+    fileSort_ = state->fileSort;
+    descendingFiles_ = state->descendingFiles;
     if (state->sheetReady && state->sheetRevision != handledSheetRevision_) {
         handledSheetRevision_ = state->sheetRevision;
         sheetStatusGeneration_ = state->generation;
@@ -1276,12 +1381,14 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     if (miniMode) {
         DrawMini(hwnd, fonts, design, dpi, engine, origin, size);
         DrawAutoVolume(fonts, design, dpi, engine);
+        DrawLog(hwnd, fonts, design, dpi, engine);
+        DrawTypingWarning(fonts, design, dpi, engine);
         mappingArmed_ = false;
         return;
     }
     auto* dl = ImGui::GetWindowDrawList();
     const float stripPad = 12 * dpi;
-    const float strip = 101 * dpi, status = 28 * dpi;
+    const float strip = 125 * dpi, status = 28 * dpi;
     dl->AddRectFilled(origin, ImVec2(origin.x + size.x, origin.y + strip), Colour(s.surface.structure));
     dl->AddLine(ImVec2(origin.x, origin.y + strip), ImVec2(origin.x + size.x, origin.y + strip), Colour(s.border.hairline));
     ImGui::SetCursorScreenPos(ImVec2(origin.x + s.spacing.windowPad, origin.y + stripPad));
@@ -1299,8 +1406,11 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     ImGui::SameLine();
     SettingsControl(fonts, design, dpi, engine,
                     ImVec2(origin.x + size.x - 344 * dpi - s.spacing.windowPad, origin.y + 48 * dpi), size.y - 52 * dpi);
-    ImGui::SetCursorScreenPos(ImVec2(origin.x + s.spacing.windowPad, origin.y + strip - s.metric.controlHeight - stripPad - dpi));
+    ImGui::SetCursorScreenPos(ImVec2(origin.x + s.spacing.windowPad, origin.y + 101 * dpi - s.metric.controlHeight - stripPad - dpi));
     if (StatePills(fonts, design, dpi, engine, false)) autoVolumeOpen = true;
+    { FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
+      DrawEllipsis("Types into the focused window. Select your game before playing.", size.x - 2 * s.spacing.windowPad,
+                   ImVec2(origin.x + s.spacing.windowPad, origin.y + 101 * dpi)); }
 
     const float top = origin.y + strip + s.spacing.windowPad;
     const float bottom = origin.y + size.y - status - s.spacing.windowPad;
@@ -1312,19 +1422,27 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12 * dpi, (s.metric.controlHeight - ImGui::GetTextLineHeight()) / 2));
     { FontScope font(fonts, design, design.type.body * SpecFontScale(design), Weight::Semibold);
       ImGui::AlignTextToFramePadding(); ImGui::TextUnformatted("MIDI Files"); }
-    const float sortWidth = ImGui::CalcTextSize("Name").x + 24 * dpi + 18 * dpi + s.spacing.s2;
-    const float refreshWidth = ImGui::CalcTextSize("Refresh").x + 16 * dpi;
-    ImGui::SameLine(ImGui::GetWindowWidth() - sortWidth - refreshWidth - s.spacing.s2);
+    ImGui::SameLine(ImGui::GetWindowWidth() - 2 * s.metric.controlHeight - s.spacing.s2);
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8 * dpi, ImGui::GetStyle().FramePadding.y));
-    if (TransportButton("##sort-name", descendingNames_ ? Icon::SortUp : Icon::SortDown, "Name", s, dpi)) {
-        descendingNames_ = !descendingNames_;
-        filteredFiles_.reset();
+    if (IconButton("##sort-files", descendingFiles_ ? Icon::SortUp : Icon::SortDown, "Sort files", s, dpi))
+        ImGui::OpenPopup("File sort");
+    if (ImGui::BeginPopup("File sort")) {
+        const char* labels[]{"Name", "Size", "Date modified"};
+        for (int i = 0; i < 3; ++i) {
+            if (ImGui::MenuItem(labels[i], nullptr, fileSort_ == static_cast<FileSort>(i))) {
+                engine.Send({ShellEngine::Action::SortFiles, {}, 0, 0, descendingFiles_, static_cast<double>(i)});
+            }
+        }
+        ImGui::Separator();
+        if (ImGui::MenuItem("Ascending", nullptr, !descendingFiles_))
+            engine.Send({ShellEngine::Action::SortFiles, {}, 0, 0, false, static_cast<double>(fileSort_)});
+        if (ImGui::MenuItem("Descending", nullptr, descendingFiles_))
+            engine.Send({ShellEngine::Action::SortFiles, {}, 0, 0, true, static_cast<double>(fileSort_)});
+        ImGui::EndPopup();
     }
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
-        ImGui::SetTooltip("%s", descendingNames_ ? "Name: Z to A" : "Name: A to Z");
     ImGui::SameLine();
     ImGui::BeginDisabled(state->playing || state->busy || state->folder.empty());
-    if (ImGui::Button("Refresh", ImVec2(refreshWidth, s.metric.controlHeight))) engine.Send({ShellEngine::Action::Scan, state->folder});
+    if (IconButton("##refresh-files", Icon::Refresh, "Refresh MIDI files", s, dpi)) engine.Send({ShellEngine::Action::Scan, state->folder});
     ImGui::EndDisabled(); ImGui::PopStyleVar();
     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 2 * s.metric.controlHeight - 2 * s.spacing.s2);
     ImGui::InputTextWithHint("##search", "Search MIDI files", search_, sizeof(search_));
@@ -1355,8 +1473,7 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
             for (size_t i = 0; i < state->files->size(); ++i)
                 if (query.empty() || lowercase((*state->files)[i].name).find(query) != std::string::npos) fileFilter_.push_back(i);
             std::stable_sort(fileFilter_.begin(), fileFilter_.end(), [&](size_t a, size_t b) {
-                const auto first = lowercase((*state->files)[a].name), second = lowercase((*state->files)[b].name);
-                return descendingNames_ ? first > second : first < second;
+                return FileBefore((*state->files)[a], (*state->files)[b], fileSort_, descendingFiles_);
             });
             filteredFiles_ = state->files;
             filteredQuery_ = query;
@@ -1394,25 +1511,29 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     // Keep the file name, sheet action and result status together above the
     // seek groove. The two transport rows retain the mockup's measured geometry.
     const float titleHeight = s.metric.controlHeight;
-    const float sheetLineHeight = 18 * dpi;
+    const float sheetLineHeight = 40 * dpi;
     const float playbackHeight = 2 * s.spacing.panelPad + titleHeight + sheetLineHeight + 46 * dpi + 2 * s.metric.controlHeight;
     BeginPanel("Playback", ImVec2(right, top), ImVec2(edge, top + playbackHeight), s,
                ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     ImGui::PushFont(fonts.Get(design), design.type.body * SpecFontScale(design));
     const auto content = ImGui::GetCursorScreenPos();
     const float contentWidth = ImGui::GetContentRegionAvail().x;
-    const char* sheetLabel = "Copy as sheet";
+    const char* sheetLabel = "Export";
     const float sheetButtonWidth = 2 * 12 * dpi + 16 * dpi + s.spacing.s2 + ImGui::CalcTextSize(sheetLabel).x;
     { FontScope font(fonts, design, 20 * SpecFontScale(design), Weight::Medium);
       DrawEllipsis(state->loaded.empty() ? "Playback" : Utf8(state->loaded.stem()),
                    contentWidth - sheetButtonWidth - s.spacing.s2, ImVec2(content.x, content.y + (titleHeight - ImGui::GetTextLineHeight()) / 2)); }
     ImGui::SetCursorScreenPos(ImVec2(content.x + contentWidth - sheetButtonWidth, content.y));
     ImGui::BeginDisabled(state->loaded.empty() || state->rows.empty() || state->busy);
-    if (TransportButton("##copy-sheet", Icon::Copy, sheetLabel, s, dpi)) {
-        send(ShellEngine::Action::CopySheet);
-        sheetStatusGeneration_ = state->generation;
-        sheetStatus_ = "Preparing sheet...";
-        sheetPending_ = true;
+    if (TransportButton("##export", Icon::Down, sheetLabel, s, dpi)) ImGui::OpenPopup("Export MIDI");
+    if (ImGui::BeginPopup("Export MIDI")) {
+        if (ImGui::MenuItem("Copy as sheet")) {
+            send(ShellEngine::Action::CopySheet);
+            sheetStatusGeneration_ = state->generation;
+            sheetStatus_ = "Preparing sheet...";
+            sheetPending_ = true;
+        }
+        ImGui::EndPopup();
     }
     ImGui::EndDisabled();
     std::string sheetNote = sheetStatus_;
@@ -1424,6 +1545,8 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
         FontScope font(fonts, design, design.type.meta * SpecFontScale(design));
         DrawEllipsis(sheetNote, contentWidth, ImVec2(content.x, content.y + titleHeight + 2 * dpi));
     }
+    { FontScope font(fonts, design, design.type.meta * SpecFontScale(design));
+      DrawEllipsis(TransportHints(), contentWidth, ImVec2(content.x, content.y + titleHeight + 20 * dpi)); }
     const auto number = [&](ShellEngine::Action action, double amount) {
         engine.Send({action, {}, state->generation, 0, false, amount});
     };
@@ -1443,15 +1566,25 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     if (ImGui::IsItemHovered() || seeking_) ImGui::SetTooltip("%s", Time(seekPosition_).c_str());
     const float transportY = content.y + titleHeight + sheetLineHeight + 30 * dpi;
     ImGui::SetCursorScreenPos(ImVec2(content.x, transportY));
-    if (TransportButton("##play", state->playing ? Icon::Pause : Icon::Play, state->playing ? "Pause" : "Play", s, dpi, true))
-        send(ShellEngine::Action::TogglePlayPause);
+    if (TransportButton("##play", state->playing ? Icon::Pause : Icon::Play,
+        state->playing ? "Pause" : state->playbackCountdown ? "Cancel" : "Play", s, dpi, true))
+        send(ShellEngine::Action::PlayCountdown);
     ImGui::SameLine();
-    if (TransportButton("##restart", Icon::Refresh, "Restart", s, dpi)) send(ShellEngine::Action::Restart);
+    if (IconButton("##restart", Icon::Refresh, "Restart", s, dpi)) send(ShellEngine::Action::Restart);
     ImGui::SameLine();
     if (TransportButton("##back10", "−10s", s, dpi)) send(ShellEngine::Action::Back10);
     ImGui::SameLine();
     if (TransportButton("##forward10", "+10s", s, dpi)) send(ShellEngine::Action::Forward10);
-    const std::string time = Time(seeking_ ? seekPosition_ : state->position) + " / " + Time(state->duration);
+    ImGui::EndDisabled();
+    ImGui::SameLine(); ImGui::BeginDisabled(state->files->empty() || state->busy);
+    if (IconButton("##previous", Icon::Left, "Previous MIDI file", s, dpi)) send(ShellEngine::Action::Previous);
+    ImGui::SameLine();
+    if (IconButton("##next", Icon::Right, "Next MIDI file", s, dpi)) send(ShellEngine::Action::Next);
+    ImGui::EndDisabled(); ImGui::SameLine();
+    if (IconButton("##stop", Icon::Close, "Stop all output and cancel countdown", s, dpi)) send(ShellEngine::Action::Stop);
+    ImGui::BeginDisabled(state->loaded.empty() || state->rows.empty() || state->busy);
+    const std::string time = state->playbackCountdown ? "Starts in " + std::to_string(state->playbackCountdown) + "s" :
+        Time(seeking_ ? seekPosition_ : state->position) + " / " + Time(state->duration);
     dl = ImGui::GetWindowDrawList();
     dl->AddText(ImVec2(content.x + contentWidth - ImGui::CalcTextSize(time.c_str()).x,
                 transportY + (s.metric.controlHeight - ImGui::GetTextLineHeight()) / 2), Colour(s.ink.secondary), time.c_str());
@@ -1537,8 +1670,8 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
         // The real header row, not a guessed offset, keeps both labels on the
         // same baseline as the five headers beside them.
         for (int action = 0; action < 2; ++action) {
-            actionHeaderMin[action] = ImVec2(table->Columns[5 + action].MinX, table->RowPosY1);
-            actionHeaderMax[action] = ImVec2(table->Columns[5 + action].MaxX,
+            actionHeaderMin[action] = ImVec2(table->Columns[5 + action].WorkMinX, table->RowPosY1);
+            actionHeaderMax[action] = ImVec2(table->Columns[5 + action].WorkMinX + s.metric.controlHeight,
                 table->RowPosY1 + ImGui::TableGetHeaderRowHeight());
         }
         const bool anySolo = AnySolo(state->rows);
@@ -1604,5 +1737,7 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     if (preferences.keyMappingOpen) DrawKeyMapping(fonts, design, dpi, engine);
     else mappingArmed_ = false;
     DrawAutoVolume(fonts, design, dpi, engine);
+    DrawLog(hwnd, fonts, design, dpi, engine);
+    DrawTypingWarning(fonts, design, dpi, engine);
 }
 }
