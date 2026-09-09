@@ -1,9 +1,50 @@
 # MIDI output: a route switch
 
-Written 2026-09-07 for whichever seat builds this. Nothing below is
-implemented. The decision that shaped it: **one output target for the whole
-app**, not keystrokes and MIDI in parallel. Live input and autoplay both send
-MIDI to a chosen output port *instead of* injecting keystrokes.
+Written 2026-09-07 for whichever seat builds this. The decision that shaped it:
+**one output target for the whole app**, not keystrokes and MIDI in parallel.
+Live input and autoplay both send MIDI to a chosen output port *instead of*
+injecting keystrokes.
+
+## State, 2026-09-09
+
+**The engine half is built.** `MidiOutput.hpp` / `MidiOutput.cpp` with the WinRT
+and WinMM backends, the target switch and its release ordering on
+`VirtualPianoPlayer`, both call sites, and `MidiOutputTests` in
+`ShellTests.cpp`. Two mutations, `switch-strands-the-held-note` and
+`midi-note-drops-velocity`, hold the two things this page says are easiest to
+get wrong. The whole solution builds: the original window, the shell, and both
+test executables.
+
+**The panel half is not built,** and is the reason none of this is reachable
+yet. Everything under "What the panel half adds" is still owed, unchanged. The
+engine side deliberately added nothing to `ShellEngine::Action` or
+`EngineSnapshot`, so that list can still be written once by the seat that owns
+those types.
+
+Two places where the build does not match what is written below, both
+deliberate:
+
+- **`send()` takes a short mutex,** where this page said it must not block.
+  Two threads interleaving bytes into one port is a corrupted MIDI stream, the
+  lock is uncontended whenever only one of live input and autoplay is running,
+  and it is held for the length of a three-byte write to a handle. The
+  allocation rule is met as written: the WinRT backend writes into a buffer
+  taken once at open, and the WinMM backend uses RtMidi's pointer-and-length
+  overload.
+- **No transpose is applied in `MIDI2Key::ProcessMidiMessage`,** because there
+  is none to apply. Transpose on this fork is a playback-file operation and the
+  live path has never had an offset of its own. `g_adjustedNote` is the 61-key
+  fold, not transpose, and this page is already right that the fold must not
+  reach the wire. The comment at that call site says where an offset would go
+  if one is ever added.
+
+One thing this page did not cover, decided while building it: on the MIDI
+target the **SPACE_UP sustain inversion is not applied**. It exists because
+some games want the sustain key held while the pedal is up, which is a
+keystroke protocol workaround; a synth reading CC64 gets the pedal it was
+actually given. Ignore still means ignore and the cutoff still decides what
+counts as down, because both are the user's choices about the pedal rather than
+workarounds.
 
 Read `HANDOFF.md` sections 3 and 4 first. `MidiInput.hpp` is the model this
 copies; read it before writing `MidiOutput.hpp`, because the two should be

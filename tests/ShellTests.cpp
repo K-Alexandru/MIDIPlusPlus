@@ -4,6 +4,7 @@
 #include "../MIDI++/VelocityTelemetry.hpp"
 #include "../MIDI++/WootingAnalog.hpp"
 #include "../MIDI++/MidiInput.hpp"
+#include "../MIDI++/MidiOutput.hpp"
 #include "../MIDI++/SheetExport.hpp"
 #include "../MIDI++/MidiStreamSplit.hpp"
 #include "../MIDI++/config.hpp"
@@ -193,6 +194,220 @@ void ReleaseAllKeysTests(const std::filesystem::path& config) {
     player.ENABLE_OUT_OF_RANGE_TRANSPOSE = false;
 
     std::cout << "PASS release_all_keys releases only the keys that are down, and the panic path releases all of them\n";
+}
+
+// MIDI output: the target switch, both call sites, and the id rule.
+//
+// Everything here runs against a recording IMidiOutput installed through
+// SetMidiOutputFactory, which is the same seam and the same reason as
+// InjectInput = Capture at the top of wmain: the indirection exists only so
+// the thing under test can be driven, and nothing reaches a real device.
+struct RecordedMidi {
+    std::mutex mutex;
+    std::vector<std::vector<uint8_t>> messages;
+    bool refuseOpen = false;
+
+    std::vector<std::vector<uint8_t>> take() {
+        std::lock_guard lock(mutex);
+        std::vector<std::vector<uint8_t>> out;
+        out.swap(messages);
+        return out;
+    }
+};
+
+class FakeMidiOutput final : public IMidiOutput {
+public:
+    explicit FakeMidiOutput(RecordedMidi* sink) : m_sink(sink) {}
+    MidiBackend backend() const noexcept override { return MidiBackend::WinRT; }
+    std::vector<MidiInputDevice> enumerate() override {
+        return { { L"fake:piano", L"Fake Piano", MidiBackend::WinRT, L"Fake Piano" } };
+    }
+    bool open(const std::wstring& deviceId) override {
+        // The absent-device rule the real backends get from ResolveWinMMPort:
+        // an id naming something that is not there opens nothing, rather than
+        // whatever port happens to be first.
+        if (m_sink->refuseOpen || deviceId != L"fake:piano") return false;
+        m_openedId = deviceId;
+        return true;
+    }
+    void close() override { m_openedId.clear(); }
+    bool isOpen() const noexcept override { return !m_openedId.empty(); }
+    const std::wstring& openedDeviceId() const noexcept override { return m_openedId; }
+    void send(const uint8_t* message, size_t length) override {
+        std::lock_guard lock(m_sink->mutex);
+        m_sink->messages.emplace_back(message, message + length);
+    }
+private:
+    RecordedMidi* m_sink;
+    std::wstring m_openedId;
+};
+
+void MidiOutputTests(const std::filesystem::path& config) {
+    using OutputTarget = VirtualPianoPlayer::OutputTarget;
+
+    // The name to number conversion first, because both call sites depend on
+    // it and a silent octave error there would present as a device problem.
+    //
+    // It is the inverse of NOTE_NAME_CACHE and not a second opinion about it,
+    // so the bulk of this is a round trip through names built the same way
+    // that table builds them, rather than a list of numbers written out again.
+    Require(MidiNumberForNoteName("C-1") == 0, "C-1 is note 0");
+    Require(MidiNumberForNoteName("G9") == 127, "G9 is note 127");
+    Require(MidiNumberForNoteName("C4") == 60, "middle C");
+    Require(MidiNumberForNoteName("A#3") == 58, "a sharp is a semitone above the natural");
+    Require(MidiNumberForNoteName("H4") == -1, "a letter that is not a note is refused");
+    Require(MidiNumberForNoteName("C") == -1, "a name with no octave is refused");
+    Require(MidiNumberForNoteName("") == -1 && MidiNumberForNoteName(nullptr) == -1,
+            "empty and null are refused rather than answered with note 0");
+    Require(MidiNumberForNoteName("G#9") == -1, "a name past 127 is refused, not wrapped");
+    {
+        static const char* pitches[12] = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
+        for (int number = 0; number < 128; ++number) {
+            char name[8];
+            snprintf(name, sizeof(name), "%s%d", pitches[number % 12], (number / 12) - 1);
+            Require(MidiNumberForNoteName(name) == number, "a note number did not survive the round trip");
+        }
+    }
+
+    RecordedMidi sink;
+    SetMidiOutputFactory([&](MidiBackend) -> std::unique_ptr<IMidiOutput> {
+        return std::make_unique<FakeMidiOutput>(&sink);
+    });
+    struct FactoryGuard { ~FactoryGuard() { SetMidiOutputFactory({}); } } guard;
+
+    VirtualPianoPlayer player(false, config);
+    player.eightyEightKeyModeActive = true;
+    // On purpose. The tap must be suppressed on the MIDI target because
+    // velocity travels in the note-on byte there, so leaving it enabled is
+    // what makes that assertion mean something.
+    player.enable_velocity_keypress = true;
+    player.trackMuted.push_back(std::make_shared<std::atomic<bool>>(false));
+    player.trackSoloed.push_back(std::make_shared<std::atomic<bool>>(false));
+
+    // Collects everything the port has been sent until the predicate is met,
+    // because take() drains and a bare call inside a wait would throw away the
+    // messages it was waiting for.
+    std::vector<std::vector<uint8_t>> seen;
+    const auto awaitMessages = [&](size_t count, const char* failure) {
+        Await([&] {
+            for (auto& message : sink.take()) seen.push_back(std::move(message));
+            return seen.size() >= count;
+        }, failure);
+    };
+
+    Require(!player.open_midi_output(L"fake:absent"),
+            "an output id naming an absent device opens nothing");
+    Require(player.opened_midi_output().empty(), "and leaves no port behind when it refuses");
+    Require(player.open_midi_output(L"fake:piano"), "the present device opens");
+    Require(player.opened_midi_output() == L"fake:piano", "and is the one reported open");
+
+    // Opening a port is not switching to it.
+    Require(player.output_target.load() == OutputTarget::Keystrokes,
+            "opening a port silently redirected output");
+
+    // --- a note on the MIDI target ---------------------------------------
+    player.set_output_target(OutputTarget::MidiDevice);
+    TakeCaptured();
+    sink.take();
+    seen.clear();
+    // C2 is below the 61-key window, so the keystroke path would fold it up.
+    player.note_events = {
+        {0ns, "C2", EventType::Press, 100, 0},
+        {40ms, "C2", EventType::Release, 0, 0},
+    };
+    player.restart_song();
+    awaitMessages(2, "the note never completed on the MIDI port");
+    Require(seen[0].size() == 3 && seen[0][0] == 0x90 && seen[0][1] == 36 && seen[0][2] == 100,
+            "velocity reaches the note-on byte, at the pitch that was played");
+    Require(seen[1].size() == 3 && seen[1][0] == 0x80 && seen[1][1] == 36,
+            "the release is a note-off for the same number");
+    for (const auto& event : TakeCaptured())
+        Require(!IsNotePress(event), "a note on the MIDI target injected INPUT as well");
+
+    // The fold is a 61-key game constraint and a MIDI device has 128 keys, so
+    // it must not reach the wire even with the fold switched on and the
+    // limited layout selected, which is the configuration that folds hardest.
+    player.eightyEightKeyModeActive = false;
+    player.ENABLE_OUT_OF_RANGE_TRANSPOSE = true;
+    sink.take();
+    seen.clear();
+    player.note_events = {
+        {0ns, "A#0", EventType::Press, 64, 0},
+        {40ms, "A#0", EventType::Release, 0, 0},
+    };
+    player.restart_song();
+    awaitMessages(1, "the out-of-range note never reached the port");
+    Require(seen[0][1] == 22, "an out-of-range note went out folded rather than at its own pitch");
+    player.eightyEightKeyModeActive = true;
+
+    // --- switching targets is a release ----------------------------------
+    //
+    // The ordering MIDI-OUTPUT.md warns about. A note held on the outgoing
+    // target has to come up on that target, before anything is sent on the
+    // new one.
+    sink.take();
+    seen.clear();
+    player.note_events = { {0ns, "E4", EventType::Press, 90, 0} };
+    player.restart_song();
+    awaitMessages(1, "the held note never started");
+    sink.take();
+    player.set_output_target(OutputTarget::Keystrokes);
+    const auto onSwitch = sink.take();
+    Require(!onSwitch.empty(), "switching away from MIDI sent nothing to stop the held note");
+    size_t sustainAt = onSwitch.size(), allNotesAt = onSwitch.size();
+    for (size_t i = 0; i < onSwitch.size(); ++i) {
+        if (onSwitch[i].size() != 3 || (onSwitch[i][0] & 0xF0) != 0xB0) continue;
+        if (onSwitch[i][1] == 123 && allNotesAt == onSwitch.size()) allNotesAt = i;
+        if (onSwitch[i][1] == 64 && onSwitch[i][2] == 0 && sustainAt == onSwitch.size()) sustainAt = i;
+    }
+    Require(allNotesAt < onSwitch.size(), "switching away from MIDI does not send All Notes Off");
+    Require(sustainAt < onSwitch.size(), "switching away from MIDI does not lift the sustain pedal");
+    // A synth holding the pedal keeps ringing through All Notes Off on plenty
+    // of hardware, so the pedal comes up first or the room does not go quiet.
+    Require(sustainAt < allNotesAt, "sustain must be lifted before All Notes Off, not after");
+    Require(player.output_target.load() == OutputTarget::Keystrokes, "the target did not change");
+
+    // --- the keystroke target is unchanged -------------------------------
+    sink.take();
+    TakeCaptured();
+    player.note_events = {
+        {0ns, "C4", EventType::Press, 100, 0},
+        {40ms, "C4", EventType::Release, 0, 0},
+    };
+    player.restart_song();
+    std::vector<Captured> typed;
+    Await([&] {
+        for (auto& event : TakeCaptured()) typed.push_back(event);
+        return std::any_of(typed.begin(), typed.end(), IsNotePress);
+    }, "the keystroke target stopped typing");
+    Require(sink.take().empty(), "a note on the keystroke target recorded a MIDI message");
+
+    // Closing the port counts as switching away, so it has to be safe with a
+    // note in flight and has to leave the app typing rather than sending into
+    // a port that is gone.
+    player.set_output_target(OutputTarget::MidiDevice);
+    sink.take();
+    player.close_midi_output();
+    Require(player.output_target.load() == OutputTarget::Keystrokes,
+            "closing the port left the app pointed at a device it no longer has");
+    Require(player.opened_midi_output().empty(), "and the port is actually gone");
+    // Closing goes through the same release as any other switch away, so the
+    // last thing the port hears is the stop, sent while it is still open. A
+    // close that skipped this would leave a synth sounding with nothing left
+    // to tell it otherwise.
+    const auto onClose = sink.take();
+    Require(std::any_of(onClose.begin(), onClose.end(), [](const std::vector<uint8_t>& message) {
+                return message.size() == 3 && (message[0] & 0xF0) == 0xB0 && message[1] == 123;
+            }), "closing the port did not stop what it was still playing");
+
+    // And after that, sending is a no-op rather than a crash, which is the
+    // state every one of those paths lands in.
+    const uint8_t orphan[3] = { 0x90, 60, 100 };
+    player.send_midi_output(orphan, 3);
+    player.silence_midi_output();
+    Require(sink.take().empty(), "output kept flowing after the port was closed");
+
+    std::cout << "PASS MIDI output: note and velocity on the wire, no INPUT, release before switch, absent id refused\n";
 }
 
 // The graph has to draw the table the engine will actually use, not a
@@ -1925,6 +2140,7 @@ int wmain(int argc, wchar_t** argv) {
             else if (group == L"library") LibraryParityTests(directory);
             else if (group == L"connect") ConnectAndWarningTests(directory);
             else if (group == L"curve") VelocityCurveDrawingTests(directory / L"config.json");
+            else if (group == L"midi-out") MidiOutputTests(directory / L"config.json");
             else throw std::runtime_error("Unknown shell test group");
             return 0;
         }
@@ -1941,6 +2157,7 @@ int wmain(int argc, wchar_t** argv) {
         ModelTests(fixture);
         MappingPersistenceTests(directory / L"config.json");
         VelocityCurveDrawingTests(directory / L"config.json");
+        MidiOutputTests(directory / L"config.json");
         VelocityBatchTests(directory / L"config.json");
         ReleaseAllKeysTests(directory / L"config.json");
         ReleaseTests(directory / L"config.json");

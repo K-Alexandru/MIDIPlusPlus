@@ -2054,12 +2054,19 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                     break;
                 case ID_BTN_VOLADJ:
                 {
-                    bool newState = g_toggleStates[ID_BTN_VOLADJ];
+                    // Focus first, then toggle once. toggle_volume_adjustment()
+                    // already calibrates, so this used to sweep the whole key
+                    // range twice on every enable: once from inside the toggle
+                    // with whatever window happened to be focused, and again
+                    // after FocusRobloxWindow() from here. Only the second one
+                    // reached the game, which is why the first went unnoticed.
+                    //
+                    // Deleting the second call on its own would have kept the
+                    // sweep that runs unfocused. The order is the fix. The
+                    // shell does the same thing at ShellEngine.cpp:1039 and
+                    // ShellTests counts the arrow presses to hold it there.
+                    if (g_toggleStates[ID_BTN_VOLADJ]) FocusRobloxWindow();
                     g_player->toggle_volume_adjustment();
-                    if (newState) {
-                        FocusRobloxWindow();
-                        g_player->calibrate_volume();
-                    }
                     break;
                 }
                 case ID_BTN_VELOCITY:

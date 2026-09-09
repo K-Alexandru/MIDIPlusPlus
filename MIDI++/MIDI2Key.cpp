@@ -344,10 +344,43 @@ MIDI2Key::MIDI2Key(VirtualPianoPlayer* player)
         b.store(false, std::memory_order_relaxed);
     }
     setThreadToRealTime();
+    // The player owns the output target and has to be able to release this
+    // path's keys when the target changes. It cannot reach pressed[] or
+    // scancodeOwner[] itself, so it is handed the one call that can.
+    if (m_player) m_player->set_live_release_hook([this] { ReleaseHeldKeys(); });
 }
 
 MIDI2Key::~MIDI2Key() {
     CloseDevice();
+    // Before this object stops existing, and before anything else can hold a
+    // hook pointing into it.
+    if (m_player) m_player->set_live_release_hook({});
+}
+
+void MIDI2Key::ReleaseHeldKeys() {
+    for (int note = 0; note < 128; ++note) {
+        if (!pressed[note].exchange(false, std::memory_order_relaxed)) continue;
+        PrecomputedKeyEvents* evPtr = m_player && m_player->eightyEightKeyModeActive
+            ? g_fullKeyEvents[note] : g_limitedKeyEvents[note];
+        if (!evPtr) continue;
+        const WORD sc = evPtr->mainScan & 0xFF;
+        // Same ownership rule as the note-off path: a scancode two notes share
+        // only comes up when the last of them lets go.
+        if (scancodeOwner[sc] != evPtr) continue;
+        const short remaining = scancodeCount[sc].fetch_sub(1, std::memory_order_relaxed);
+        if (remaining != 1) continue;
+        input_latency::send(static_cast<UINT>(evPtr->releaseCount), evPtr->release.data(), sizeof(INPUT));
+        scancodeOwner[sc] = nullptr;
+    }
+    // The pedal is this path's too, and it is a single key rather than a
+    // mapping, so it is not covered by the loop above.
+    if (m_player && m_player->isSustainPressed) {
+        constexpr WORD spaceScan = 0x39;
+        INPUT sustain = makeKeybdInput(spaceScan, KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP);
+        input_latency::send(1, &sustain, sizeof(INPUT));
+        m_player->isSustainPressed = false;
+    }
+    m_lastVelocityKey = 0;
 }
 
 // The analog keyboard has no notes of its own: a key sounds whatever the user's
@@ -455,6 +488,27 @@ void MIDI2Key::ProcessMidiMessage(uint64_t timestampQpc, const uint8_t* bytes, s
         timestampQpc);
 
     VirtualPianoPlayer& p = *m_player;
+
+    // On the MIDI target the message we were handed is already the message the
+    // device wants, so it goes out as it came in.
+    //
+    // Not through g_adjustedNote: folding out-of-range notes into the 61-key
+    // window exists because the *game* has 61 keys, and a real MIDI device has
+    // 128. Same for the 88-key flag. Both are keystroke-path concepts and must
+    // not reach the wire.
+    //
+    // MIDI-OUTPUT.md also says to apply transpose to bytes[1] here. There is
+    // nothing to apply: transpose on this fork is a playback-file operation,
+    // and the live path has never had an offset of its own. When one is added,
+    // this is where it goes.
+    //
+    // Returning here is also what keeps pressed[] and scancodeOwner[] honest.
+    // They describe keystrokes, so on this target they are simply never
+    // written, and a switch back finds them exactly as it left them.
+    if (p.output_target.load(std::memory_order_acquire) == VirtualPianoPlayer::OutputTarget::MidiDevice) {
+        p.send_midi_output(bytes, length);
+        return;
+    }
 
     // Handle Note On (0x90 with velocity > 0)
     if (cmd == 0x90 && bytes[2] > 0) {

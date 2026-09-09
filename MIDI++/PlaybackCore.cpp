@@ -1357,6 +1357,127 @@ void VirtualPianoPlayer::toggle_out_of_range_transpose() {
               << "\n";
 }
 
+// ---------------------------------------------------------------------------
+// MIDI output
+//
+// One target for the whole app. See MIDI-OUTPUT.md; the part worth repeating
+// here is that switching targets is a release, because keys go down on one
+// target and have to come up on the same one.
+// ---------------------------------------------------------------------------
+
+void VirtualPianoPlayer::set_live_release_hook(std::function<void()> hook) {
+    std::lock_guard lock(output_mutex);
+    live_release_hook = std::move(hook);
+}
+
+bool VirtualPianoPlayer::open_midi_output(const std::wstring& deviceId) {
+    auto port = CreateMidiOutput(BackendForOutputId(deviceId));
+    // Opened before the lock is taken, because opening talks to a driver and
+    // the note path must not wait behind that.
+    if (!port || !port->open(deviceId)) return false;
+    std::lock_guard lock(output_mutex);
+    midi_output = std::move(port);
+    midi_output_channels.store(0, std::memory_order_relaxed);
+    return true;
+}
+
+void VirtualPianoPlayer::close_midi_output() {
+    // Losing the port counts as switching away, so anything still sounding is
+    // stopped on the outgoing target first. MIDI-OUTPUT.md lists closing the
+    // port, losing the device and stopping playback as the same case.
+    set_output_target(OutputTarget::Keystrokes);
+    std::unique_ptr<IMidiOutput> port;
+    {
+        std::lock_guard lock(output_mutex);
+        port = std::move(midi_output);
+    }
+    // Destroyed outside the lock, for the same reason it was opened outside it.
+    port.reset();
+}
+
+std::wstring VirtualPianoPlayer::opened_midi_output() const {
+    std::lock_guard lock(output_mutex);
+    return midi_output ? midi_output->openedDeviceId() : std::wstring();
+}
+
+void VirtualPianoPlayer::send_midi_output(const uint8_t* message, size_t length) noexcept {
+    if (output_target.load(std::memory_order_acquire) != OutputTarget::MidiDevice) return;
+    if (!message || length == 0) return;
+    try {
+        std::lock_guard lock(output_mutex);
+        if (!midi_output) return;
+        if (length >= 1 && (message[0] & 0xF0) != 0xF0)
+            midi_output_channels.fetch_or(static_cast<uint16_t>(1u << (message[0] & 0x0F)),
+                                          std::memory_order_relaxed);
+        midi_output->send(message, length);
+    }
+    catch (...) {
+        // Never take the playback thread down over an output port.
+    }
+}
+
+void VirtualPianoPlayer::silence_midi_output() noexcept {
+    try {
+        std::lock_guard lock(output_mutex);
+        if (!midi_output) return;
+        // Every channel written to since the port was opened, not only the
+        // ones we think still have something down. This is the same choice
+        // release_every_mapped_key() makes, and for the same reason: it runs
+        // when the bookkeeping is what might be wrong.
+        uint16_t channels = midi_output_channels.load(std::memory_order_relaxed);
+        // A port opened and switched away from without a note played still
+        // gets channel 0, so an external sequencer left sustaining is cleared.
+        if (channels == 0) channels = 1;
+        for (uint8_t channel = 0; channel < 16; ++channel) {
+            if (!(channels & (1u << channel))) continue;
+            const uint8_t sustainOff[3] = { static_cast<uint8_t>(0xB0 | channel), 64, 0 };
+            const uint8_t allNotesOff[3] = { static_cast<uint8_t>(0xB0 | channel), 123, 0 };
+            // Sustain first. All Notes Off on a synth holding the pedal leaves
+            // the notes ringing on plenty of hardware, so lifting the pedal
+            // before asking is the order that actually goes quiet.
+            midi_output->send(sustainOff, 3);
+            midi_output->send(allNotesOff, 3);
+        }
+    }
+    catch (...) {
+    }
+}
+
+void VirtualPianoPlayer::set_output_target(OutputTarget target) {
+    const OutputTarget current = output_target.load(std::memory_order_acquire);
+    if (current == target) return;
+
+    // Step 1: release everything held on the OUTGOING target. Nothing may be
+    // sent on the new one until this has finished, which is why the store is
+    // the last line of the function rather than the first.
+    if (current == OutputTarget::Keystrokes) {
+        release_all_keys();
+        if (isSustainPressed) {
+            releaseKey(sustain_key_code);
+            isSustainPressed = false;
+        }
+        // MIDI2Key's pressed[] and scancodeOwner[] describe keystrokes and
+        // nothing else, so they are cleared on the way out rather than left
+        // for the other target to reinterpret.
+        std::function<void()> hook;
+        {
+            std::lock_guard lock(output_mutex);
+            hook = live_release_hook;
+        }
+        if (hook) hook();
+    }
+    else {
+        silence_midi_output();
+        // The pedal flag is shared between the two paths, and All Notes Off
+        // has just lifted it on the wire. Leaving it set would tell the
+        // keystroke path a sustain key it never pressed is being held.
+        isSustainPressed = false;
+    }
+
+    // Step 2, and only now.
+    output_target.store(target, std::memory_order_release);
+}
+
 int VirtualPianoPlayer::toggle_transpose_adjustment() {
     auto [notes, durations] = transposeEngine.extractNotesAndDurations(midi_file);
     if (notes.empty()) {
@@ -1902,9 +2023,31 @@ void VirtualPianoPlayer::execute_note_event(const NoteEvent& event) noexcept {
         event.isSustain ? input_latency::Kind::Sustain :
         event.action == EventType::Press ? input_latency::Kind::NoteOn : input_latency::Kind::NoteOff);
 
+    // The track-ownership bookkeeping above and below is not keystroke-specific
+    // and is kept on both targets: two tracks playing the same pitch, one of
+    // them releasing, would cut the other's note on a synth exactly as it would
+    // in the game. Only the leaf that actually emits changes.
+    const bool toMidi = output_target.load(std::memory_order_acquire) == OutputTarget::MidiDevice;
+
     if (!event.isSustain) {
         if (event.action == EventType::Press) {
             ++track_note_owners[std::string(event.note)][event.trackIndex];
+            if (toMidi) {
+                // No out-of-range fold and no 88-key flag. Both exist because
+                // the game has 61 keys; a MIDI device has 128, so sounding_note
+                // is deliberately not called here.
+                //
+                // No volume keys and no ALT velocity tap either. Velocity
+                // travels in the note-on byte, so the tap would not merely be
+                // unnecessary, it would be a phantom note on the wire.
+                const int number = MidiNumberForNoteName(std::string(event.note).c_str());
+                if (number >= 0) {
+                    const uint8_t message[3] = { 0x90, static_cast<uint8_t>(number),
+                                                 static_cast<uint8_t>(event.velocity & 0x7F) };
+                    send_midi_output(message, 3);
+                }
+                return;
+            }
             if (enable_volume_adjustment.load(std::memory_order_relaxed)) {
                 AdjustVolumeBasedOnVelocity(event.velocity);
             }
@@ -1928,7 +2071,14 @@ void VirtualPianoPlayer::execute_note_event(const NoteEvent& event) noexcept {
             if (--owner->second == 0) note->second.erase(owner);
             if (note->second.empty()) {
                 track_note_owners.erase(note);
-                release_key(event.note);
+                if (toMidi) {
+                    const int number = MidiNumberForNoteName(std::string(event.note).c_str());
+                    if (number >= 0) {
+                        const uint8_t message[3] = { 0x80, static_cast<uint8_t>(number), 0 };
+                        send_midi_output(message, 3);
+                    }
+                }
+                else release_key(event.note);
             }
         }
     }
@@ -1946,6 +2096,23 @@ void VirtualPianoPlayer::execute_note_event(const NoteEvent& event) noexcept {
 }
 
 void VirtualPianoPlayer::handle_sustain_event(const NoteEvent& event) {
+    if (output_target.load(std::memory_order_acquire) == OutputTarget::MidiDevice) {
+        // Ignore still means ignore, and the cutoff still decides what counts
+        // as down, because both are the user's choices about the pedal.
+        //
+        // The SPACE_UP inversion is not applied. It exists because some games
+        // want the sustain key held when the pedal is up, which is a keystroke
+        // protocol workaround; a synth reading CC64 wants the pedal it was
+        // actually given. isSustainPressed is reused as the pedal state so a
+        // target switch can lift it either way.
+        if (currentSustainMode == SustainMode::IG) return;
+        const bool down = event.sustainValue >= g_sustainCutoff;
+        if (down == isSustainPressed) return;
+        isSustainPressed = down;
+        const uint8_t message[3] = { 0xB0, 64, static_cast<uint8_t>(down ? 127 : 0) };
+        send_midi_output(message, 3);
+        return;
+    }
     switch (currentSustainMode) {
     case SustainMode::IG:
         return;

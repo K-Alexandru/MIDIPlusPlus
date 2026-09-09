@@ -35,9 +35,11 @@
 #include <sstream>
 #include <fstream>
 #include <condition_variable>
+#include <functional>
 
 // Project-specific headers
 #include "resource.h"
+#include "MidiOutput.hpp"  // IMidiOutput, for the output target below
 #include "config.hpp"      // Contains midi::Config and configuration definitions
 #include "Transpose.h"
 #include "json.hpp"
@@ -196,6 +198,47 @@ public:
     void calibrate_volume();
     void process_tracks(const MidiFile& midi_file);
 
+    // ---- MIDI output -----------------------------------------------------
+    //
+    // One output target for the whole app, per MIDI-OUTPUT.md: live input and
+    // autoplay both send MIDI to a chosen port *instead of* injecting
+    // keystrokes, never both at once.
+    enum class OutputTarget { Keystrokes, MidiDevice };
+    std::atomic<OutputTarget> output_target{ OutputTarget::Keystrokes };
+
+    // Switching targets is a release, and the order is the whole point. Keys
+    // go down on one target and must come up on the same one, so a switch
+    // while a note is held would otherwise strand it: a keystroke stays down
+    // in the game, or a MIDI note sounds forever on the synth. This releases
+    // everything held on the outgoing target first, then stores the new one,
+    // and nothing may be sent between the two.
+    //
+    // Closing the port, losing the device and stopping playback all count as
+    // switching away, so they go through here too.
+    void set_output_target(OutputTarget target);
+
+    bool open_midi_output(const std::wstring& deviceId);
+    void close_midi_output();
+    std::wstring opened_midi_output() const;
+
+    // Sends only when the MIDI target is selected and a port is open, so
+    // callers do not each repeat that check. Safe from the callback and
+    // playback threads.
+    void send_midi_output(const uint8_t* message, size_t length) noexcept;
+
+    // All Notes Off and sustain off on every channel that has been used.
+    // The panic path needs this for the same reason it needs
+    // release_every_mapped_key(): it is the button you press when the
+    // bookkeeping is what went wrong.
+    void silence_midi_output() noexcept;
+
+    // The live-input path keeps its own record of which notes are down, in
+    // MIDI2Key's pressed[] and scancodeOwner[], and that record describes
+    // keystrokes only. Whoever owns a MIDI2Key registers a reset here so a
+    // target switch can clear it in the same call that releases the keys,
+    // rather than leaving it to be reinterpreted on the other target later.
+    void set_live_release_hook(std::function<void()> hook);
+
     // Static handle for command event
     static HANDLE command_event;
 
@@ -291,6 +334,21 @@ public:
     unsigned long long playback_start_time;
 
 private:
+    // The port itself, plus the two things a switch has to know: which
+    // channels have been written to, so All Notes Off reaches all of them, and
+    // how to clear the live path's keystroke bookkeeping.
+    //
+    // output_mutex guards the port pointer and the hook, so a switch cannot
+    // race an open or a close. It is taken on the note path as well, which is
+    // the reason IMidiOutput::send is required not to block: this lock is only
+    // ever held across a three-byte write to a handle. It is not recursive, so
+    // anything reaching for the port while already holding it uses the port
+    // pointer directly rather than calling back through send_midi_output.
+    std::unique_ptr<IMidiOutput> midi_output;
+    std::atomic<uint16_t> midi_output_channels{ 0 };   // bit per channel touched
+    std::function<void()> live_release_hook;
+    mutable std::mutex output_mutex;
+
     std::mutex buffer_mutex;
     PlaybackControl playback_control;
     UINT m_timerResolutionSet{ 0 };

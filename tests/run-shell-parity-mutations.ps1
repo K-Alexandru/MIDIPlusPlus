@@ -6,8 +6,13 @@ $project = Join-Path $PSScriptRoot 'ShellTests.vcxproj'
 $output = Join-Path $repo 'build\shell-tests'
 $reports = Join-Path $repo 'build\parity-mutations'
 New-Item -ItemType Directory -Force -Path $reports | Out-Null
-# These are deliberate regressions in ui/, never edits to the engine seat's
-# files. Restore the original bytes even when a mutant fails to build or run.
+# Deliberate regressions, restored even when a mutant fails to build or run.
+#
+# These were ui/ only while every parity item was panel work. The MIDI output
+# cases below are in MIDI++/ because that is where the engine half of it lives
+# and the engine seat owns both those files and this runner. The rule the
+# original comment was reaching for still holds: never mutate a file the other
+# seat is working in.
 $cases = @(
     @{Name='out-range-autoplay-release'; File='ui\ShellEngine.cpp'; Group='out-range'; Start='case Action::EightyEightKeys:'; End='case Action::AutoVolumeScan:'; Find='stopPlayback();'; Replace='if (layoutChange) stopPlayback();'; Failure='OutRange switch left the folded autoplay key held'},
     @{Name='out-range-live-release'; File='ui\ShellEngine.cpp'; Group='out-range'; Start='case Action::EightyEightKeys:'; End='case Action::AutoVolumeScan:'; Find='if (live) { player->release_every_mapped_key(); live.reset(); }'; Replace='if (live) { live.reset(); }'; Failure='OutRange switch left the folded live key held'},
@@ -20,7 +25,14 @@ $cases = @(
     @{Name='stop-allows-queued-shuffle'; File='ui\ShellEngine.cpp'; Group='library'; Find='if (command.amount == 1 && (!shuffleAdvancePending || !state.shuffle)) break;'; Replace='/* stale advance accepted */'; Failure='Stop allowed shuffle to start another song'},
     # Snaps the input back onto the 32-point uniform grid, which is the drift
     # the resampling had: a grid stepping by 4.097 across a table stepping by 4.
-    @{Name='curve-resampled-on-uniform-grid'; File='ui\VelocityModel.hpp'; Group='curve'; Find='const float input = std::clamp(x, 0.f, 1.f) * 127;'; Replace='const float input = std::round(std::round(std::clamp(x, 0.f, 1.f) * 31) * 127.f / 31);'; Failure='the drawn curve misses a point the threshold table names'}
+    @{Name='curve-resampled-on-uniform-grid'; File='ui\VelocityModel.hpp'; Group='curve'; Find='const float input = std::clamp(x, 0.f, 1.f) * 127;'; Replace='const float input = std::round(std::round(std::clamp(x, 0.f, 1.f) * 31) * 127.f / 31);'; Failure='the drawn curve misses a point the threshold table names'},
+    # The ordering MIDI-OUTPUT.md says will be got wrong if it is not written
+    # down: a switch that stores the new target without stopping the old one
+    # leaves a note sounding on the synth with nothing left to address it.
+    @{Name='switch-strands-the-held-note'; File='MIDI++\PlaybackCore.cpp'; Group='midi-out'; Start='void VirtualPianoPlayer::set_output_target'; End='int VirtualPianoPlayer::toggle_transpose_adjustment'; Find='silence_midi_output();'; Replace='/* outgoing target left sounding */'; Failure='switching away from MIDI sent nothing to stop the held note'},
+    # Velocity travels in the note-on byte on this target, so losing it there
+    # loses it entirely: there is no ALT tap on the wire to fall back to.
+    @{Name='midi-note-drops-velocity'; File='MIDI++\PlaybackCore.cpp'; Group='midi-out'; Find='static_cast<uint8_t>(event.velocity & 0x7F) };'; Replace='127 };'; Failure='velocity reaches the note-on byte, at the pitch that was played'}
 )
 function Build-Tests([string]$name) {
     & $builder $project /p:Configuration=Release /p:Platform=x64 /m /v:quiet /nologo *> (Join-Path $reports "$name-build.log")

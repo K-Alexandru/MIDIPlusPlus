@@ -39,6 +39,15 @@ public:
     const std::wstring& GetSelectedDevice() const;
     int GetSelectedChannel() const;
 
+    // Releases every note this instance believes is down and clears the
+    // scancode bookkeeping behind it. Registered with the player as its live
+    // release hook, so switching the output target releases the live path's
+    // keys in the same call that releases autoplay's, before anything can be
+    // sent on the new target.
+    //
+    // Safe to call when nothing is held, which is the usual case.
+    void ReleaseHeldKeys();
+
 private:
     void ProcessMidiMessage(uint64_t timestampQpc, const uint8_t* data, size_t length);
 

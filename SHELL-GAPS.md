@@ -310,11 +310,15 @@ for the owner rather than a task. What is left, reordered 2026-09-09:
    important UI problem in the project.
 2. The engine-side curve tuning, which is a decision before it is work.
 3. Pro, which needs 32 real values from somebody's config.
-4. MIDI output, `MIDI-OUTPUT.md`, new rather than owed and specified in full.
+4. MIDI output, `MIDI-OUTPUT.md`. The engine half is built as of 2026-09-09;
+   what is left is the panel half, which is a picker and a two-way switch and
+   is listed in that file ready to be written.
 5. A settable velocity key.
 6. Drum detection and auto-transpose, once the parser heuristic is fixed.
 7. The conversion pipeline, which starts with reading two licences.
 
-Not on this list because they are not shell work: the duplicate
-`calibrate_volume()` in the original window's handler, and the Wooting and
-two-device checks that need the owner at the keyboard.
+Not on this list because they are not shell work: the Wooting and two-device
+checks, which need the owner at the keyboard. The duplicate
+`calibrate_volume()` in the original window's handler was removed on
+2026-09-09; the fix was the order rather than the deletion, because the sweep
+that survived a bare deletion would have been the one that runs unfocused.
