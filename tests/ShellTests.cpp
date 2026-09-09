@@ -195,6 +195,67 @@ void ReleaseAllKeysTests(const std::filesystem::path& config) {
     std::cout << "PASS release_all_keys releases only the keys that are down, and the panic path releases all of them\n";
 }
 
+// The graph has to draw the table the engine will actually use, not a
+// resampling of it. The curve the shell plots is the parametric read of the
+// threshold table, so the test is that it passes through the table's own
+// points: bucket i is reached at input thresholds[i], so the curve at
+// x = thresholds[i]/127 must read exactly y = i/31.
+//
+// Built-ins are read through the player's mapping API, the same path
+// ShellEngine.cpp:290 uses, so this cannot pass against a second copy of the
+// constants that has drifted from the injector.
+void VelocityCurveDrawingTests(const std::filesystem::path& config) {
+    VirtualPianoPlayer player(false, config);
+    const std::string keys = "1234567890qwertyuiopasdfghjklzxc";
+    for (size_t curve = 0; curve < 5; ++curve) {
+        shell::VelocityPreset preset{player.getVelocityCurveName(static_cast<midi::VelocityCurveType>(curve))};
+        player.setVelocityCurveIndex(curve);
+        for (int input = 1; input <= 127; ++input) {
+            const size_t output = keys.find(player.getVelocityKey(input));
+            for (size_t bucket = output; bucket < 32; ++bucket) preset.thresholds[bucket] = input;
+        }
+        for (int i = 0; i < 32; ++i) {
+            // A repeated threshold names a bucket VelocityBucket can never
+            // return, so it is not a point on the curve and nothing is
+            // promised about it.
+            if (i > 0 && preset.thresholds[i] == preset.thresholds[i - 1]) continue;
+            const float y = shell::VelocityCurveAt(preset, preset.thresholds[i] / 127.f);
+            Require(std::abs(y - i / 31.f) < 1e-4f,
+                    "the drawn curve misses a point the threshold table names");
+        }
+        // The engine walks the table with <, so input 127 lands in the first
+        // bucket holding 127 and the curve has to end there too. Presets that
+        // reach 127 early stop below the top of the graph, which is the table
+        // being honest rather than the drawing being wrong.
+        Require(std::abs(shell::VelocityCurveAt(preset, 1.f) -
+                         shell::VelocityBucket(preset.thresholds, 127) / 31.f) < 1e-4f,
+                "the curve does not end where the table saturates");
+        float previous = -1;
+        for (int i = 0; i <= 1270; ++i) {
+            const float y = shell::VelocityCurveAt(preset, i / 1270.f);
+            Require(y >= previous - 1e-5f, "the drawn curve goes backwards");
+            Require(y >= -1e-5f && y <= 1 + 1e-5f, "the drawn curve leaves the graph");
+            previous = y;
+        }
+    }
+    // The regression this was reported for. Linear Fine's last interval is 2,
+    // 6, 10 ... 122 and then 127, so it is 5 wide where every other is 4. The
+    // resampling walked a grid stepping by 4.097 and put its last two samples
+    // both at 1.0, drawing that interval flat. Anything that reintroduces a
+    // uniform resample fails here.
+    player.setVelocityCurveIndex(1);
+    shell::VelocityPreset fine{player.getVelocityCurveName(midi::VelocityCurveType::LinearFine)};
+    for (int input = 1; input <= 127; ++input) {
+        const size_t output = keys.find(player.getVelocityKey(input));
+        for (size_t bucket = output; bucket < 32; ++bucket) fine.thresholds[bucket] = input;
+    }
+    Require(fine.thresholds[30] == 122 && fine.thresholds[31] == 127,
+            "Linear Fine is not the table this test was written against");
+    Require(shell::VelocityCurveAt(fine, 30 / 31.f) < shell::VelocityCurveAt(fine, 31 / 31.f) - 1e-3f,
+            "the top of Linear Fine is flat again");
+    std::cout << "PASS velocity curve drawing: every table point hit, saturation, monotonic, Linear Fine tail\n";
+}
+
 // A note whose velocity bucket changed used to be two injection calls: the
 // four-event ALT tap, then the note. SendInput puts nothing between the events
 // of one call and makes no promise at all between two, so anything landing in
@@ -1863,6 +1924,7 @@ int wmain(int argc, wchar_t** argv) {
             else if (group == L"countdown") CountdownTests(directory);
             else if (group == L"library") LibraryParityTests(directory);
             else if (group == L"connect") ConnectAndWarningTests(directory);
+            else if (group == L"curve") VelocityCurveDrawingTests(directory / L"config.json");
             else throw std::runtime_error("Unknown shell test group");
             return 0;
         }
@@ -1878,6 +1940,7 @@ int wmain(int argc, wchar_t** argv) {
         TwoDeviceTests();
         ModelTests(fixture);
         MappingPersistenceTests(directory / L"config.json");
+        VelocityCurveDrawingTests(directory / L"config.json");
         VelocityBatchTests(directory / L"config.json");
         ReleaseAllKeysTests(directory / L"config.json");
         ReleaseTests(directory / L"config.json");

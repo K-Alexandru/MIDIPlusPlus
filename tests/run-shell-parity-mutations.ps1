@@ -17,7 +17,10 @@ $cases = @(
     @{Name='warning-gate-bypassed'; File='ui\ShellEngine.cpp'; Group='countdown'; Start='const auto startPlayback ='; End='const auto applyMappings ='; Find='if (!state.typingAcknowledged)'; Replace='if (false && !state.typingAcknowledged)'; Failure='unacknowledged autoplay was not rejected'},
     @{Name='legit-disabled-on-load'; File='ui\ShellEngine.cpp'; Group='library'; Start='case Action::Load: {'; End='case Action::TogglePlayPause:'; Find='player->legit_mode_active = state.legitMode;'; Replace='player->legit_mode_active = false;'; Failure='Load reset the real Legit Mode flag'},
     @{Name='stop-leaves-midiconnect-on'; File='ui\ShellEngine.cpp'; Group='connect'; Start='case Action::Stop:'; End='case Action::Mute:'; Find='stopConnect();'; Replace='/* omitted close */'; Failure='Stop did not close MidiConnect'},
-    @{Name='stop-allows-queued-shuffle'; File='ui\ShellEngine.cpp'; Group='library'; Find='if (command.amount == 1 && (!shuffleAdvancePending || !state.shuffle)) break;'; Replace='/* stale advance accepted */'; Failure='Stop allowed shuffle to start another song'}
+    @{Name='stop-allows-queued-shuffle'; File='ui\ShellEngine.cpp'; Group='library'; Find='if (command.amount == 1 && (!shuffleAdvancePending || !state.shuffle)) break;'; Replace='/* stale advance accepted */'; Failure='Stop allowed shuffle to start another song'},
+    # Snaps the input back onto the 32-point uniform grid, which is the drift
+    # the resampling had: a grid stepping by 4.097 across a table stepping by 4.
+    @{Name='curve-resampled-on-uniform-grid'; File='ui\VelocityModel.hpp'; Group='curve'; Find='const float input = std::clamp(x, 0.f, 1.f) * 127;'; Replace='const float input = std::round(std::round(std::clamp(x, 0.f, 1.f) * 31) * 127.f / 31);'; Failure='the drawn curve misses a point the threshold table names'}
 )
 function Build-Tests([string]$name) {
     & $builder $project /p:Configuration=Release /p:Platform=x64 /m /v:quiet /nologo *> (Join-Path $reports "$name-build.log")

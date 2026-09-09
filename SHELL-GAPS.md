@@ -33,23 +33,12 @@ handler and is the engine seat's to remove.**
 
 ## Built in the engine, unreachable from the shell
 
-### OutRange
-
-Original: `Advanced` card, `ENABLE_OUT_OF_RANGE_TRANSPOSE`. Folds notes below
-the layout up and notes above it down instead of dropping them.
-
-Shell: absent, and doubly unreachable, because the fold only runs when 88-key
-mode is off and the shell pins that on. `precomputeAllMappings` takes the
-identity branch either way. Both switches have to come back for either to work.
-
-### Legit Mode
-
-Original: `Config` card checkbox, `MIDI++.cpp:1345`.
-
-Shell: `ShellEngine.cpp:449` hardcodes `legit_mode_active = false` on load.
-`LEGIT-MODE.md` records that it sounds unconvincing, which is a reason to
-default it off and a reason to keep improving it. It is not a reason to remove
-the switch: the original offers it, so the shell offers it.
+OutRange and Legit Mode were both here and are both reachable now. OutRange is
+a Settings switch that pauses autoplay and releases held keys before remapping,
+`Panels.cpp:1087`, killed by two mutations in the `out-range` group. Legit Mode
+is a Settings switch that survives Load, `ShellEngine.cpp:253`, killed by the
+`legit-disabled-on-load` mutation. What remains here is the one with a real
+constraint under it.
 
 ### Drum detection and auto-transpose
 
@@ -61,21 +50,37 @@ why; after it is fixed they are ordinary settings again.
 
 ## Absent outright
 
-- **Shuffle Play.** `MIDI++.cpp:1301`, with the end-of-song handler at 2194
-  picking the next file at random.
-- **Opacity slider.** `MIDI++.cpp:1314`, window alpha.
-- **Prev / Next.** `MIDI++.cpp:1330`, step through the file list.
-- **MidiConnect.** `Panels.cpp:222` draws a disabled pill reading "Unavailable
-  in this shell". The class is built and working, so that pill is a promise to
-  finish, not an answer.
-- **Log panel and Clear Log.** `MIDI++.cpp:1378`. Without it, everything the
-  engine prints is invisible to anyone who did not launch from a console, which
-  is every tester who has filed a report so far.
+All five shipped in `c254d0a` and `bdd7e85`, and this page said otherwise for
+five commits because nobody came back to it. Shuffle Play, the opacity slider,
+Prev / Next, MidiConnect and the log panel with Clear Log are all in the shell,
+covered by the `library`, `connect` and `log` test groups and gated by four
+mutations in `run-shell-parity-mutations.ps1`.
 
-## Reported by testers, not yet addressed
+Left over from that pass: **OutRange is reachable but still needs 61 Keys
+selected**, which is the original's constraint rather than a shell one, and the
+Settings switch says so in its disabled tooltip.
+
+## Reported by testers, addressed since
 
 Added 2026-09-07 after checking the Discord threads against what actually
-shipped. Neither is a crash, and both are the app's fault under section 15.
+shipped. Neither was a crash, and both were the app's fault under section 15.
+Both are answered, and the second was answered by deleting rather than adding.
+
+- **The MIDI device list is unreadable.** Fixed in `bdd7e85`: rows are grouped
+  by device and the transport is a property of the chosen row, with a fallback
+  to individual ids when two devices genuinely share a name, gated by the
+  `same-name-device-merge` mutation. The original report is kept below because
+  it is the only written record of what the list looked like.
+- **Nothing warns that the app types into whatever has focus.** Answered in
+  `c9ea480`, and not the way this page proposed. A "Before you play" modal and
+  a caption under the pills both said the same thing before the user had done
+  anything, so both went, along with the acknowledgment gate on output. The
+  warning gate machinery is still in `ShellEngine.cpp` and still tested, so
+  reinstating a warning is a UI decision rather than a rebuild. **If the owner
+  wants a warning back, this is the open question: what would it say that the
+  first `ctrl+w` does not, and when would it be worth interrupting for.**
+
+The reports as filed:
 
 - **The MIDI device list is unreadable.** `EnumerateMidiInputs` lists WinRT
   ports bare, WinMM ports with `(WinMM)` appended only where the name already
@@ -197,7 +202,25 @@ The part section 12 called the key feature, the histogram of what the player
 actually played, is built and wired to `velocity_telemetry`. The editor has the
 hard half and lost the easy half.
 
-## The graph redraws the curve instead of drawing it
+## The graph redraws the curve instead of drawing it: done
+
+Fixed as specified below. `VelocitySamples` is gone and `VelocityCurveAt` reads
+the table parametrically. Measured over all five built-ins: the drawn curve now
+passes through every reachable table point exactly, where the resampling missed
+16 to 29 points per preset by as much as 0.95 of a step. It is monotone and
+inside the graph over 1271 samples of each preset, and it ends where the table
+saturates, which for Logarithmic is 17/31 and was already true of both readings.
+
+`VelocityCurveDrawingTests` in `ShellTests.cpp` holds all of that, and the
+`curve-resampled-on-uniform-grid` mutation kills any return to a uniform
+resample. A repeated threshold names a bucket `VelocityBucket` can never
+return, so those are skipped rather than drawn as a vertical rise at the right
+edge, and the test makes no promise about them.
+
+Still open from this section: the engine-side tuning question in its last
+paragraph, which is the owner's call and not a drawing problem.
+
+The report as filed:
 
 `ui/VelocityModel.hpp:33`. The engine's table says which inputs each output
 bucket covers. `VelocitySamples` asks the opposite question, what bucket does
@@ -276,11 +299,22 @@ original never had beyond a single button.
 
 Order of work only. Nothing below the line gets dropped for being below it.
 
-1. 88-Key mode and AutoVol, because those are features people had and lost.
-2. The log panel, because the next tester report is written blind without it.
-3. Transport bindings and the countdown, which are one piece of work.
-4. The device list, which is the one a tester has already tripped over.
-5. MidiConnect, OutRange, legit mode, shuffle, Prev/Next, opacity, and the
-   warning before the first keystroke.
-6. MIDI output, which is new rather than owed, and the largest.
-7. Drum detection and auto-transpose, once the parser heuristic is fixed.
+Items 1 to 5 of the original order are done: 88-Key mode, AutoVol, the log
+panel, the transport bindings and the countdown, the device list, MidiConnect,
+OutRange, legit mode, shuffle, Prev/Next and opacity. The warning that shared
+item 5 was answered by removing it, and whether one comes back is a question
+for the owner rather than a task. What is left, reordered 2026-09-09:
+
+1. The velocity editor: anchors, free draw, one shared curve model, undo and
+   redo. The largest owed piece and the only one `HANDOFF.md` calls the most
+   important UI problem in the project.
+2. The engine-side curve tuning, which is a decision before it is work.
+3. Pro, which needs 32 real values from somebody's config.
+4. MIDI output, `MIDI-OUTPUT.md`, new rather than owed and specified in full.
+5. A settable velocity key.
+6. Drum detection and auto-transpose, once the parser heuristic is fixed.
+7. The conversion pipeline, which starts with reading two licences.
+
+Not on this list because they are not shell work: the duplicate
+`calibrate_volume()` in the original window's handler, and the Wooting and
+two-device checks that need the owner at the keyboard.
