@@ -471,6 +471,55 @@ void VelocityCurveDrawingTests(const std::filesystem::path& config) {
     std::cout << "PASS velocity curve drawing: every table point hit, saturation, monotonic, Linear Fine tail\n";
 }
 
+void VelocityCurveEditorModelTests() {
+    using shell::VelocityEdit;
+    using shell::VelocityHistory;
+    using shell::VelocityPoint;
+
+    const std::vector<VelocityPoint> adversarial{
+        {1.f, 1.f}, {.72f, .28f}, {.18f, .76f}, {0.f, 0.f}, {.48f, .12f}, {.9f, .94f}};
+    float previous = -1;
+    for (int i = 0; i <= 2000; ++i) {
+        const float value = shell::VelocityPchip(adversarial, i / 2000.f);
+        Require(value >= previous - 1e-5f, "PCHIP folds backwards for adversarial anchors");
+        previous = value;
+    }
+
+    const std::vector<VelocityPoint> base{{0, 0}, {.22f, .12f}, {.5f, .5f}, {.78f, .88f}, {1, 1}};
+    const std::vector<VelocityPoint> middle{{.66f, .75f}, {.58f, .35f}, {.5f, .72f}, {.42f, .26f}, {.34f, .2f}};
+    const auto swept = shell::VelocityApplySweep(base, middle);
+    for (int i = 0; i <= 1000; ++i) {
+        const float x = i / 1000.f;
+        if (x >= .34f && x <= .66f) continue;
+        Require(std::abs(shell::VelocityPchip(base, x) - shell::VelocityPchip(swept, x)) < .005f,
+                "a partial free-draw sweep changed an untouched region");
+    }
+
+    previous = -1;
+    bool changed = false;
+    for (int i = 0; i <= 1000; ++i) {
+        const float x = i / 1000.f, value = shell::VelocityPchip(swept, x);
+        Require(value >= previous - 1e-5f, "a backwards free-draw sweep was not repaired");
+        changed = changed || std::abs(value - shell::VelocityPchip(base, x)) > .01f;
+        previous = value;
+    }
+    Require(changed, "a backwards free-draw sweep was blocked instead of repaired");
+
+    VelocityEdit original; original.preset = 1;
+    VelocityEdit edited = original; edited.anchors = swept;
+    VelocityHistory history; history.Reset(original);
+    Require(history.Commit(edited) && history.Undo() && history.current == original,
+            "velocity undo did not restore the preceding curve");
+    Require(history.Redo() && history.current == edited,
+            "velocity redo did not restore the swept curve");
+
+    shell::VelocityPreset preset{"Exact"};
+    for (int i = 0; i < 32; ++i) preset.thresholds[i] = std::min(127, 2 + i * 4);
+    Require(shell::VelocityThresholds(preset, original) == preset.thresholds,
+            "an unedited built-in did not retain its exact threshold bytes");
+    std::cout << "PASS velocity editor model: monotone PCHIP, bounded sweep, backwards repair, undo and exact built-in\n";
+}
+
 // A note whose velocity bucket changed used to be two injection calls: the
 // four-event ALT tap, then the note. SendInput puts nothing between the events
 // of one call and makes no promise at all between two, so anything landing in
@@ -2139,7 +2188,7 @@ int wmain(int argc, wchar_t** argv) {
             else if (group == L"countdown") CountdownTests(directory);
             else if (group == L"library") LibraryParityTests(directory);
             else if (group == L"connect") ConnectAndWarningTests(directory);
-            else if (group == L"curve") VelocityCurveDrawingTests(directory / L"config.json");
+            else if (group == L"curve") { VelocityCurveDrawingTests(directory / L"config.json"); VelocityCurveEditorModelTests(); }
             else if (group == L"midi-out") MidiOutputTests(directory / L"config.json");
             else throw std::runtime_error("Unknown shell test group");
             return 0;
@@ -2157,6 +2206,7 @@ int wmain(int argc, wchar_t** argv) {
         ModelTests(fixture);
         MappingPersistenceTests(directory / L"config.json");
         VelocityCurveDrawingTests(directory / L"config.json");
+        VelocityCurveEditorModelTests();
         MidiOutputTests(directory / L"config.json");
         VelocityBatchTests(directory / L"config.json");
         ReleaseAllKeysTests(directory / L"config.json");

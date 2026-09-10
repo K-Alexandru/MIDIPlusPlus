@@ -69,7 +69,6 @@ private:
     void SettingsControl(const Fonts&, const skin::Skin&, float, ShellEngine&, ImVec2, float);
     void DrawMini(HWND, const Fonts&, const skin::Skin&, float, ShellEngine&, ImVec2, ImVec2);
     void DrawStatus(const Fonts&, const skin::Skin&, float, const EngineSnapshot&, ImVec2, float, float);
-    bool advancedCurve_ = false;
     int nameOperation_ = 0;
     char curveName_[128]{};
     bool focusCurveName_ = false;
@@ -81,8 +80,11 @@ private:
     bool histogramVisible_ = false;
     VelocityEdit editor_;
     std::string editorError_;
-    int editingStep_ = -1;
-    float stepValue_ = 0;
+    int curveTool_ = 0;
+    int activeAnchor_ = -1;
+    bool curveGesture_ = false;
+    VelocityEdit curveGestureBase_;
+    std::vector<VelocityPoint> freeDraw_;
     bool cutoffEditing_ = false;
     float cutoffPreview_ = 64;
     std::array<float, 3> wootingPreview_{0.5f, 12.f, 5.f};

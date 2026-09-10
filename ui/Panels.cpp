@@ -22,7 +22,7 @@ ImU32 OpaqueTint(skin::Argb tint, skin::Argb surface) {
 float SpecFontScale(const skin::Skin&) { return 1.3f; }
 enum class Icon { Folder, Open, Refresh, Settings, Sun, Moon, Play, Pause, Back, Forward,
                   Minus, Plus, Left, Right, Down, Up, Close, Keyboard, Speaker, Muted, Solo, Piano,
-                  Mini, Expand, Copy, Rename, Check, SortDown, SortUp };
+                  Mini, Expand, Copy, Rename, Check, SortDown, SortUp, Undo, Redo, Anchor };
 
 // Icons are Lucide, flattened to polylines by tools/gen-icons.py into
 // ui/IconData.hpp. They used to be hand-written primitives here, which is how
@@ -692,6 +692,25 @@ void DrawCurveLine(ImDrawList* draw, const VelocityPreset& preset, const Velocit
     }
     draw->PathStroke(color, 0, thickness);
 }
+
+std::vector<float> PlayedVelocityTargets(const velocity_telemetry::Snapshot& played) {
+    if (!played.total) return {};
+    std::vector<float> targets;
+    const auto quantile = [&](float fraction) {
+        const uint32_t target = std::max(1u, static_cast<uint32_t>(std::ceil(played.total * fraction)));
+        uint32_t count = 0;
+        for (size_t i = 0; i < played.buckets.size(); ++i) {
+            count += played.buckets[i];
+            if (count >= target) return std::clamp((static_cast<float>(i) + .5f) * 4.f / 127.f, 0.f, 1.f);
+        }
+        return 1.f;
+    };
+    for (const float fraction : {.1f, .5f, .9f}) {
+        const float value = quantile(fraction);
+        if (targets.empty() || std::abs(value - targets.back()) > .02f) targets.push_back(value);
+    }
+    return targets;
+}
 }
 
 void Panels::DrawVelocity(const Fonts& fonts, const skin::Skin& design, float dpi, ShellEngine& engine,
@@ -772,9 +791,29 @@ void Panels::DrawVelocity(const Fonts& fonts, const skin::Skin& design, float dp
     const ImVec2 graphMin(start.x, workspaceY), graphMax(start.x + mainWidth, workspaceY + graphHeight);
     auto* draw = ImGui::GetWindowDrawList();
     skin::RecessedRect(draw, graphMin, graphMax, s.radius.element, s);
-    { FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
-      draw->AddText(ImVec2(graphMin.x + 12 * dpi, graphMin.y + 8 * dpi), Colour(s.ink.secondary), "32 game steps"); }
     const ImVec2 plotMin(graphMin.x + 12 * dpi, graphMin.y + 40 * dpi), plotMax(graphMax.x - 12 * dpi, graphMax.y - 28 * dpi);
+
+    // The graph tools are the editor's primary controls. Selection has an
+    // outline as well as accent colour, and history uses conventional icons.
+    ImGui::SetCursorScreenPos(ImVec2(graphMin.x + 8 * dpi, graphMin.y + 4 * dpi));
+    ImGui::BeginDisabled(state->comparingCurve);
+    if (IconButton("##anchor-tool", Icon::Anchor, "Edit anchors", s, dpi, curveTool_ == 0)) curveTool_ = 0;
+    ImGui::SameLine();
+    if (IconButton("##draw-tool", Icon::Rename, "Free draw", s, dpi, curveTool_ == 1)) curveTool_ = 1;
+    ImGui::SameLine(0, 14 * dpi);
+    ImGui::BeginDisabled(!state->canUndoCurve);
+    if (IconButton("##curve-undo", Icon::Undo, "Undo curve edit", s, dpi)) engine.Send({ShellEngine::Action::CurveUndo});
+    ImGui::EndDisabled(); ImGui::SameLine();
+    ImGui::BeginDisabled(!state->canRedoCurve);
+    if (IconButton("##curve-redo", Icon::Redo, "Redo curve edit", s, dpi)) engine.Send({ShellEngine::Action::CurveRedo});
+    ImGui::EndDisabled();
+    ImGui::EndDisabled();
+    if (!state->comparingCurve && !ImGui::GetIO().WantTextInput && ImGui::GetIO().KeyCtrl) {
+        if (ImGui::IsKeyPressed(ImGuiKey_Z))
+            engine.Send({ImGui::GetIO().KeyShift ? ShellEngine::Action::CurveRedo : ShellEngine::Action::CurveUndo});
+        else if (ImGui::IsKeyPressed(ImGuiKey_Y)) engine.Send({ShellEngine::Action::CurveRedo});
+    }
+
     if (histogramRevision_ != state->playedVelocities.revision) {
         histogramRevision_ = state->playedVelocities.revision;
         const auto largest = *std::max_element(state->playedVelocities.buckets.begin(),
@@ -803,7 +842,107 @@ void Panels::DrawVelocity(const Fonts& fonts, const skin::Skin& design, float dp
         const auto point = [&](float t) { return ImVec2(plotMin.x + t * (plotMax.x - plotMin.x), plotMax.y - t * (plotMax.y - plotMin.y)); };
         draw->AddLine(point(i / 32.f), point((i + 1) / 32.f), Colour(s.ink.tertiary), dpi);
     }
+
+    const auto snapTargets = PlayedVelocityTargets(state->playedVelocities);
+    for (const float target : snapTargets) {
+        const float x = plotMin.x + target * (plotMax.x - plotMin.x);
+        for (int i = 0; i < 12; i += 2) {
+            const float y0 = plotMin.y + i * (plotMax.y - plotMin.y) / 12;
+            const float y1 = plotMin.y + (i + 1) * (plotMax.y - plotMin.y) / 12;
+            draw->AddLine(ImVec2(x, y0), ImVec2(x, y1), Colour(s.ink.tertiary), dpi);
+        }
+        draw->AddTriangleFilled(ImVec2(x - 3 * dpi, plotMax.y), ImVec2(x + 3 * dpi, plotMax.y),
+                                ImVec2(x, plotMax.y - 5 * dpi), Colour(s.ink.secondary));
+    }
+
+    ImGui::SetCursorScreenPos(plotMin);
+    ImGui::BeginDisabled(state->comparingCurve);
+    ImGui::InvisibleButton("##curve-graph", ImVec2(plotMax.x - plotMin.x, plotMax.y - plotMin.y));
+    const auto mousePoint = [&] {
+        return VelocityPoint{
+            std::clamp((ImGui::GetIO().MousePos.x - plotMin.x) / (plotMax.x - plotMin.x), 0.f, 1.f),
+            std::clamp((plotMax.y - ImGui::GetIO().MousePos.y) / (plotMax.y - plotMin.y), 0.f, 1.f)};
+    };
+    const auto snapX = [&](float x) {
+        float result = x, distance = 10 * dpi / (plotMax.x - plotMin.x);
+        for (const float target : snapTargets) if (std::abs(target - x) <= distance) {
+            result = target; distance = std::abs(target - x);
+        }
+        return result;
+    };
+    if (ImGui::IsItemActivated()) {
+        curveGestureBase_ = editor_;
+        curveGestureBase_.anchors = VelocityAnchorsFor(preset, editor_);
+        curveGestureBase_.sensitivity = curveGestureBase_.contrast = 0;
+        editor_ = curveGestureBase_;
+        curveGesture_ = false;
+        if (curveTool_ == 0) {
+            const auto mouse = mousePoint();
+            float nearest = 10 * dpi; activeAnchor_ = -1;
+            for (size_t i = 0; i < editor_.anchors.size(); ++i) {
+                const float dx = (editor_.anchors[i].x - mouse.x) * (plotMax.x - plotMin.x);
+                const float dy = (editor_.anchors[i].y - mouse.y) * (plotMax.y - plotMin.y);
+                const float distance = std::hypot(dx, dy);
+                if (distance < nearest) { nearest = distance; activeAnchor_ = static_cast<int>(i); }
+            }
+            const float curveY = VelocityShape(preset, editor_, mouse.x);
+            if (activeAnchor_ < 0 && std::abs(curveY - mouse.y) * (plotMax.y - plotMin.y) <= 10 * dpi)
+                activeAnchor_ = static_cast<int>(VelocityAddAnchor(editor_.anchors, snapX(mouse.x), curveY));
+            curveGesture_ = activeAnchor_ >= 0;
+        } else {
+            freeDraw_.clear(); freeDraw_.push_back(mousePoint()); curveGesture_ = true;
+        }
+    }
+    if (ImGui::IsItemActive() && curveGesture_) {
+        auto point = mousePoint();
+        if (curveTool_ == 0 && activeAnchor_ >= 0) {
+            const auto mouse = ImGui::GetIO().MousePos;
+            const bool inside = mouse.x >= plotMin.x && mouse.x <= plotMax.x && mouse.y >= plotMin.y && mouse.y <= plotMax.y;
+            if (inside) {
+                point.x = snapX(point.x);
+                activeAnchor_ = static_cast<int>(VelocityMoveAnchor(editor_.anchors, activeAnchor_, point));
+            }
+        } else if (curveTool_ == 1) {
+            const auto& last = freeDraw_.back();
+            const float dx = (last.x - point.x) * (plotMax.x - plotMin.x);
+            const float dy = (last.y - point.y) * (plotMax.y - plotMin.y);
+            if (std::hypot(dx, dy) >= 2 * dpi) freeDraw_.push_back(point);
+        }
+    }
+    if (ImGui::IsItemDeactivated() && curveGesture_) {
+        if (curveTool_ == 0 && activeAnchor_ >= 0) {
+            const auto mouse = ImGui::GetIO().MousePos;
+            const bool outside = mouse.x < plotMin.x || mouse.x > plotMax.x || mouse.y < plotMin.y || mouse.y > plotMax.y;
+            if (outside && editor_.anchors.size() > 2 && activeAnchor_ > 0 &&
+                activeAnchor_ + 1 < static_cast<int>(editor_.anchors.size()))
+                editor_.anchors.erase(editor_.anchors.begin() + activeAnchor_);
+        } else if (curveTool_ == 1 && freeDraw_.size() >= 2) {
+            editor_.anchors = VelocityApplySweep(curveGestureBase_.anchors, freeDraw_);
+        }
+        ShellEngine::Command command{ShellEngine::Action::CurveEdit};
+        command.anchors = editor_.anchors; engine.Send(std::move(command));
+        activeAnchor_ = -1; freeDraw_.clear(); curveGesture_ = false;
+    }
+    if (ImGui::IsItemHovered() || ImGui::IsItemActive()) {
+        ImGui::SetMouseCursor(curveTool_ == 0 ? ImGuiMouseCursor_Hand : ImGuiMouseCursor_ResizeAll);
+        if (!ImGui::IsItemActive()) ImGui::SetTooltip(curveTool_ == 0 ?
+            "Click the curve to add an anchor. Drag an anchor outside to remove it." :
+            "Sweep across the graph. Smoothing is applied on release.");
+    }
+    ImGui::EndDisabled();
+
     const auto thresholds = VelocityThresholds(preset, shown);
+    int previousThreshold = 0;
+    const auto ghost = Colour((s.ink.tertiary & 0x00ffffffu) | 0x18000000u);
+    for (int bucket = 0; bucket < 32; ++bucket) {
+        const int edge = thresholds[bucket];
+        if (edge <= previousThreshold) continue;
+        const float x0 = plotMin.x + previousThreshold / 127.f * (plotMax.x - plotMin.x);
+        const float x1 = plotMin.x + edge / 127.f * (plotMax.x - plotMin.x);
+        const float y = plotMax.y - bucket / 31.f * (plotMax.y - plotMin.y);
+        draw->AddRectFilled(ImVec2(x0 + .5f * dpi, y), ImVec2(x1 - .5f * dpi, plotMax.y), ghost);
+        previousThreshold = edge;
+    }
     for (int input = 1; input <= 127; ++input) {
         const float y = plotMax.y - VelocityBucket(thresholds, input) / 31.f * (plotMax.y - plotMin.y);
         const float x = plotMin.x + (input - 1) / 127.f * (plotMax.x - plotMin.x);
@@ -812,8 +951,20 @@ void Panels::DrawVelocity(const Fonts& fonts, const skin::Skin& design, float dp
     }
     draw->PathStroke(Colour(s.ink.tertiary), 0, dpi);
     DrawCurveLine(draw, preset, shown, plotMin, plotMax, Colour(s.accent.accent), 2 * dpi);
-    ImGui::SetCursorScreenPos(plotMin);
-    ImGui::InvisibleButton("##curve-graph", ImVec2(plotMax.x - plotMin.x, plotMax.y - plotMin.y));
+    if (!state->comparingCurve && curveTool_ == 0) for (size_t i = 0; i < editor_.anchors.size(); ++i) {
+        const auto& anchor = editor_.anchors[i];
+        const ImVec2 point(plotMin.x + anchor.x * (plotMax.x - plotMin.x),
+                           plotMax.y - anchor.y * (plotMax.y - plotMin.y));
+        const float radius = static_cast<int>(i) == activeAnchor_ ? 6 * dpi : 4.5f * dpi;
+        draw->AddCircleFilled(point, radius, Colour(s.surface.elevated));
+        draw->AddCircle(point, radius, Colour(s.accent.accent), 16, static_cast<int>(i) == activeAnchor_ ? 2 * dpi : dpi);
+    }
+    if (curveTool_ == 1 && curveGesture_ && freeDraw_.size() > 1) {
+        for (const auto& point : freeDraw_)
+            draw->PathLineTo(ImVec2(plotMin.x + point.x * (plotMax.x - plotMin.x),
+                                    plotMax.y - point.y * (plotMax.y - plotMin.y)));
+        draw->PathStroke(Colour(s.accent.accent), 0, 2.5f * dpi);
+    }
     { FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
       if (state->playedVelocities.last != 0) {
           const int input = state->playedVelocities.last;
@@ -847,53 +998,12 @@ void Panels::DrawVelocity(const Fonts& fonts, const skin::Skin& design, float dp
         float* target = i ? &editor_.contrast : &editor_.sensitivity;
         const bool changed = Groove(i ? "##contrast" : "##sensitivity", target, i ? 0.f : -50.f, i ? 100.f : 50.f,
             macroWidth - 24 * dpi, 24 * dpi, s, dpi, true);
-        if (changed) editor_.manual = false;
+        if (changed) editor_.anchors.clear();
         if (ImGui::IsItemDeactivatedAfterEdit() || (changed && !ImGui::IsItemActive()))
             engine.Send({ShellEngine::Action::CurveAdjust, {}, 0, 0, false, *target, i ? "contrast" : "sensitivity"});
     }
     ImGui::EndDisabled();
-    ImGui::SetCursorScreenPos(ImVec2(start.x, macroY + 92 * dpi));
-    ImGui::BeginDisabled(!state->hasPreviousCurve);
-    if (ImGui::Button(state->comparingCurve ? "A/B: Back to edit" : "A/B: Hear previous", ImVec2(0, control)))
-        engine.Send({ShellEngine::Action::CurveCompare});
-    ImGui::EndDisabled(); ImGui::SameLine();
-    if (TransportButton("##advanced-curve", advancedCurve_ ? Icon::Down : Icon::Right, "Advanced", s, dpi)) advancedCurve_ = !advancedCurve_;
-    float mainBottom = macroY + 92 * dpi + control;
-    if (advancedCurve_) {
-        const float y = mainBottom + 12 * dpi;
-        ImGui::SetCursorScreenPos(ImVec2(start.x, y));
-        { FontScope meta(fonts, design, design.type.meta * SpecFontScale(design)); ImGui::TextUnformatted("32 game steps"); }
-        const ImVec2 stepMin(start.x, y + 24 * dpi), stepMax(start.x + mainWidth, y + 96 * dpi);
-        skin::RecessedRect(draw, stepMin, stepMax, s.radius.element, s);
-        std::array<float, 32> values{};
-        for (int i = 0; i < 32; ++i) values[i] = VelocityShape(preset, shown, i / 31.f);
-        ImGui::SetCursorScreenPos(stepMin);
-        ImGui::BeginDisabled(state->comparingCurve);
-        ImGui::InvisibleButton("##step-editor", ImVec2(mainWidth, 72 * dpi));
-        if (ImGui::IsItemActive()) {
-            if (!editor_.manual) { editor_.samples = values; editor_.manual = true; }
-            editingStep_ = std::clamp(static_cast<int>((ImGui::GetIO().MousePos.x - stepMin.x) / mainWidth * 32), 0, 31);
-            stepValue_ = std::clamp((stepMax.y - ImGui::GetIO().MousePos.y) / (72 * dpi),
-                editingStep_ ? values[editingStep_ - 1] : 0.f, editingStep_ < 31 ? values[editingStep_ + 1] : 1.f);
-            values[editingStep_] = stepValue_;
-            editor_.samples[editingStep_] = stepValue_;
-        }
-        if (editingStep_ >= 0 && ImGui::IsItemDeactivated()) {
-            ShellEngine::Command command{ShellEngine::Action::CurveSteps}; command.samples = editor_.samples;
-            engine.Send(std::move(command)); editingStep_ = -1;
-        }
-        if (ImGui::IsItemHovered() || ImGui::IsItemActive()) {
-            const int step = std::clamp(static_cast<int>((ImGui::GetIO().MousePos.x - stepMin.x) / mainWidth * 32), 0, 31);
-            ImGui::SetTooltip("Input %d: output step %.1f", static_cast<int>(std::round(step * 127.f / 31)), values[step] * 31 + 1);
-        }
-        ImGui::EndDisabled();
-        for (int i = 0; i < 32; ++i) {
-            const float x = stepMin.x + i * mainWidth / 32;
-            draw->AddRectFilled(ImVec2(x + dpi, stepMax.y - values[i] * 68 * dpi - 2 * dpi),
-                ImVec2(x + mainWidth / 32 - dpi, stepMax.y - 2 * dpi), Colour(s.accent.accent), dpi);
-        }
-        mainBottom = stepMax.y;
-    }
+    const float mainBottom = macroY + 80 * dpi;
     const ImVec2 listMin(start.x + mainWidth + 12 * dpi, workspaceY);
     skin::RecessedRect(draw, listMin, ImVec2(start.x + width, mainBottom), s.radius.element, s);
     ImGui::SetCursorScreenPos(ImVec2(listMin.x + 8 * dpi, listMin.y + 8 * dpi));
@@ -1121,6 +1231,13 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
     if (SettingSwitch("Velocity hotkeys", velocity,
         "Off skips the ALT velocity preamble for live input and autoplay.", fonts, design, dpi))
         engine.Send({ShellEngine::Action::Velocity, {}, 0, 0, velocity});
+    ImGui::BeginDisabled(!state->hasPreviousCurve);
+    if (ImGui::CollapsingHeader("Curve comparison")) {
+        if (ImGui::Button(state->comparingCurve ? "Return to edited curve" : "Hear previous curve",
+                          ImVec2(-1, s.metric.controlHeight)))
+            engine.Send({ShellEngine::Action::CurveCompare});
+    }
+    ImGui::EndDisabled();
     SettingSwitch("Always on top", preferences.alwaysOnTop,
         "Keeps the main window above other windows.", fonts, design, dpi);
     ImGui::Separator();
@@ -1668,8 +1785,8 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
 
     const float trackTop = top + playbackHeight + s.spacing.s3;
     const float collapsedHeight = 2 * s.spacing.panelPad + s.metric.controlHeight;
-    const float requestedCurveHeight = velocityExpanded ? (472 +
-        (advancedCurve_ ? 108.f : 0.f) + (nameOperation_ ? 44.f : 0.f)) * dpi : collapsedHeight;
+    const float requestedCurveHeight = velocityExpanded ?
+        (428.f + (nameOperation_ ? 44.f : 0.f)) * dpi : collapsedHeight;
     const float curveHeight = std::min(requestedCurveHeight, std::max(collapsedHeight, bottom - trackTop - 168 * dpi));
     const float curveTop = bottom - curveHeight;
     BeginPanel("Tracks", ImVec2(right, trackTop), ImVec2(edge, curveTop - s.spacing.s3), s);

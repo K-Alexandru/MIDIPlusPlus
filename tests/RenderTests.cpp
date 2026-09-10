@@ -94,13 +94,14 @@ int wmain() {
         const auto skins = skin::All();
         // Returning to 100% catches cumulative scaling after a monitor move.
         for (const float dpi : {1.f, 1.25f, 1.5f, 2.f, 1.f}) for (int i = 0; i < 4; ++i)
-        for (int mode = 0; mode < 11; ++mode) {
+        for (int mode = 0; mode < 12; ++mode) {
             panels.preferences.skin = i;
             panels.miniMode = mode == 1 || mode == 2 || mode == 8 || mode == 9 || mode == 10;
             panels.miniAutoplay = mode == 2 || mode == 8 || mode == 10;
             panels.logOpen = mode == 3 || mode == 9;
+            panels.velocityExpanded = mode == 11;
             const char* variants[]{"full", "mini-live", "mini-autoplay", "log", "settings", "sort", "export",
-                                   "countdown", "mini-countdown", "mini-log", "mini-open"};
+                                   "countdown", "mini-countdown", "mini-log", "mini-open", "velocity-editor"};
             const int picksBefore = pickerCalls;
             if (mode == 7 || mode == 8) {
                 engine.Send({shell::ShellEngine::Action::PlaybackDelay, {}, 0, 0, false, 10});

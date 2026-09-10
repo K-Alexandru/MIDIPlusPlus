@@ -84,6 +84,8 @@ struct EngineSnapshot {
     VelocityPreset previousPreset;
     bool comparingCurve = false;
     bool hasPreviousCurve = false;
+    bool canUndoCurve = false;
+    bool canRedoCurve = false;
     uint64_t curveRevision = 0;
     int sustainCutoff = 64;
     velocity_telemetry::Snapshot playedVelocities;
@@ -101,8 +103,8 @@ public:
                         Pause, TogglePlayPause, Restart, Back10, Forward10, Seek, Speed, Transpose, Remap,
                         LiveScan, LiveOpen, LiveActive, LiveChannel,
                         CopySheet,
-                        CurveSelect, CurveAdjust, CurveStep, CurveCompare, CurveNew,
-                        CurveDuplicate, CurveRename, SustainCutoff, CurveSteps,
+                        CurveSelect, CurveAdjust, CurveEdit, CurveUndo, CurveRedo, CurveCompare, CurveNew,
+                        CurveDuplicate, CurveRename, SustainCutoff,
                         WootingTriggerThreshold, WootingShiftAmount, WootingVelocityScale, EightyEightKeys,
                         AutoVolumeScan, AutoVolumeCalibrate, AutoVolumeOff, AutoVolumeCancel, ClearLog,
                         PlayCountdown, PlaybackDelay, AcknowledgeTyping,
@@ -116,7 +118,7 @@ public:
         double amount = 0;
         std::string key;
         std::wstring device;
-        std::array<float, 32> samples{};
+        std::vector<VelocityPoint> anchors;
         GameWindow window;
     };
     explicit ShellEngine(std::filesystem::path config, std::shared_ptr<AutoVolumeHost> volumeHost = {},

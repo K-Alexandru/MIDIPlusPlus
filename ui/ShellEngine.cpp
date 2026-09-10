@@ -303,14 +303,21 @@ void ShellEngine::Run(std::stop_token stop) {
             state.curve.preset = std::min(saved.value("preset", size_t{1}), state.curves.size() - 1);
             state.curve.sensitivity = std::clamp(saved.value("sensitivity", 0.f), -50.f, 50.f);
             state.curve.contrast = std::clamp(saved.value("contrast", 0.f), 0.f, 100.f);
-            if (saved.contains("samples")) {
-                state.curve.samples = saved.at("samples").get<std::array<float, 32>>();
-                float last = 0;
-                for (auto& value : state.curve.samples) {
-                    if (!std::isfinite(value)) throw std::runtime_error("Invalid saved velocity response.");
-                    value = std::clamp(value, last, 1.f); last = value;
+            if (saved.contains("anchors")) {
+                for (const auto& point : saved.at("anchors")) {
+                    if (!point.is_array() || point.size() != 2) throw std::runtime_error("Invalid saved velocity anchor.");
+                    state.curve.anchors.push_back({point[0].get<float>(), point[1].get<float>()});
                 }
-                state.curve.manual = true;
+                state.curve.anchors = VelocityLegalAnchors(std::move(state.curve.anchors));
+            } else if (saved.contains("samples")) {
+                // One-time migration from the retired 32-value editing model.
+                const auto samples = saved.at("samples").get<std::array<float, 32>>();
+                for (int i = 0; i < 32; ++i) {
+                    if (!std::isfinite(samples[i])) throw std::runtime_error("Invalid saved velocity response.");
+                    state.curve.anchors.push_back({i / 31.f, std::clamp(samples[i], 0.f, 1.f)});
+                }
+                state.curve.anchors = VelocityLegalAnchors(
+                    velocity_detail::Simplify(state.curve.anchors, .004f));
             }
             state.sustainCutoff = std::clamp(saved.value("sustainCutoff", 64), 0, 127);
         }
@@ -320,6 +327,8 @@ void ShellEngine::Run(std::stop_token stop) {
         if (state.curves.size() >= 5) applyCurve();
         state.error = error.what();
     }
+    VelocityHistory curveHistory;
+    curveHistory.Reset(state.curve);
     Publish(state);
     // A curve is committed on a slider release, not per keystroke, and the
     // documented behaviour is that a failed save reports and leaves the applied
@@ -332,7 +341,10 @@ void ShellEngine::Run(std::stop_token stop) {
         auto& saved = configJson["SHELL_VELOCITY"];
         saved = {{"preset", next.curve.preset}, {"sensitivity", next.curve.sensitivity},
                  {"contrast", next.curve.contrast}, {"sustainCutoff", next.sustainCutoff}};
-        if (next.curve.manual) saved["samples"] = next.curve.samples;
+        if (!next.curve.anchors.empty()) {
+            saved["anchors"] = nlohmann::json::array();
+            for (const auto& point : next.curve.anchors) saved["anchors"].push_back({point.x, point.y});
+        }
         touchConfig();
         flushConfig();
     };
@@ -819,8 +831,9 @@ void ShellEngine::Run(std::stop_token stop) {
                 }
                 case Action::CurveSelect:
                 case Action::CurveAdjust:
-                case Action::CurveStep:
-                case Action::CurveSteps:
+                case Action::CurveEdit:
+                case Action::CurveUndo:
+                case Action::CurveRedo:
                 case Action::CurveCompare:
                 case Action::CurveNew:
                 case Action::CurveDuplicate:
@@ -828,6 +841,8 @@ void ShellEngine::Run(std::stop_token stop) {
                 case Action::SustainCutoff: {
                     if (state.curves.size() < 5 || !std::isfinite(command.amount)) break;
                     auto next = state;
+                    auto nextHistory = curveHistory;
+                    bool changedCurve = false;
                     const auto remember = [&] {
                         next.previousCurve = state.comparingCurve ? state.previousCurve : state.curve;
                         next.previousPreset = state.comparingCurve ? state.previousPreset : state.curves[state.curve.preset];
@@ -840,29 +855,25 @@ void ShellEngine::Run(std::stop_token stop) {
                         next.sustainCutoff = static_cast<int>(std::clamp(command.amount, 0.0, 127.0));
                     } else if (command.action == Action::CurveSelect) {
                         if (command.track >= next.curves.size()) break;
-                        remember(); next.curve = {}; next.curve.preset = command.track;
+                        remember(); next.curve = {}; next.curve.preset = command.track; changedCurve = true;
                     } else if (command.action == Action::CurveAdjust) {
-                        remember(); next.curve.manual = false;
+                        remember(); next.curve.anchors.clear();
                         if (command.key == "sensitivity") next.curve.sensitivity = static_cast<float>(std::clamp(command.amount, -50.0, 50.0));
                         else if (command.key == "contrast") next.curve.contrast = static_cast<float>(std::clamp(command.amount, 0.0, 100.0));
                         else break;
-                    } else if (command.action == Action::CurveSteps) {
-                        remember(); next.curve.manual = true;
-                        float previous = 0;
-                        for (int i = 0; i < 32; ++i) {
-                            if (!std::isfinite(command.samples[i])) throw std::runtime_error("Invalid velocity sample.");
-                            next.curve.samples[i] = std::clamp(command.samples[i], previous, 1.f);
-                            previous = next.curve.samples[i];
-                        }
-                    } else if (command.action == Action::CurveStep) {
-                        if (command.track >= 32) break;
+                        changedCurve = true;
+                    } else if (command.action == Action::CurveEdit) {
+                        if (command.anchors.size() < 2 || command.anchors.size() > 256) break;
                         remember();
-                        if (!next.curve.manual) for (int i = 0; i < 32; ++i)
-                            next.curve.samples[i] = VelocityShape(next.curves[next.curve.preset], next.curve, i / 31.f);
-                        next.curve.manual = true;
-                        next.curve.samples[command.track] = std::clamp(static_cast<float>(command.amount),
-                            command.track ? next.curve.samples[command.track - 1] : 0.f,
-                            command.track < 31 ? next.curve.samples[command.track + 1] : 1.f);
+                        next.curve.anchors = VelocityLegalAnchors(command.anchors);
+                        next.curve.sensitivity = next.curve.contrast = 0;
+                        changedCurve = true;
+                    } else if (command.action == Action::CurveUndo || command.action == Action::CurveRedo) {
+                        remember();
+                        const bool changed = command.action == Action::CurveUndo ? nextHistory.Undo() : nextHistory.Redo();
+                        if (!changed) break;
+                        next.curve = nextHistory.current;
+                        changedCurve = true;
                     } else {
                         auto name = command.key;
                         const auto first = name.find_first_not_of(" \t\r\n"), last = name.find_last_not_of(" \t\r\n");
@@ -881,7 +892,12 @@ void ShellEngine::Run(std::stop_token stop) {
                         if (rename) next.curves[index] = {name, values};
                         else { index = next.curves.size(); next.curves.push_back({name, values}); }
                         next.curve = {}; next.curve.preset = index;
+                        changedCurve = true;
                     }
+                    if (changedCurve && command.action != Action::CurveUndo && command.action != Action::CurveRedo)
+                        nextHistory.Commit(next.curve);
+                    next.canUndoCurve = !nextHistory.undo.empty();
+                    next.canRedoCurve = !nextHistory.redo.empty();
                     // Saving cannot race dispatch, and a save failure leaves the
                     // active curve untouched. Only final slider edits are queued.
                     if (command.action != Action::CurveCompare) saveCurves(next);
@@ -899,7 +915,7 @@ void ShellEngine::Run(std::stop_token stop) {
                         live.reset();
                     }
                     next.position = state.position; next.playing = false;
-                    state = std::move(next); ++state.curveRevision;
+                    state = std::move(next); curveHistory = std::move(nextHistory); ++state.curveRevision;
                     applyCurve();
                     if (!device.empty()) {
                         live = std::make_unique<MIDI2Key>(player.get());
