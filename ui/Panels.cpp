@@ -7,6 +7,7 @@
 #include <fstream>
 #include <cmath>
 #include "MidiInput.hpp"
+#include "MidiOutput.hpp"
 
 namespace shell {
 namespace {
@@ -170,7 +171,8 @@ void Ellipsis(const std::string& text, float width) {
 }
 
 bool StatePill(const char* label, bool on, const Fonts& fonts, const skin::Skin& design,
-               float dpi, float padding, bool enabled = true, const char* tip = nullptr) {
+               float dpi, float padding, bool enabled = true, const char* tip = nullptr,
+               const char* stateText = nullptr) {
     auto s = skin::ScaleGeometry(design, dpi);
     FontScope font(fonts, design, design.type.body * SpecFontScale(design), on ? Weight::Semibold : Weight::Regular);
     const auto min = ImGui::GetCursorScreenPos();
@@ -202,7 +204,8 @@ bool StatePill(const char* label, bool on, const Fonts& fonts, const skin::Skin&
     // rather than as a state. The on state is still not carried by colour
     // alone, because an on pill is semibold where an off pill is regular.
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
-        ImGui::SetTooltip("%s: %s%s%s", label, on ? "On" : "Off", tip ? "\n" : "", tip ? tip : "");
+        ImGui::SetTooltip("%s: %s%s%s", label, stateText ? stateText : on ? "On" : "Off",
+                          tip ? "\n" : "", tip ? tip : "");
     return clicked;
 }
 
@@ -213,7 +216,11 @@ bool StatePills(const Fonts& fonts, const skin::Skin& design, float dpi, ShellEn
                   !state->liveDevice.empty(), state->liveDevice.empty() ? "Select a MIDI input in Settings." : nullptr))
         engine.Send({ShellEngine::Action::LiveActive, {}, 0, 0, !state->liveActive});
     ImGui::SameLine();
-    if (StatePill("Velocity", state->velocity, fonts, design, dpi, pad))
+    const bool velocityAvailable = !state->outputMidi;
+    if (StatePill(velocityAvailable ? "Velocity" : "Velocity unavailable",
+                  velocityAvailable && state->velocity, fonts, design, dpi, pad, velocityAvailable,
+                  velocityAvailable ? nullptr : "MIDI output sends note velocity directly.",
+                  velocityAvailable ? nullptr : "Unavailable"))
         engine.Send({ShellEngine::Action::Velocity, {}, 0, 0, !state->velocity});
     ImGui::SameLine();
     const bool sustainEnabled = !state->playing && !state->liveActive;
@@ -669,6 +676,11 @@ std::string DeviceName(const EngineSnapshot& state) {
     for (const auto& device : state.devices) if (device.id == state.liveDevice) return device.name;
     return "Connected MIDI input";
 }
+std::string OutputDeviceName(const EngineSnapshot& state) {
+    if (state.outputDevice.empty()) return "No MIDI output";
+    for (const auto& device : state.outputDevices) if (device.id == state.outputDevice) return device.name;
+    return "Connected MIDI output";
+}
 void CurveCombo(const char* id, float width, const EngineSnapshot& state, ShellEngine& engine) {
     ImGui::SetNextItemWidth(width);
     const auto& edit = state.comparingCurve ? state.previousCurve : state.curve;
@@ -1085,6 +1097,60 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
         }
     }
     ImGui::Separator();
+    section("MIDI output");
+    if (ImGui::RadioButton("Keystrokes", !state->outputMidi))
+        engine.Send({ShellEngine::Action::OutputTarget, {}, 0, 0, false});
+    ImGui::SameLine();
+    if (ImGui::RadioButton("MIDI", state->outputMidi))
+        engine.Send({ShellEngine::Action::OutputTarget, {}, 0, 0, true});
+
+    const auto outputGroups = GroupDevices(state->outputDevices);
+    const auto* selectedOutputGroup = SelectedGroup(outputGroups, state->outputDevice);
+    ImGui::BeginDisabled(!state->outputMidi);
+    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - s.metric.controlHeight - 8 * dpi);
+    const bool outputOpen = ImGui::BeginCombo("##midi-output", OutputDeviceName(*state).c_str(), ImGuiComboFlags_NoArrowButton);
+    ComboChevron();
+    if (outputOpen) {
+        if (ImGui::Selectable("No MIDI output", state->outputDevice.empty()))
+            engine.Send({ShellEngine::Action::OutputOpen});
+        for (size_t i = 0; i < outputGroups.size(); ++i) {
+            const auto& group = outputGroups[i];
+            ImGui::PushID(static_cast<int>(i));
+            const auto name = group.name + (group.ambiguous ? " (port " + std::to_string(i + 1) + ")" : "");
+            if (ImGui::Selectable(name.c_str(), selectedOutputGroup == &group)) {
+                ShellEngine::Command command{ShellEngine::Action::OutputOpen};
+                command.device = PreferredInput(group, state->outputDevice); engine.Send(std::move(command));
+            }
+            if (group.ambiguous && ImGui::IsItemHovered())
+                ImGui::SetTooltip("Same-name ports kept separate.\n%s\n%s", BackendName(group.inputs.front().backend),
+                    Utf8(std::filesystem::path(group.inputs.front().id)).c_str());
+            ImGui::PopID();
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (IconButton("##scan-midi-output", Icon::Refresh, "Scan MIDI outputs", s, dpi))
+        engine.Send({ShellEngine::Action::OutputScan});
+    if (selectedOutputGroup) {
+        ImGui::BeginDisabled(!state->outputMidi);
+        ImGui::TextUnformatted("Transport");
+        ImGui::SetNextItemWidth(-1);
+        const bool outputTransportOpen = ImGui::BeginCombo("##output-transport",
+            BackendName(BackendForOutputId(state->outputDevice)), ImGuiComboFlags_NoArrowButton);
+        ComboChevron();
+        if (outputTransportOpen) {
+            for (const auto& output : selectedOutputGroup->inputs) {
+                if (ImGui::Selectable(BackendName(output.backend), output.id == state->outputDevice)) {
+                    ShellEngine::Command command{ShellEngine::Action::OutputOpen};
+                    command.device = output.id; engine.Send(std::move(command));
+                }
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::EndDisabled();
+    }
+    ImGui::Separator();
     const bool wootingSelected = state->liveDevice == L"wooting:analog" &&
         BackendForDeviceId(state->liveDevice) == MidiBackend::WootingAnalog;
     if (wootingSelected) {
@@ -1228,9 +1294,42 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
         "At the end of a song, plays another file from the MIDI folder.", fonts, design, dpi))
         engine.Send({ShellEngine::Action::Shuffle, {}, 0, 0, shuffle});
     bool velocity = state->velocity;
-    if (SettingSwitch("Velocity hotkeys", velocity,
-        "Off skips the ALT velocity preamble for live input and autoplay.", fonts, design, dpi))
+    const std::string modifierName = state->velocityModifier == "ctrl" ? "Ctrl" :
+        state->velocityModifier == "shift" ? "Shift" : "Alt";
+    const std::string velocityDescription = state->outputMidi
+        ? "MIDI output sends note velocity in each note-on message."
+        : "Off skips the " + modifierName + " velocity preamble for live input and autoplay.";
+    ImGui::BeginDisabled(state->outputMidi);
+    if (SettingSwitch(state->outputMidi ? "Velocity hotkeys unavailable" : "Velocity hotkeys", velocity,
+        velocityDescription.c_str(), fonts, design, dpi))
         engine.Send({ShellEngine::Action::Velocity, {}, 0, 0, velocity});
+    ImGui::EndDisabled();
+    ImGui::TextUnformatted("Velocity modifier");
+    ImGui::SetNextItemWidth(-1);
+    const bool modifierOpen = ImGui::BeginCombo("##velocity-modifier", modifierName.c_str(), ImGuiComboFlags_NoArrowButton);
+    ComboChevron();
+    if (modifierOpen) {
+        for (const auto& [value, label] : {std::pair{"alt", "Alt"}, std::pair{"ctrl", "Ctrl"}, std::pair{"shift", "Shift"}}) {
+            if (ImGui::Selectable(label, state->velocityModifier == value)) {
+                ShellEngine::Command command{ShellEngine::Action::VelocityModifier};
+                command.key = value; engine.Send(std::move(command));
+            }
+        }
+        ImGui::EndCombo();
+    }
+    if (!state->velocityModifierConflicts.empty()) {
+        std::string warning = "Warning: ";
+        for (size_t i = 0; i < state->velocityModifierConflicts.size(); ++i) {
+            if (i) warning += ", ";
+            warning += state->velocityModifierConflicts[i];
+        }
+        warning += state->velocityModifierConflicts.size() == 1 ? " is also a mapped note in " : " are also mapped notes in ";
+        warning += state->eightyEightKeys ? "88 Keys. Velocity taps can play those notes."
+                                          : "61 Keys. Velocity taps can play those notes.";
+        ImGui::PushStyleColor(ImGuiCol_Text, Colour(s.accent.warn));
+        ImGui::TextWrapped("%s", warning.c_str());
+        ImGui::PopStyleColor();
+    }
     ImGui::BeginDisabled(!state->hasPreviousCurve);
     if (ImGui::CollapsingHeader("Curve comparison")) {
         if (ImGui::Button(state->comparingCurve ? "Return to edited curve" : "Hear previous curve",
@@ -1303,6 +1402,7 @@ void Panels::DrawStatus(const Fonts& fonts, const skin::Skin& design, float dpi,
         input += state.liveDevice.empty() ? "None" : BackendName(BackendForDeviceId(state.liveDevice));
         if (!state.liveDevice.empty() && !state.liveActive) input += " (off)";
         fields.push_back(input);
+        fields.push_back(state.outputMidi ? "Output MIDI" : "Output Keystrokes");
         if (!stopHotkeyAvailable) fields.push_back("Stop hotkey unavailable");
     }
     const auto tracks = std::to_string(SilentTracks(state.rows)) + " of " + std::to_string(state.rows.size()) +
@@ -1527,6 +1627,7 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     if (sheetStatusGeneration_ != state->generation) { sheetStatus_.clear(); sheetPending_ = false; }
     else if (!state->sheetReady && !sheetPending_) sheetStatus_.clear();
     if (!scannedLive_ && hwnd) { engine.Send({ShellEngine::Action::LiveScan}); scannedLive_ = true; }
+    if (!scannedOutput_ && hwnd) { engine.Send({ShellEngine::Action::OutputScan}); scannedOutput_ = true; }
     if (measuring_ && ImGui::GetTime() >= nextTimingPoll_) {
         input_latency::poll(timing_);
         timingSummary_ = timing_.summarize(timingSource_ ? input_latency::Source::Autoplay : input_latency::Source::LiveKeys,

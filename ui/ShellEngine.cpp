@@ -1,6 +1,7 @@
 #include "ShellEngine.hpp"
 #include "PlaybackSystem.hpp"
 #include "MIDI2Key.hpp"
+#include "MidiOutput.hpp"
 #include "WootingAnalog.hpp"
 #include "../MIDI++/SheetExport.hpp"
 #include <fstream>
@@ -140,6 +141,11 @@ void ShellEngine::Run(std::stop_token stop) {
         if (configJson.contains("LEGIT_MODE_SETTINGS"))
             state.legitMode = configJson["LEGIT_MODE_SETTINGS"].value("ENABLED", false);
         state.keyMappings = configJson.at("KEY_MAPPINGS").at(state.eightyEightKeys ? "FULL" : "LIMITED").get<decltype(state.keyMappings)>();
+        state.velocityModifier = configJson.value("VELOCITY_MODIFIER", std::string("alt"));
+        if (state.velocityModifier != "alt" && state.velocityModifier != "ctrl" && state.velocityModifier != "shift") {
+            state.velocityModifier = "alt";
+            throw std::runtime_error("VELOCITY_MODIFIER must be alt, ctrl or shift.");
+        }
     } catch (const std::exception& error) { state.error = error.what(); }
     const auto touchConfig = [&] {
         configDirty = true;
@@ -238,6 +244,12 @@ void ShellEngine::Run(std::stop_token stop) {
             player->pressed_keys.try_emplace(NoteName(note), false);
         }
     };
+    const auto applyVelocityModifier = [&] {
+        if (!player) return;
+        midi::Config::getInstance().playback.velocityModifier = state.velocityModifier;
+        player->apply_velocity_modifier();
+        state.velocityModifierConflicts = player->velocity_modifier_conflicts();
+    };
     // Live input needs a player without a file loaded: the mappings and velocity
     // settings come from the config, not from the score.
     const auto ensurePlayer = [&] {
@@ -252,6 +264,7 @@ void ShellEngine::Run(std::stop_token stop) {
             player->ENABLE_OUT_OF_RANGE_TRANSPOSE = state.outRange && !state.eightyEightKeys;
             player->legit_mode_active = state.legitMode;
             applyMappings();
+            applyVelocityModifier();
         }
     };
     const auto applyWootingSettings = [&] {
@@ -367,6 +380,7 @@ void ShellEngine::Run(std::stop_token stop) {
             std::unique_lock lock(mutex_);
             const auto ready = [&] { return stop.stop_requested() || !commands_.empty(); };
             if (state.playing || volumePending || state.playbackCountdown) wake_.wait_for(lock, 25ms, ready);
+            else if (state.outputMidi && !state.outputDevice.empty()) wake_.wait_for(lock, 250ms, ready);
             else if (configDirty) wake_.wait_until(lock, configDue, ready);
             else wake_.wait(lock, ready);
             if (stop.stop_requested()) break;
@@ -398,7 +412,9 @@ void ShellEngine::Run(std::stop_token stop) {
                     command.action != Action::Stop && command.action != Action::Velocity && command.action != Action::Sustain &&
                     command.action != Action::Remap && command.action != Action::LiveScan &&
                     command.action != Action::LiveOpen && command.action != Action::LiveActive &&
-                    command.action != Action::LiveChannel && command.action < Action::CurveSelect;
+                    command.action != Action::LiveChannel && command.action != Action::OutputTarget &&
+                    command.action != Action::OutputScan && command.action != Action::OutputOpen &&
+                    command.action != Action::VelocityModifier && command.action < Action::CurveSelect;
                 if (scoreCommand && command.generation != state.generation) continue;
                 if (!state.typingAcknowledged &&
                     (command.action == Action::LiveOpen && !command.device.empty() ||
@@ -683,6 +699,7 @@ void ShellEngine::Run(std::stop_token stop) {
                     state.keyMappings[note] = command.key;
                     ++state.mappingRevision;
                     applyMappings();
+                    applyVelocityModifier();
                     invalidateSheet();
                     break;
                 }
@@ -751,6 +768,48 @@ void ShellEngine::Run(std::stop_token stop) {
                     state.liveChannel = std::clamp(static_cast<int>(command.amount), -1, 15);
                     if (live) live->SetMidiChannel(state.liveChannel);
                     break;
+                case Action::OutputTarget:
+                    ensurePlayer();
+                    player->set_output_target(command.value ? VirtualPianoPlayer::OutputTarget::MidiDevice
+                                                            : VirtualPianoPlayer::OutputTarget::Keystrokes);
+                    state.outputMidi = command.value;
+                    break;
+                case Action::OutputScan: {
+                    state.outputDevices.clear();
+                    for (const auto& device : EnumerateMidiOutputs())
+                        state.outputDevices.push_back({device.id, Utf8(std::filesystem::path(device.name)),
+                            device.group, device.backend});
+                    if (!state.outputDevice.empty() &&
+                        std::none_of(state.outputDevices.begin(), state.outputDevices.end(),
+                            [&](const LiveDevice& device) { return device.id == state.outputDevice; })) {
+                        ensurePlayer();
+                        player->close_midi_output();
+                        state.outputMidi = false;
+                        state.outputDevice.clear();
+                        state.error = "MIDI output disconnected; using keystrokes.";
+                    }
+                    break;
+                }
+                case Action::OutputOpen: {
+                    ensurePlayer();
+                    const bool resumeMidi = state.outputMidi;
+                    player->close_midi_output();
+                    state.outputMidi = false;
+                    state.outputDevice.clear();
+                    if (command.device.empty()) break;
+                    if (!player->open_midi_output(command.device))
+                        throw std::runtime_error("Cannot open that MIDI output; using keystrokes.");
+                    state.outputDevice = player->opened_midi_output();
+                    if (state.outputDevice.empty()) {
+                        player->close_midi_output();
+                        throw std::runtime_error("Cannot open that MIDI output; using keystrokes.");
+                    }
+                    if (resumeMidi) {
+                        player->set_output_target(VirtualPianoPlayer::OutputTarget::MidiDevice);
+                        state.outputMidi = true;
+                    }
+                    break;
+                }
                 case Action::WootingTriggerThreshold:
                 case Action::WootingShiftAmount:
                 case Action::WootingVelocityScale: {
@@ -951,6 +1010,7 @@ void ShellEngine::Run(std::stop_token stop) {
                     player->eightyEightKeyModeActive = state.eightyEightKeys;
                     player->ENABLE_OUT_OF_RANGE_TRANSPOSE = state.outRange && !state.eightyEightKeys;
                     applyMappings();
+                    applyVelocityModifier();
                     ++state.mappingRevision;
                     invalidateSheet();
                     configJson[layoutChange ? "SHELL_88_KEYS" : "SHELL_OUT_RANGE"] = command.value;
@@ -1016,6 +1076,16 @@ void ShellEngine::Run(std::stop_token stop) {
                     state.velocity = command.value;
                     if (player) player->enable_velocity_keypress = command.value;
                     break;
+                case Action::VelocityModifier:
+                    if (command.key != "alt" && command.key != "ctrl" && command.key != "shift")
+                        throw std::runtime_error("Velocity modifier must be Alt, Ctrl or Shift.");
+                    if (state.velocityModifier == command.key) break;
+                    state.velocityModifier = command.key;
+                    ensurePlayer();
+                    applyVelocityModifier();
+                    configJson["VELOCITY_MODIFIER"] = state.velocityModifier;
+                    touchConfig();
+                    break;
                 case Action::Sustain:
                     // Change pedal mode only while stopped; its engine state is
                     // owned by dispatch while playing.
@@ -1078,6 +1148,13 @@ void ShellEngine::Run(std::stop_token stop) {
                         Send({Action::Next, {}, state.generation, 0, loadAutoSolo, 1});
                     }
                 }
+            }
+            if (state.outputMidi && !state.outputDevice.empty() && player &&
+                player->opened_midi_output() != state.outputDevice) {
+                player->close_midi_output();
+                state.outputMidi = false;
+                state.outputDevice.clear();
+                state.error = "MIDI output disconnected; using keystrokes.";
             }
         } catch (const std::exception& error) {
             if (volumePending) invalidateVolume();

@@ -91,6 +91,7 @@ private:
     std::array<bool, 3> wootingEditing_{};
     std::array<bool, 3> wootingPending_{};
     bool scannedLive_ = false;
+    bool scannedOutput_ = false;
     bool measuring_ = false;
     int timingSource_ = 0;
     input_latency::Collector timing_;

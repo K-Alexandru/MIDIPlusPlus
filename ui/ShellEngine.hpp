@@ -67,6 +67,9 @@ struct EngineSnapshot {
     bool liveActive = false;
     bool midiConnect = false;
     int liveChannel = -1;  // -1 listens on every channel
+    bool outputMidi = false;
+    std::wstring outputDevice;
+    std::vector<LiveDevice> outputDevices;
     double speed = 1.0;
     int transpose = 0;
     std::map<std::string, std::string> keyMappings;
@@ -88,6 +91,8 @@ struct EngineSnapshot {
     bool canRedoCurve = false;
     uint64_t curveRevision = 0;
     int sustainCutoff = 64;
+    std::string velocityModifier = "alt";
+    std::vector<std::string> velocityModifierConflicts;
     velocity_telemetry::Snapshot playedVelocities;
     double wootingTriggerThreshold = 0.5;
     int wootingShiftAmount = 12;
@@ -101,10 +106,10 @@ class ShellEngine {
 public:
     enum class Action { Scan, Load, Play, Stop, Mute, Solo, SoloPiano, UnmuteAll, Velocity, Sustain,
                         Pause, TogglePlayPause, Restart, Back10, Forward10, Seek, Speed, Transpose, Remap,
-                        LiveScan, LiveOpen, LiveActive, LiveChannel,
+                        LiveScan, LiveOpen, LiveActive, LiveChannel, OutputTarget, OutputScan, OutputOpen,
                         CopySheet,
                         CurveSelect, CurveAdjust, CurveEdit, CurveUndo, CurveRedo, CurveCompare, CurveNew,
-                        CurveDuplicate, CurveRename, SustainCutoff,
+                        CurveDuplicate, CurveRename, SustainCutoff, VelocityModifier,
                         WootingTriggerThreshold, WootingShiftAmount, WootingVelocityScale, EightyEightKeys,
                         AutoVolumeScan, AutoVolumeCalibrate, AutoVolumeOff, AutoVolumeCancel, ClearLog,
                         PlayCountdown, PlaybackDelay, AcknowledgeTyping,
