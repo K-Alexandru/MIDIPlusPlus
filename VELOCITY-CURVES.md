@@ -96,6 +96,58 @@ Linear Fine are untouched, since they already reach the top.
 - **Requires no new judgement about what the curves should be**, only that they
   should span the range they are drawn against. That is the argument for it.
 
+## The app already contains formulas, and they disagree with the tables
+
+Added after the owner pointed out that upstream had this right. They are right
+that the formulas exist, and the first version of this page was wrong to say
+option 3's formulas would have to be invented.
+
+`VelocityCurveEditor::LoadPreset` in `VelocityFrame.cpp` generates presets from
+closed forms, and that file is byte-identical to upstream, as are the built-in
+tables in `PlaybackCore.cpp`. So the app ships two sources for the same curve
+names and they do not agree.
+
+    Linear        points[i] = i * 127 / 31
+    Logarithmic   points[i] = 127 * log(x*9 + 1) / log(10)
+    Exponential   points[i] = 127 * x^2
+    S-Curve       points[i] = 127 * (0.5 + 0.5 * tanh((x - 0.5) * 5))
+
+**They fix the ceiling.** Every one of them reaches step 31. That is the half
+of this the built-in tables get wrong, and it is real.
+
+**They break the floor.** Every one starts at `points[0] = 0`. A threshold of 0
+can never be selected, because inputs run 1 to 127 and the lookup advances
+while `table[idx] < target`, so the quietest step is thrown away. Exponential
+is worse: it starts 0, 0, 0, so input 1 lands on step 3 and the bottom three
+steps are unreachable. That is the same defect as the ceiling, at the other
+end.
+
+**And the named shapes are inverted against the built-ins.** This is the part
+that matters most, and it is the same trap I fell into and corrected while
+writing this page: the table is thresholds, which is the inverse of the
+response, so applying a shape to it produces the opposite response.
+
+| Input | Built-in Logarithmic | Editor Logarithmic |
+|---|---|---|
+| 16 | step 7, 23% | step 2, 6% |
+| 64 | step 13, 42% | step 8, 26% |
+| 127 | step 17, 55% | step 31, 100% |
+
+The built-in reaches a high output early and then compresses, which is what a
+logarithmic velocity response conventionally means. The editor's version is
+quiet for most of the range and then climbs steeply, which is an exponential
+response wearing the logarithmic name. Exponential is inverted the same way:
+the built-in gives 13% at input 16, the editor gives 39%.
+
+So the honest summary is that the built-in tables have the shapes right and the
+range wrong, and the editor has the range right and the shapes inverted, plus a
+wasted step at the bottom. **Neither source is simply correct, and option 2 is
+what taking the good half of each actually amounts to.**
+
+Two smaller things found in the same file, neither urgent: `VelocityFrame.cpp`
+declares a file-scope `POINT_COUNT = 33` that is shadowed inside the class by
+`POINT_COUNT = 32`, and the loop at line 100 runs `i <= POINT_COUNT`.
+
 ## Option 3: regenerate from the shape each name claims
 
 Define each preset by a formula and derive 32 thresholds from it. Note the
@@ -112,11 +164,21 @@ Logarithmic and Exponential for each other, which I did first and had to fix.
     Linear Coarse and Linear Fine, response x
       becomes  4  8 12 16 20 24 28 32 36 40 44 48 52 56 60 64 67 71 75 79 83 87 91 95 99 103 107 111 115 119 123 127
 
-- **Cost, and it is the reason I am not recommending this:** the formulas are
-  mine, not anyone's tuning. `SHELL-GAPS.md` already refuses to ship the
-  mockup's `x*x*(3-2*x)` as Pro's values on exactly this ground, calling it "a
-  stand-in drawn to make the mockup legible, not a tuning". Inventing five of
-  them has the same problem five times over.
+- **Corrected:** the first version of this page rejected this option on the
+  grounds that the formulas would be invented. They are not. The project ships
+  its own, in `VelocityCurveEditor::LoadPreset`, and the logarithmic one above
+  is character for character the same expression. That objection is withdrawn.
+- **The real cost is the inversion.** Adopting the editor's formulas as written
+  would flip Logarithmic and Exponential into each other for every existing
+  user, because the editor applies each shape to the threshold table rather
+  than to the response. Adopting them inverted, as the numbers in this section
+  are, keeps the conventional meaning but is a bigger move than option 2 for
+  the same benefit.
+- **Improved Low Volume has no formula at all** in the editor, so this option
+  still means inventing one for it, and its name describes what its table
+  already does: fine steps at the bottom, 1, 3, 5, 7, 10, so quiet playing has
+  resolution. A smoothstep would give it 13, 19, 24, 28 down there and make a
+  preset named for low-volume resolution worse at low volume than Linear.
 - **Improved Low Volume is the clearest case against it.** Its name describes
   what its table does: fine steps at the bottom, 1, 3, 5, 7, 10, so quiet
   playing has resolution. A smoothstep would give it 13, 19, 24, 28 at the
@@ -127,7 +189,10 @@ Logarithmic and Exponential for each other, which I did first and had to fix.
 
 ## What I would do
 
-Option 2, and only for the three presets with a ceiling.
+Option 2, and only for the three presets with a ceiling. The editor's formulas
+strengthen this rather than replacing it: they are the project's own evidence
+that these curves are supposed to span the full range, and option 2 is how you
+take that without also taking the inverted shapes and the wasted bottom step.
 
 It fixes a playability defect rather than a cosmetic one, it needs no new
 opinion about what a logarithmic response should feel like, and it leaves the
@@ -135,6 +200,12 @@ two linear presets exactly as they are. The endpoint irregularity that started
 this is worth about one step at the very top and I would leave it, because
 touching it changes Linear Coarse and Linear Fine for every existing user to
 buy a difference nobody reported.
+
+Separately and regardless of which option is chosen, the editor's presets
+should stop starting at 0, because that throws away the quietest step under
+every one of them and three steps under Exponential. That one is a bug rather
+than a tuning question, and it is in `MIDI++/` so it is mine to fix on a word
+from you.
 
 Under any option, the Coarse and Fine naming should be settled separately,
 because right now the app offers two names for one curve and a user picking
