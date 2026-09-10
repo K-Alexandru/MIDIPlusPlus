@@ -282,11 +282,12 @@ Listed here so one page holds the whole obligation.
   named nowhere. `HANDOFF.md` section 15.
 - **The countdown before playback starts**, removed in the same change that
   registered those hotkeys, and asked for again by a tester on 2026-09-07.
-- **A settable velocity key.** The velocity burst holds ALT and taps a
-  character, and ALT is hardcoded at `PlaybackCore.cpp:922` and
-  `MIDI2Key.cpp:459`. Alt+1 is Roblox's capture shortcut, which is why velocity
-  is off by default since `954b3cd`. Whether a given game can be told to listen
-  for a different key is the game's business; offering the choice is ours.
+- **A settable velocity key.** Engine side done 2026-09-09, panel side owed;
+  see item 5 under Sequencing. Building it turned up a hole the hardcoding had
+  been hiding: `release_keys` lifted Alt and Ctrl unconditionally and nothing
+  else, which was exactly right while the tap always held ALT and is a gap the
+  size of the third option once it does not. An interrupted tap would have left
+  shift down and every later note would have typed its shifted character.
 
 ## Already present
 
@@ -305,15 +306,27 @@ OutRange, legit mode, shuffle, Prev/Next and opacity. The warning that shared
 item 5 was answered by removing it, and whether one comes back is a question
 for the owner rather than a task. What is left, reordered 2026-09-09:
 
-1. The velocity editor: anchors, free draw, one shared curve model, undo and
-   redo. The largest owed piece and the only one `HANDOFF.md` calls the most
-   important UI problem in the project.
-2. The engine-side curve tuning, which is a decision before it is work.
+1. **Done 2026-09-09.** The velocity editor: anchors, monotone PCHIP, free
+   draw, one shared representation, ghost bars, histogram snapping, and undo
+   and redo as the primary control. All seven items, with a render scenario at
+   every skin and DPI.
+2. The engine-side curve tuning, which is a decision before it is work. Still
+   the owner's, still unanswered, and it is now the oldest thing on this page.
 3. Pro, which needs 32 real values from somebody's config.
 4. MIDI output, `MIDI-OUTPUT.md`. The engine half is built as of 2026-09-09;
    what is left is the panel half, which is a picker and a two-way switch and
-   is listed in that file ready to be written.
-5. A settable velocity key.
+   is listed in that file ready to be written. Until it exists no user can
+   reach any of it.
+5. **Done 2026-09-09.** A settable velocity key, as
+   `VELOCITY_MODIFIER` in `config.json`: alt, ctrl or shift, defaulting to alt.
+   The config refuses anything that is not a modifier, because the velocity
+   characters are the characters the piano mappings use and a bare velocity key
+   would play a note, which is the closed decision in `CONTINUE-HERE.md`.
+   `velocity_modifier_conflicts()` names the combinations that collide with the
+   selected layout, since choosing ctrl makes fifteen taps play a note in the
+   88-key layout and the app is the only thing that can work that out. **The
+   panel still owes the control and the conflict warning**; the engine will not
+   surface either on its own.
 6. Drum detection and auto-transpose, once the parser heuristic is fixed.
 7. The conversion pipeline, which starts with reading two licences.
 

@@ -32,7 +32,13 @@ $cases = @(
     @{Name='switch-strands-the-held-note'; File='MIDI++\PlaybackCore.cpp'; Group='midi-out'; Start='void VirtualPianoPlayer::set_output_target'; End='int VirtualPianoPlayer::toggle_transpose_adjustment'; Find='silence_midi_output();'; Replace='/* outgoing target left sounding */'; Failure='switching away from MIDI sent nothing to stop the held note'},
     # Velocity travels in the note-on byte on this target, so losing it there
     # loses it entirely: there is no ALT tap on the wire to fall back to.
-    @{Name='midi-note-drops-velocity'; File='MIDI++\PlaybackCore.cpp'; Group='midi-out'; Find='static_cast<uint8_t>(event.velocity & 0x7F) };'; Replace='127 };'; Failure='velocity reaches the note-on byte, at the pitch that was played'}
+    @{Name='midi-note-drops-velocity'; File='MIDI++\PlaybackCore.cpp'; Group='midi-out'; Find='static_cast<uint8_t>(event.velocity & 0x7F) };'; Replace='127 };'; Failure='velocity reaches the note-on byte, at the pitch that was played'},
+    # The tap holds whichever modifier is configured, so the unconditional
+    # release list has to cover the third option too. Two hardcoded modifiers
+    # was correct only while the tap always held ALT.
+    @{Name='shift-modifier-left-down'; File='MIDI++\PlaybackCore.cpp'; Group='vel-mod'; Find='if (velocity_modifier_scan.load(std::memory_order_acquire) == 0x2A) releaseKey(VK_SHIFT);'; Replace='/* shift left down */'; Failure='shift was left down when it was the velocity modifier'},
+    # And a tap that ignores the setting sends ALT whatever the user chose.
+    @{Name='tap-ignores-configured-modifier'; File='MIDI++\PlaybackCore.cpp'; Group='vel-mod'; Start='size_t VirtualPianoPlayer::build_velocity_tap'; End='static const KeySequence& cachedSequence'; Find='const WORD modifier = velocity_modifier_scan.load(std::memory_order_acquire);'; Replace='const WORD modifier = 0x38;'; Failure='no tap opened with the configured ctrl modifier'}
 )
 function Build-Tests([string]$name) {
     & $builder $project /p:Configuration=Release /p:Platform=x64 /m /v:quiet /nologo *> (Join-Path $reports "$name-build.log")

@@ -198,6 +198,37 @@ public:
     void calibrate_volume();
     void process_tracks(const MidiFile& midi_file);
 
+    // ---- The velocity tap's modifier -------------------------------------
+    //
+    // Resolved to a scan code once, at load, rather than parsed per note. The
+    // tap runs on the injection path and the string it came from does not.
+    //
+    // Static because build_velocity_tap is, and because the setting it comes
+    // from lives on the config singleton, so a second copy per player could
+    // only ever disagree with the first.
+    static std::atomic<WORD> velocity_modifier_scan;   // ALT by default
+
+    // The scan code for "alt", "ctrl" or "shift". Returns ALT's for anything
+    // else, because a validated config cannot contain anything else and a
+    // note-playing character here would be worse than the wrong modifier.
+    static WORD VelocityModifierScan(const std::string& name) noexcept;
+
+    // Reads the configured modifier and stores its scan code. Called at
+    // construction and whenever the setting changes.
+    void apply_velocity_modifier();
+
+    // The velocity characters that, under the configured modifier, are also a
+    // key mapping in the layout currently selected. Each entry is the
+    // combination as the mapping spells it, such as "ctrl+w".
+    //
+    // This exists because the answer is not obvious and the app is the only
+    // thing that can work it out. The 88-key layout binds its lowest notes to
+    // ctrl+ combinations, so choosing ctrl silently makes some velocity taps
+    // play a note as well, which is the bug ALT is there to prevent. Offering
+    // the choice without saying that would be handing the user a footgun and
+    // calling it a feature.
+    std::vector<std::string> velocity_modifier_conflicts() const;
+
     // ---- MIDI output -----------------------------------------------------
     //
     // One output target for the whole app, per MIDI-OUTPUT.md: live input and

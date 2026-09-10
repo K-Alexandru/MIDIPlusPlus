@@ -135,6 +135,21 @@ namespace midi {
         VelocityCurveType velocityCurve = VelocityCurveType::LinearCoarse;
         NoteHandlingMode noteHandlingMode = NoteHandlingMode::LIFO;
         std::vector<CustomVelocityCurve> customVelocityCurves;
+
+        // Which modifier the velocity tap holds while it taps a character.
+        //
+        // This does not reopen the closed decision in CONTINUE-HERE.md. That
+        // one is about removing the modifier: the velocity characters are the
+        // same characters the piano mappings use, so a bare velocity key would
+        // play a note, and validate() below refuses anything that is not a
+        // modifier for exactly that reason.
+        //
+        // What it does open is *which* modifier, because Alt+1 is Roblox's
+        // capture shortcut and that is why velocity ships off by default.
+        // Whether a given game can be told to listen for something else is the
+        // game's business; offering the choice is ours.
+        std::string velocityModifier = "alt";   // alt, ctrl or shift
+
         void validate() const;
     };
 

@@ -528,10 +528,15 @@ void MIDI2Key::ProcessMidiMessage(uint64_t timestampQpc, const uint8_t* bytes, s
             if (newVelKey != m_lastVelocityKey) {
                 m_lastVelocityKey = newVelKey;
                 WORD sc = SCAN_TABLE[(unsigned char)newVelKey];
-                batch[0] = makeKeybdInput(0x38, KEYEVENTF_SCANCODE);                // Alt down
+                // The modifier is configurable and ALT is only its default, so
+                // it is read rather than written in. Autoplay reads the same
+                // field in build_velocity_tap, which is what keeps the two
+                // paths sending the identical tap.
+                const WORD mod = p.velocity_modifier_scan.load(std::memory_order_acquire);
+                batch[0] = makeKeybdInput(mod, KEYEVENTF_SCANCODE);                 // modifier down
                 batch[1] = makeKeybdInput(sc, KEYEVENTF_SCANCODE);                  // Key down
                 batch[2] = makeKeybdInput(sc, KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP); // Key up
-                batch[3] = makeKeybdInput(0x38, KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP); // Alt up
+                batch[3] = makeKeybdInput(mod, KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP); // modifier up
                 batchCount = 4;
             }
         }

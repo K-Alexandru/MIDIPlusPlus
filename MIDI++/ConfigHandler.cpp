@@ -66,6 +66,12 @@ namespace midi {
     }
 
     void PlaybackSettings::validate() const {
+        if (velocityModifier != "alt" && velocityModifier != "ctrl" && velocityModifier != "shift") {
+            // A character here would play a note as well as set velocity,
+            // which is the whole reason the tap holds a modifier at all.
+            throw ConfigException("VELOCITY_MODIFIER must be alt, ctrl or shift, not '" +
+                velocityModifier + "'");
+        }
         for (const auto& curve : customVelocityCurves) {
             if (curve.name.empty()) {
                 throw ConfigException("Custom velocity curve name cannot be empty");
@@ -319,6 +325,7 @@ namespace midi {
     void to_json(json& j, const PlaybackSettings& p) {
         j = json{
             {"STACKED_NOTE_HANDLING_MODE", Config::noteHandlingModeToString(p.noteHandlingMode)},
+            {"VELOCITY_MODIFIER", p.velocityModifier},
             {"CUSTOM_VELOCITY_CURVES", json::array()}
         };
 
@@ -335,6 +342,9 @@ namespace midi {
         std::string mode = j.at("STACKED_NOTE_HANDLING_MODE").get<std::string>();
         p.noteHandlingMode = Config::stringToNoteHandlingMode(mode);
         //TODO: validate here probably too
+        // Absent in every config written before this setting existed, so the
+        // default stands rather than the load failing.
+        p.velocityModifier = j.value("VELOCITY_MODIFIER", std::string("alt"));
         if (j.contains("CUSTOM_VELOCITY_CURVES")) {
             for (const auto& curveJson : j["CUSTOM_VELOCITY_CURVES"]) {
                 CustomVelocityCurve customCurve;

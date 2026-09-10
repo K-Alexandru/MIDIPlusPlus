@@ -427,6 +427,9 @@ VirtualPianoPlayer::VirtualPianoPlayer(bool listenForHotkeys,
         }
     }
 
+    // After the config load above, and before anything can build a tap.
+    apply_velocity_modifier();
+
     if (IsWin7OrWin8_Real()) {
         CloseSplashScreen();
         MessageBoxA(nullptr,
@@ -854,6 +857,15 @@ void VirtualPianoPlayer::release_keys(bool everyMapping) {
     // every later keystroke means, including the user's own.
     releaseKey(VK_MENU);
     releaseKey(VK_CONTROL);
+    // And shift, but only when it is the velocity modifier, because that is
+    // the only thing on this path that holds it across events.
+    //
+    // These two lines used to be the whole list, which was right while the tap
+    // always held ALT. Now that the modifier is a setting, a list of two
+    // hardcoded modifiers is a hole exactly the size of the third option: a
+    // tap interrupted mid-burst would leave shift down, and every later note
+    // would type its shifted character.
+    if (velocity_modifier_scan.load(std::memory_order_acquire) == 0x2A) releaseKey(VK_SHIFT);
 }
 
 void VirtualPianoPlayer::reset_volume() {
@@ -918,18 +930,55 @@ void VirtualPianoPlayer::restart_song() {
 // so the note that follows is not typed with ALT still held. Anything shorter
 // needs the game to accept something other than a modified keypress, which is
 // the game's protocol and not ours to change.
+std::atomic<WORD> VirtualPianoPlayer::velocity_modifier_scan{ 0x38 };
+
+WORD VirtualPianoPlayer::VelocityModifierScan(const std::string& name) noexcept {
+    if (name == "ctrl") return 0x1D;
+    if (name == "shift") return 0x2A;
+    return 0x38;   // alt, and the fallback for anything validate() would refuse
+}
+
+void VirtualPianoPlayer::apply_velocity_modifier() {
+    const WORD scan = VelocityModifierScan(midi::Config::getInstance().playback.velocityModifier);
+    // A modifier change while a tap's modifier is held would release the wrong
+    // scan code, so the keys come up first. This is the same ordering argument
+    // as set_output_target, one scale down.
+    if (velocity_modifier_scan.exchange(scan, std::memory_order_release) != scan) {
+        lastPressedKey.clear();   // so the next note re-sends its tap
+    }
+}
+
+std::vector<std::string> VirtualPianoPlayer::velocity_modifier_conflicts() const {
+    const std::string modifier = midi::Config::getInstance().playback.velocityModifier;
+    const std::string keys = "1234567890qwertyuiopasdfghjklzxc";
+    // Whichever layout is selected is the one whose mappings can collide.
+    const auto& mappings = eightyEightKeyModeActive.load(std::memory_order_relaxed)
+        ? full_key_mappings : limited_key_mappings;
+
+    std::vector<std::string> conflicts;
+    for (char key : keys) {
+        const std::string combination = modifier + "+" + key;
+        for (const auto& [note, mapped] : mappings) {
+            if (mapped != combination) continue;
+            conflicts.push_back(combination);
+            break;
+        }
+    }
+    return conflicts;
+}
+
 size_t VirtualPianoPlayer::build_velocity_tap(char velocityKey, INPUT* out) noexcept {
-    constexpr WORD ALT_SCAN = 0x38;
+    const WORD modifier = velocity_modifier_scan.load(std::memory_order_acquire);
     const WORD scan = SCAN_TABLE_AUTO[static_cast<unsigned char>(velocityKey)];
     if (scan == 0) return 0;
     for (size_t i = 0; i < VELOCITY_TAP_INPUTS; ++i) {
         out[i] = {};
         out[i].type = INPUT_KEYBOARD;
     }
-    out[0].ki.wScan = ALT_SCAN; out[0].ki.dwFlags = KEYEVENTF_SCANCODE;
+    out[0].ki.wScan = modifier; out[0].ki.dwFlags = KEYEVENTF_SCANCODE;
     out[1].ki.wScan = scan;     out[1].ki.dwFlags = KEYEVENTF_SCANCODE;
     out[2].ki.wScan = scan;     out[2].ki.dwFlags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP;
-    out[3].ki.wScan = ALT_SCAN; out[3].ki.dwFlags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP;
+    out[3].ki.wScan = modifier; out[3].ki.dwFlags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP;
     return VELOCITY_TAP_INPUTS;
 }
 

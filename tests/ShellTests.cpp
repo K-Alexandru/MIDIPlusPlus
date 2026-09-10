@@ -520,6 +520,124 @@ void VelocityCurveEditorModelTests() {
     std::cout << "PASS velocity editor model: monotone PCHIP, bounded sweep, backwards repair, undo and exact built-in\n";
 }
 
+// The velocity tap's modifier is a setting, and ALT is only its default.
+//
+// This does not reopen the closed decision about moving velocity off a
+// modifier: the velocity characters are the same characters the piano mappings
+// use, so a bare velocity key would play a note, and the config refuses
+// anything that is not a modifier. What is settable is which one, because
+// Alt+1 is Roblox's capture shortcut.
+void VelocityModifierTests(const std::filesystem::path& config) {
+    Require(VirtualPianoPlayer::VelocityModifierScan("alt") == 0x38, "alt is 0x38");
+    Require(VirtualPianoPlayer::VelocityModifierScan("ctrl") == 0x1D, "ctrl is 0x1D");
+    Require(VirtualPianoPlayer::VelocityModifierScan("shift") == 0x2A, "shift is 0x2A");
+    Require(VirtualPianoPlayer::VelocityModifierScan("w") == 0x38,
+            "an unvalidated value falls back to alt rather than typing a note-playing key");
+
+    // The config refuses a character outright, which is what keeps the closed
+    // decision closed however the file was edited.
+    {
+        midi::PlaybackSettings settings;
+        settings.velocityModifier = "w";
+        bool refused = false;
+        try { settings.validate(); }
+        catch (const midi::ConfigException&) { refused = true; }
+        Require(refused, "a character is not accepted as the velocity modifier");
+        settings.velocityModifier = "ctrl";
+        settings.validate();   // throws if this is wrong
+    }
+
+    VirtualPianoPlayer player(false, config);
+    player.eightyEightKeyModeActive = true;
+    player.enable_velocity_keypress = true;
+    player.legit_mode_active = false;
+    player.trackMuted.push_back(std::make_shared<std::atomic<bool>>(false));
+    player.trackSoloed.push_back(std::make_shared<std::atomic<bool>>(false));
+
+    // Choosing ctrl is legal and collides, and the app is the only thing that
+    // can work out that it collides. The 88-key layout binds its lowest
+    // fifteen notes to ctrl+ combinations, so ctrl+w both sets a velocity and
+    // plays G#1, which is the bug ALT exists to prevent.
+    auto& configured = midi::Config::getInstance().playback;
+    const std::string original = configured.velocityModifier;
+    struct Restore {
+        std::string& field; const std::string& value; VirtualPianoPlayer& player;
+        ~Restore() { field = value; player.apply_velocity_modifier(); }
+    } restore{ configured.velocityModifier, original, player };
+
+    configured.velocityModifier = "alt";
+    player.apply_velocity_modifier();
+    Require(player.velocity_modifier_conflicts().empty(),
+            "alt collides with nothing, which is why it is the default");
+
+    configured.velocityModifier = "ctrl";
+    player.apply_velocity_modifier();
+    const auto conflicts = player.velocity_modifier_conflicts();
+    Require(!conflicts.empty(), "ctrl collides with the 88-key layout and was reported clean");
+    Require(std::find(conflicts.begin(), conflicts.end(), "ctrl+w") != conflicts.end(),
+            "ctrl+w is a mapped note as well as a velocity tap and must be named");
+    // The limited layout has no ctrl+ mappings, so the same choice is clean
+    // there. The report has to describe the layout in use, not the app.
+    player.eightyEightKeyModeActive = false;
+    Require(player.velocity_modifier_conflicts().empty(),
+            "the conflict report must follow the selected layout");
+    player.eightyEightKeyModeActive = true;
+
+    // And the tap actually sends it. Both paths read the same field, which is
+    // what keeps autoplay and live input sending the identical four events.
+    TakeCaptured();
+    player.note_events = {
+        {0ns, "C4", EventType::Press, 20, 0},
+        {80ms, "C4", EventType::Release, 0, 0},
+        {160ms, "E4", EventType::Press, 120, 0},
+        {240ms, "E4", EventType::Release, 0, 0},
+    };
+    player.restart_song();
+    std::vector<Captured> all;
+    Await([&] {
+        for (auto& event : TakeCaptured()) all.push_back(event);
+        return std::count_if(all.begin(), all.end(), [](const Captured& event) {
+            return event.input.ki.wScan == 0x1D && !(event.input.ki.dwFlags & KEYEVENTF_KEYUP);
+        }) >= 1;
+    }, "no tap opened with the configured ctrl modifier");
+    // Key-downs only. release_keys lifts Alt and Ctrl unconditionally on every
+    // transport action, on purpose, because a modifier left down in a game
+    // changes what every later keystroke means. So a stray ALT key-up is that
+    // safety net and not a tap; a stray ALT key-down would be the tap.
+    for (const auto& event : all)
+        Require(!(event.input.ki.wScan == 0x38 && !(event.input.ki.dwFlags & KEYEVENTF_KEYUP)),
+                "ALT was still held down after the modifier was changed");
+
+    // That safety net was a list of two hardcoded modifiers, which was right
+    // while the tap always held ALT and is a hole the size of the third option
+    // now that it does not. Shift has to be lifted when it is the modifier.
+    // Released once first, so nothing is held. An uppercase mapping releases
+    // shift as part of its own sequence, and with a note still down that would
+    // answer this question for the wrong reason.
+    configured.velocityModifier = "alt";
+    player.apply_velocity_modifier();
+    player.release_all_keys();
+    TakeCaptured();
+    player.release_all_keys();
+    const auto withAlt = TakeCaptured();
+    const auto shiftLifted = [](const std::vector<Captured>& events) {
+        return std::any_of(events.begin(), events.end(), [](const Captured& event) {
+            return event.input.ki.wScan == 0x2A && (event.input.ki.dwFlags & KEYEVENTF_KEYUP);
+        });
+    };
+    Require(!shiftLifted(withAlt),
+            "shift is lifted when it is not the modifier, so this test proves nothing");
+
+    configured.velocityModifier = "shift";
+    player.apply_velocity_modifier();
+    TakeCaptured();
+    player.release_all_keys();
+    Require(shiftLifted(TakeCaptured()),
+            "shift was left down when it was the velocity modifier");
+
+    std::cout << "PASS velocity modifier: settable, validated, conflicts named per layout, both paths agree\n";
+}
+
 // A note whose velocity bucket changed used to be two injection calls: the
 // four-event ALT tap, then the note. SendInput puts nothing between the events
 // of one call and makes no promise at all between two, so anything landing in
@@ -2190,6 +2308,7 @@ int wmain(int argc, wchar_t** argv) {
             else if (group == L"connect") ConnectAndWarningTests(directory);
             else if (group == L"curve") { VelocityCurveDrawingTests(directory / L"config.json"); VelocityCurveEditorModelTests(); }
             else if (group == L"midi-out") MidiOutputTests(directory / L"config.json");
+            else if (group == L"vel-mod") VelocityModifierTests(directory / L"config.json");
             else throw std::runtime_error("Unknown shell test group");
             return 0;
         }
@@ -2208,6 +2327,7 @@ int wmain(int argc, wchar_t** argv) {
         VelocityCurveDrawingTests(directory / L"config.json");
         VelocityCurveEditorModelTests();
         MidiOutputTests(directory / L"config.json");
+        VelocityModifierTests(directory / L"config.json");
         VelocityBatchTests(directory / L"config.json");
         ReleaseAllKeysTests(directory / L"config.json");
         ReleaseTests(directory / L"config.json");
