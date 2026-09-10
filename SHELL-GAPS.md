@@ -310,8 +310,14 @@ for the owner rather than a task. What is left, reordered 2026-09-09:
    draw, one shared representation, ghost bars, histogram snapping, and undo
    and redo as the primary control. All seven items, with a render scenario at
    every skin and DPI.
-2. The engine-side curve tuning, which is a decision before it is work. Still
-   the owner's, still unanswered, and it is now the oldest thing on this page.
+2. The engine-side curve tuning, which is a decision before it is work. Three
+   options are written up with measured numbers in `VELOCITY-CURVES.md`, and
+   the decision is the owner's. The write-up found something bigger than the
+   endpoint irregularity that prompted it: Logarithmic, Exponential and
+   Improved Low Volume can only reach 55%, 68% and 74% of the velocity range,
+   so on those three presets no player can ever play loud. That is unreachable
+   capability, the same defect class as the rest of this page, rather than the
+   cosmetic problem it was first filed as.
 3. Pro, which needs 32 real values from somebody's config.
 4. MIDI output, `MIDI-OUTPUT.md`. The engine half is built as of 2026-09-09;
    what is left is the panel half, which is a picker and a two-way switch and
