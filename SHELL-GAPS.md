@@ -294,6 +294,32 @@ read before a line of it is copied, and attribution under `HANDOFF.md` section
 13, which is not optional. Neither is a panel task: the panel owes the menu
 that `Copy as sheet` becomes, and the engine owes what the menu entries do.
 
+### Licences, read 2026-09-11
+
+- **The coloured sheets are ArijanJ's `midi-converter`**,
+  github.com/ArijanJ/midi-converter, MIT, "Copyright (c) 2024 ArijanJ". MIT
+  code can be carried into a GPLv3 project as long as that notice goes with
+  it. It is a Svelte web app; the sheet logic is in `src/utils`, mainly
+  `VP.js`, `MIDI.js`, `SheetCombine.js`, `Rendering.js` and `Settings.js`.
+  Porting it means translating JavaScript into C++, not linking it.
+- **What it has that `SheetExport.hpp` does not**, from `Settings.js` and
+  `Rendering.js`:
+  - Colour by rhythm: each chord is coloured by the time to the next one, green
+    for long notes through red for short ones.
+  - Quantize window, default 35, where ours is a fixed 45 ms. Curly braces mark
+    a chord that was quantized rather than struck together.
+  - Out-of-range notes: shown, underlined and bold, optionally marked with a
+    separator. Ours drops them and counts them.
+  - Tempo and BPM-change marks, beats per bar, a missing-tempo fallback BPM,
+    and a line-break style.
+  - Classic chord order, sticky auto-transposition, per-track selection, and
+    image export with font and line height.
+- **The miditoqwerty projects are not the sheet tool.** ArijanJ/miditoqwerty is
+  MIT and shizuhaki/miditoqwerty has no licence file, which means all rights
+  reserved: nothing from the second may be copied. Neither makes sheets.
+- **MP3 to MIDI is still unread.** It is not named anywhere in the project, so
+  the owner has to say which converter it is before its licence can be read.
+
 ## Also owed, from elsewhere
 
 Listed here so one page holds the whole obligation.
