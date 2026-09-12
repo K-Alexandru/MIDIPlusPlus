@@ -11,7 +11,8 @@ sounds like, so it is the owner's call.
 be fixed. The R5 release's own executable was checked on 2026-09-11: its
 built-in tables are byte-identical to these, so the original shipped the same
 two curves offset by 2. Following the original therefore does not fix the
-names, and what "fixed" should mean is a question back to the owner.
+names. **Closed 2026-09-11:** the owner reports both work well enough in game,
+so they stay as the R5 shipped them.
 
 Everything below is measured off the real tables in
 `PlaybackCore.cpp:getVelocityKey`, using the engine's own lookup rule: `idx`
