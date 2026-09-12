@@ -1196,29 +1196,40 @@ std::string VirtualPianoPlayer::getVelocityCurveName(midi::VelocityCurveType cur
     case VT::ImprovedLowVolume:  return "Improved Low Volume";
     case VT::Logarithmic:        return "Logarithmic";
     case VT::Exponential:        return "Exponential";
+    case VT::Pro:                return "Pro";
     default:                     return "Unknown";
     }
 }
 
 void VirtualPianoPlayer::setVelocityCurveIndex(size_t index) {
     auto& cfg = midi::Config::getInstance();
-    size_t mx = 5 + cfg.playback.customVelocityCurves.size();
+    size_t mx = midi::kBuiltinVelocityCurves + cfg.playback.customVelocityCurves.size();
     currentVelocityCurveIndex = std::min(index, mx);
 }
 
 std::string VirtualPianoPlayer::getVelocityKey(int targetVelocity) {
-    static constexpr std::array<int, 32> builtinCurves[5] = {
+    // Improved Low Volume, Logarithmic and Exponential are the original R5
+    // shapes stretched across all 32 steps. As shipped they repeated 127 and
+    // stopped at steps 23, 17 and 21, so no input could ever play loud on
+    // them. VELOCITY-CURVES.md, option 2. The two linear tables are the R5
+    // tables unchanged.
+    //
+    // Pro is the owner's own tuning, copied from the R5 config where it was
+    // the custom curve "radiant grand". It is deliberately not stretched: its
+    // top three entries are 127 as tuned, so it tops out at step 29.
+    static constexpr std::array<int, 32> builtinCurves[midi::kBuiltinVelocityCurves] = {
         {4,8,12,16,20,24,28,32,36,40,44,48,52,56,60,64,68,72,76,80,84,88,92,96,100,104,108,112,116,120,124,127},
         {2,6,10,14,18,22,26,30,34,38,42,46,50,54,58,62,66,70,74,78,82,86,90,94,98,102,106,110,114,118,122,127},
-        {1,3,5,7,10,13,16,20,24,29,34,40,46,53,60,68,76,85,94,104,114,120,123,127,127,127,127,127,127,127,127,127},
-        {1,2,3,5,7,10,14,19,25,32,40,49,60,72,85,99,115,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127},
-        {1,2,4,8,16,24,32,40,48,56,64,72,80,88,96,104,110,115,120,124,126,127,127,127,127,127,127,127,127,127,127,127}
+        {1,2,4,5,7,9,11,14,16,19,22,25,29,32,36,41,45,50,55,61,67,73,79,86,92,99,107,114,119,122,124,127},
+        {1,2,3,4,5,6,7,8,9,10,12,14,17,20,23,27,30,35,39,44,49,55,61,67,74,81,89,96,105,113,120,127},
+        {1,2,3,4,7,11,17,22,27,33,38,44,49,54,60,65,71,76,82,87,92,98,103,107,111,115,118,121,124,125,126,127},
+        {25,26,27,28,30,32,35,39,43,48,53,58,63,68,73,78,83,88,92,96,100,104,108,112,116,119,122,124,126,127,127,127}
     };
     static constexpr char velocityKeys[] = "1234567890qwertyuiopasdfghjklzxc";
     const auto& config = midi::Config::getInstance();
-    const auto& velocityTable = (currentVelocityCurveIndex < 5)
+    const auto& velocityTable = (currentVelocityCurveIndex < midi::kBuiltinVelocityCurves)
         ? builtinCurves[currentVelocityCurveIndex]
-        : config.playback.customVelocityCurves[currentVelocityCurveIndex - 5].velocityValues;
+        : config.playback.customVelocityCurves[currentVelocityCurveIndex - midi::kBuiltinVelocityCurves].velocityValues;
 
     int idx = 0;
     while (idx < 32 && velocityTable[idx] < targetVelocity) {

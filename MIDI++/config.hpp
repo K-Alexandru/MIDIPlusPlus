@@ -21,8 +21,13 @@ namespace midi {
         ImprovedLowVolume = 2,
         Logarithmic = 3,
         Exponential = 4,
-        Custom = 5
+        Pro = 5,
+        Custom = 6
     };
+
+    // Custom curves are numbered after the built-ins everywhere a curve index
+    // is used: the player, the shell's preset list and SHELL_VELOCITY.
+    inline constexpr size_t kBuiltinVelocityCurves = 6;
 
     enum class NoteHandlingMode {
         FIFO,

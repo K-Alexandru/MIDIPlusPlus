@@ -2,7 +2,16 @@
 
 Written 2026-09-09 because this is the oldest open item on `SHELL-GAPS.md` and
 it is a decision before it is work. Changing any of it changes what the app
-sounds like, so it is the owner's call. Nothing here is implemented.
+sounds like, so it is the owner's call.
+
+**Decided 2026-09-11: option 2, implemented** with the tables below, and held by
+`BuiltinCurveTests` and the `logarithmic-capped-again` mutation.
+
+**Linear Coarse and Linear Fine are still open.** The owner asked for them to
+be fixed. The R5 release's own executable was checked on 2026-09-11: its
+built-in tables are byte-identical to these, so the original shipped the same
+two curves offset by 2. Following the original therefore does not fix the
+names, and what "fixed" should mean is a question back to the owner.
 
 Everything below is measured off the real tables in
 `PlaybackCore.cpp:getVelocityKey`, using the engine's own lookup rule: `idx`

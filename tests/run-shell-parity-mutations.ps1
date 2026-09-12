@@ -26,6 +26,15 @@ $cases = @(
     # Snaps the input back onto the 32-point uniform grid, which is the drift
     # the resampling had: a grid stepping by 4.097 across a table stepping by 4.
     @{Name='curve-resampled-on-uniform-grid'; File='ui\VelocityModel.hpp'; Group='curve'; Find='const float input = std::clamp(x, 0.f, 1.f) * 127;'; Replace='const float input = std::round(std::round(std::clamp(x, 0.f, 1.f) * 31) * 127.f / 31);'; Failure='the drawn curve misses a point the threshold table names'},
+    # Puts back the R5 Logarithmic table, which repeats 127 from step 17 and so
+    # can never send the top fourteen velocity keys.
+    @{Name='logarithmic-capped-again'; File='MIDI++\PlaybackCore.cpp'; Group='curve'; Find='{1,2,3,4,5,6,7,8,9,10,12,14,17,20,23,27,30,35,39,44,49,55,61,67,74,81,89,96,105,113,120,127},'; Replace='{1,2,3,5,7,10,14,19,25,32,40,49,60,72,85,99,115,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127},'; Failure='a built-in curve cannot reach the loudest step'},
+    # A file saved before Pro existed names its first custom curve 5, which is
+    # now Pro. Without the shift the user's own curve is silently swapped out.
+    @{Name='saved-custom-lands-on-pro'; File='ui\ShellEngine.cpp'; Group='curve'; Find='if (preset >= builtins) preset = preset - builtins + midi::kBuiltinVelocityCurves;'; Replace='/* index taken as saved */'; Failure='a custom curve saved before Pro existed reopened as a different curve'},
+    # Detection only ever labelled tracks. Dropping the label leaves a drum
+    # part that is not on channel 10 looking like piano to Solo Piano.
+    @{Name='drum-flags-ignored'; File='ui\ShellEngine.cpp'; Group='drums'; Find='row.drums = true; row.piano = false;'; Replace='/* heuristic ignored */'; Failure='the heuristic''s drum track is not shown as drums'},
     # The ordering MIDI-OUTPUT.md says will be got wrong if it is not written
     # down: a switch that stores the new target without stopping the old one
     # leaves a note sounding on the synth with nothing left to address it.

@@ -526,6 +526,7 @@ static void RefreshVelocityCurveCombo(HWND hWnd) {
     SendMessageW(cbVelocity, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Improved Low Volume"));
     SendMessageW(cbVelocity, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Logarithmic"));
     SendMessageW(cbVelocity, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Exponential"));
+    SendMessageW(cbVelocity, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Pro"));
 
     const auto& customCurves = midi::Config::getInstance().playback.customVelocityCurves;
     for (const auto& curve : customCurves) {
@@ -1938,13 +1939,14 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                 int sel = static_cast<int>(SendMessage(cb, CB_GETCURSEL, 0, 0));
                 g_player->setVelocityCurveIndex(sel);
                 auto& config = midi::Config::getInstance();
-                if (sel < 5)
+                const size_t builtins = midi::kBuiltinVelocityCurves;
+                if (static_cast<size_t>(sel) < builtins)
                     config.playback.velocityCurve = static_cast<midi::VelocityCurveType>(sel);
                 else
                     config.playback.velocityCurve = midi::VelocityCurveType::Custom;
                 std::cout << "[VELOCITY] Changed curve to: "
-                    << (sel < 5 ? g_player->getVelocityCurveName(config.playback.velocityCurve)
-                        : config.playback.customVelocityCurves[sel - 5].name) << "\n";
+                    << (static_cast<size_t>(sel) < builtins ? g_player->getVelocityCurveName(config.playback.velocityCurve)
+                        : config.playback.customVelocityCurves[sel - builtins].name) << "\n";
 
                 if (g_midiConnect && g_midiConnect->IsActive()) {
                     g_midiConnect->CloseDevice();

@@ -287,7 +287,7 @@ void ShellEngine::Run(std::stop_token stop) {
         if (VelocityEdited(edit) || state.comparingCurve) {
             const auto& preset = state.comparingCurve ? state.previousPreset : state.curves[edit.preset];
             custom.push_back({"Shell preview", VelocityThresholds(preset, edit)});
-            player->setVelocityCurveIndex(5 + custom.size() - 1);
+            player->setVelocityCurveIndex(midi::kBuiltinVelocityCurves + custom.size() - 1);
         } else player->setVelocityCurveIndex(edit.preset);
         g_sustainCutoff = state.sustainCutoff;
     };
@@ -300,7 +300,7 @@ void ShellEngine::Run(std::stop_token stop) {
         state.volumeUpKey = midi::Config::getInstance().hotkeys.VOLUME_UP_KEY;
         state.volumeInitial = midi::Config::getInstance().volume.INITIAL_VOLUME;
         const std::string keys = "1234567890qwertyuiopasdfghjklzxc";
-        for (size_t i = 0; i < 5; ++i) {
+        for (size_t i = 0; i < midi::kBuiltinVelocityCurves; ++i) {
             VelocityPreset preset{player->getVelocityCurveName(static_cast<midi::VelocityCurveType>(i))};
             player->setVelocityCurveIndex(i);
             for (int input = 1; input <= 127; ++input) {
@@ -313,7 +313,13 @@ void ShellEngine::Run(std::stop_token stop) {
             state.curves.push_back({custom.name, custom.velocityValues});
         if (configJson.contains("SHELL_VELOCITY")) {
             const auto& saved = configJson.at("SHELL_VELOCITY");
-            state.curve.preset = std::min(saved.value("preset", size_t{1}), state.curves.size() - 1);
+            // Presets are saved by index and custom curves are numbered after
+            // the built-ins, so a file saved before Pro existed has every
+            // custom one lower. "builtins" is absent from those files.
+            size_t preset = saved.value("preset", size_t{1});
+            const size_t builtins = saved.value("builtins", size_t{5});
+            if (preset >= builtins) preset = preset - builtins + midi::kBuiltinVelocityCurves;
+            state.curve.preset = std::min(preset, state.curves.size() - 1);
             state.curve.sensitivity = std::clamp(saved.value("sensitivity", 0.f), -50.f, 50.f);
             state.curve.contrast = std::clamp(saved.value("contrast", 0.f), 0.f, 100.f);
             if (saved.contains("anchors")) {
@@ -337,7 +343,7 @@ void ShellEngine::Run(std::stop_token stop) {
         applyCurve();
     } catch (const std::exception& error) {
         state.curve = {};
-        if (state.curves.size() >= 5) applyCurve();
+        if (state.curves.size() >= midi::kBuiltinVelocityCurves) applyCurve();
         state.error = error.what();
     }
     VelocityHistory curveHistory;
@@ -349,10 +355,10 @@ void ShellEngine::Run(std::stop_token stop) {
     // the wait on the physical disk.
     const auto saveCurves = [&](const EngineSnapshot& next) {
         configJson["CUSTOM_VELOCITY_CURVES"] = nlohmann::json::array();
-        for (size_t i = 5; i < next.curves.size(); ++i)
+        for (size_t i = midi::kBuiltinVelocityCurves; i < next.curves.size(); ++i)
             configJson["CUSTOM_VELOCITY_CURVES"].push_back({{"name", next.curves[i].name}, {"values", next.curves[i].thresholds}});
         auto& saved = configJson["SHELL_VELOCITY"];
-        saved = {{"preset", next.curve.preset}, {"sensitivity", next.curve.sensitivity},
+        saved = {{"preset", next.curve.preset}, {"builtins", midi::kBuiltinVelocityCurves}, {"sensitivity", next.curve.sensitivity},
                  {"contrast", next.curve.contrast}, {"sustainCutoff", next.sustainCutoff}};
         if (!next.curve.anchors.empty()) {
             saved["anchors"] = nlohmann::json::array();
@@ -612,10 +618,18 @@ void ShellEngine::Run(std::stop_token stop) {
                     state.duration = state.position = 0;
                     invalidateSheet();
                     ++state.generation;
-                    // Let the visible track controls own drum selection. The old
-                    // parser's heuristic otherwise silently removes notes first.
+                    // Drum detection only labels tracks, as it does in the
+                    // original window: drum_flags never removed a note. A
+                    // detected track is shown as drums and left out of Solo
+                    // Piano below.
+                    //
+                    // Auto-transpose goes through the shell's own Transpose
+                    // below, so play_notes must not also type the game's arrow
+                    // keys into whatever has focus. The setting is read from
+                    // the file because the flag is cleared here.
                     auto& config = midi::Config::getInstance();
-                    config.midi.DETECT_DRUMS = false;
+                    const bool autoTranspose = configJson.is_object() && configJson.contains("AUTO_TRANSPOSE")
+                        && configJson.at("AUTO_TRANSPOSE").value("ENABLED", false);
                     config.auto_transpose.ENABLED = false;
                     player->legit_mode_active = state.legitMode;
                     player->enable_velocity_keypress = state.velocity;
@@ -625,6 +639,19 @@ void ShellEngine::Run(std::stop_token stop) {
                     scoreTimes.clear();
                     for (const auto& event : player->note_events) scoreTimes.push_back(event.time);
                     player->midi_file = std::move(file);
+                    // drum_flags is only rewritten while detection is on, so
+                    // with it off the flags belong to an earlier file.
+                    if (config.midi.DETECT_DRUMS) {
+                        for (auto& row : rows) {
+                            if (row.drums || row.index >= player->drum_flags.size() || !player->drum_flags[row.index]) continue;
+                            row.drums = true; row.piano = false;
+                            row.instrument += " (Drums)";
+                        }
+                    }
+                    if (autoTranspose) {
+                        state.transpose = std::clamp(player->toggle_transpose_adjustment(), -12, 12);
+                        applyMappings();
+                    }
                     player->trackMuted.clear();
                     player->trackSoloed.clear();
                     for (size_t i = 0; i < player->midi_file.tracks.size(); ++i) {
@@ -898,7 +925,7 @@ void ShellEngine::Run(std::stop_token stop) {
                 case Action::CurveDuplicate:
                 case Action::CurveRename:
                 case Action::SustainCutoff: {
-                    if (state.curves.size() < 5 || !std::isfinite(command.amount)) break;
+                    if (state.curves.size() < midi::kBuiltinVelocityCurves || !std::isfinite(command.amount)) break;
                     auto next = state;
                     auto nextHistory = curveHistory;
                     bool changedCurve = false;
@@ -940,7 +967,7 @@ void ShellEngine::Run(std::stop_token stop) {
                         name = name.substr(first, last - first + 1);
                         if (name.size() > 120 || name.find_first_of("\r\n\t") != std::string::npos)
                             throw std::runtime_error("Use a curve name of at most 120 bytes on one line.");
-                        const bool rename = command.action == Action::CurveRename && next.curve.preset >= 5;
+                        const bool rename = command.action == Action::CurveRename && next.curve.preset >= midi::kBuiltinVelocityCurves;
                         for (size_t i = 0; i < next.curves.size(); ++i)
                             if ((!rename || i != next.curve.preset) && next.curves[i].name == name)
                                 throw std::runtime_error("A curve already has that name.");

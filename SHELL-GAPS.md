@@ -42,11 +42,21 @@ constraint under it.
 
 ### Drum detection and auto-transpose
 
-`ShellEngine.cpp:447` forces `DETECT_DRUMS` and `auto_transpose.ENABLED` off at
-load, because the parser's heuristic removes notes before the track list is
-built. That is a real constraint and it is also a bug to fix, not a permanent
-override. Until it is fixed the shell has to show these as unavailable and say
-why; after it is fixed they are ordinary settings again.
+**Done 2026-09-11, and the premise here was wrong.** The heuristic never
+removed a note, in this fork or upstream: `process_tracks` fills `drum_flags`
+and nothing reads it but the original window's track list, which appends
+"(Drums)". The shell now honours `DETECT_DRUMS` the same way. A detected track
+is labelled "(Drums)", stops counting as piano, and Solo Piano mutes it. That
+matters for a kit that is not on channel 10, which `DescribeTracks` alone reads
+as piano.
+
+Auto-transpose honours `AUTO_TRANSPOSE.ENABLED` too, with one deliberate
+difference. The original types the game's arrow keys at play start into
+whatever has focus; the shell applies the suggestion through its own Transpose
+at load, where the user can see and change it, and never sends an arrow.
+
+Both are config-only. Settings switches for them are an `EngineSnapshot` field
+and an `Action` each, which belong to the panel seat.
 
 ## Absent outright
 
@@ -241,7 +251,17 @@ its last interval is 5 where every other is 4, and Linear Coarse ends 124 then
 Logarithmic, which is the flat right-hand third of the graph. Whether to
 change those is the owner's call, because it changes what the app sounds like.
 
-## Pro is missing because nobody has its numbers
+## Pro: done 2026-09-11
+
+The numbers were on this machine all along, in `D:\MIDI++ 1.0.4.R5 Release\config.json`
+as the custom curve "radiant grand". Pro is now the sixth built-in in
+`PlaybackCore.cpp` with exactly those 32 values, so it cannot be deleted.
+Custom curves are numbered after it, and `SHELL_VELOCITY` records a
+`builtins` count so a file saved with five built-ins reopens on the same
+custom curve rather than on Pro. Pro tops out at step 29 of 31 because its
+last three values are 127 as tuned; it was not stretched.
+
+The rest of this section is the report as filed.
 
 Not a bug. `CONTINUE-HERE.md:310` records the decision: only configured custom
 presets are shown and no Pro values were invented for configs that do not have
@@ -310,15 +330,11 @@ for the owner rather than a task. What is left, reordered 2026-09-09:
    draw, one shared representation, ghost bars, histogram snapping, and undo
    and redo as the primary control. All seven items, with a render scenario at
    every skin and DPI.
-2. The engine-side curve tuning, which is a decision before it is work. Three
-   options are written up with measured numbers in `VELOCITY-CURVES.md`, and
-   the decision is the owner's. The write-up found something bigger than the
-   endpoint irregularity that prompted it: Logarithmic, Exponential and
-   Improved Low Volume can only reach 55%, 68% and 74% of the velocity range,
-   so on those three presets no player can ever play loud. That is unreachable
-   capability, the same defect class as the rest of this page, rather than the
-   cosmetic problem it was first filed as.
-3. Pro, which needs 32 real values from somebody's config.
+2. **Done 2026-09-11, option 2.** Improved Low Volume, Logarithmic and
+   Exponential keep their R5 shapes stretched across all 32 steps, so every
+   built-in but Pro can play loud. The Linear Coarse and Linear Fine naming is
+   still open, see `VELOCITY-CURVES.md`.
+3. **Done 2026-09-11.** Pro, from the R5 config. See the Pro section above.
 4. MIDI output, `MIDI-OUTPUT.md`. The engine half is built as of 2026-09-09;
    what is left is the panel half, which is a picker and a two-way switch and
    is listed in that file ready to be written. Until it exists no user can
@@ -333,7 +349,8 @@ for the owner rather than a task. What is left, reordered 2026-09-09:
    88-key layout and the app is the only thing that can work that out. **The
    panel still owes the control and the conflict warning**; the engine will not
    surface either on its own.
-6. Drum detection and auto-transpose, once the parser heuristic is fixed.
+6. **Done 2026-09-11, engine side.** Drum detection and auto-transpose; the
+   panel still owes their two Settings switches.
 7. The conversion pipeline, which starts with reading two licences.
 
 Not on this list because they are not shell work: the Wooting and two-device

@@ -8,7 +8,10 @@
 // Original synthetic score: conductor, two piano parts, flute, strings, drums.
 // Deliberately includes a program change in the conductor track and velocity-0
 // note-offs. No downloaded music is needed by these tests.
-inline void WriteTrackFixture(const std::filesystem::path& path) {
+//
+// drumChannel moves the "Drums" part off channel 10, so only the drum
+// detection heuristic, which reads its name, can tell it is percussion.
+inline void WriteTrackFixture(const std::filesystem::path& path, uint8_t drumChannel = 9) {
     using Bytes = std::vector<uint8_t>;
     Bytes file{'M','T','h','d',0,0,0,6,0,1,0,6,1,0xE0};
     const auto track = [&](Bytes data) {
@@ -20,7 +23,7 @@ inline void WriteTrackFixture(const std::filesystem::path& path) {
     };
     track({0,0xC2,73, 0,0xFF,0x51,3,7,0xA1,0x20});
     const char* names[] = {"Piano R.H.","Piano L.H.","Flute","Strings","Drums"};
-    const uint8_t channels[] = {0,1,2,3,9};
+    const uint8_t channels[] = {0,1,2,3,drumChannel};
     const uint8_t programs[] = {0,0,73,48,0};
     for (int i = 0; i < 5; ++i) {
         const std::string name(names[i]);

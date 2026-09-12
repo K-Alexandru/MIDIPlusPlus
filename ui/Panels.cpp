@@ -8,6 +8,7 @@
 #include <cmath>
 #include "MidiInput.hpp"
 #include "MidiOutput.hpp"
+#include "config.hpp"
 
 namespace shell {
 namespace {
@@ -766,7 +767,7 @@ void Panels::DrawVelocity(const Fonts& fonts, const skin::Skin& design, float dp
     const auto openName = [&](int operation) {
         nameOperation_ = operation; focusCurveName_ = true; nameRevision_ = state->curveRevision;
         auto name = operation == 1 ? "New Curve" : state->curves[state->curve.preset].name;
-        if (operation == 2 || (operation == 3 && state->curve.preset < 5)) name += " Copy";
+        if (operation == 2 || (operation == 3 && state->curve.preset < midi::kBuiltinVelocityCurves)) name += " Copy";
         snprintf(curveName_, sizeof(curveName_), "%s", name.c_str());
     };
     ImGui::SetCursorScreenPos(ImVec2(start.x, start.y + control + 12 * dpi));
@@ -1036,7 +1037,7 @@ void Panels::DrawVelocity(const Fonts& fonts, const skin::Skin& design, float dp
             ImVec2(row.x + 40 * dpi, row.y + 32 * dpi), Colour(selected ? s.accent.accent : s.ink.tertiary), 1.5f * dpi);
         DrawEllipsis(state->curves[i].name, rowWidth - 64 * dpi, ImVec2(row.x + 48 * dpi, row.y + (rowHeight - ImGui::GetTextLineHeight()) / 2));
         if (selected) DrawIcon(listDraw, Icon::Check, ImVec2(row.x + rowWidth - 16 * dpi, row.y + 12 * dpi), 14 * dpi, Colour(s.ink.primary), dpi);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s%s", state->curves[i].name.c_str(), i >= 5 ? " (custom)" : "");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s%s", state->curves[i].name.c_str(), i >= midi::kBuiltinVelocityCurves ? " (custom)" : "");
         if (selected && listRevision_ != state->curveRevision) ImGui::SetScrollHereY(.5f);
         ImGui::PopID();
     }

@@ -422,7 +422,7 @@ void MidiOutputTests(const std::filesystem::path& config) {
 void VelocityCurveDrawingTests(const std::filesystem::path& config) {
     VirtualPianoPlayer player(false, config);
     const std::string keys = "1234567890qwertyuiopasdfghjklzxc";
-    for (size_t curve = 0; curve < 5; ++curve) {
+    for (size_t curve = 0; curve < midi::kBuiltinVelocityCurves; ++curve) {
         shell::VelocityPreset preset{player.getVelocityCurveName(static_cast<midi::VelocityCurveType>(curve))};
         player.setVelocityCurveIndex(curve);
         for (int input = 1; input <= 127; ++input) {
@@ -469,6 +469,95 @@ void VelocityCurveDrawingTests(const std::filesystem::path& config) {
     Require(shell::VelocityCurveAt(fine, 30 / 31.f) < shell::VelocityCurveAt(fine, 31 / 31.f) - 1e-3f,
             "the top of Linear Fine is flat again");
     std::cout << "PASS velocity curve drawing: every table point hit, saturation, monotonic, Linear Fine tail\n";
+}
+
+// Every built-in but Pro reaches the loudest step. Three of them could not
+// before: the R5 tables repeat 127 and stop at steps 23, 17 and 21. Pro is the
+// owner's R5 tuning copied as it was, so it is checked against that instead.
+void BuiltinCurveTests(const std::filesystem::path& directory) {
+    const std::string keys = "1234567890qwertyuiopasdfghjklzxc";
+    {
+        VirtualPianoPlayer player(false, directory / L"config.json");
+        for (size_t curve = 0; curve < midi::kBuiltinVelocityCurves; ++curve) {
+            if (static_cast<midi::VelocityCurveType>(curve) == midi::VelocityCurveType::Pro) continue;
+            player.setVelocityCurveIndex(curve);
+            Require(player.getVelocityKey(127) == "c", "a built-in curve cannot reach the loudest step");
+        }
+        // The custom curve "radiant grand" in the R5 release's config.json.
+        const std::array<int, 32> radiantGrand{25,26,27,28,30,32,35,39,43,48,53,58,63,68,73,78,83,88,92,96,100,104,108,112,116,119,122,124,126,127,127,127};
+        Require(player.getVelocityCurveName(midi::VelocityCurveType::Pro) == "Pro", "Pro is not named Pro");
+        player.setVelocityCurveIndex(static_cast<size_t>(midi::VelocityCurveType::Pro));
+        for (int input = 1; input <= 127; ++input) {
+            size_t step = 0;
+            while (step < 32 && radiantGrand[step] < input) ++step;
+            Require(player.getVelocityKey(input) == std::string(1, keys[std::min<size_t>(step, 31)]),
+                    "Pro is not the R5 radiant grand tuning");
+        }
+    }
+    // A config saved before Pro existed stores its first custom curve as
+    // preset 5, which is Pro's index now.
+    const auto config = directory / L"pre-pro-curves.json";
+    nlohmann::json settings;
+    { std::ifstream file(directory / L"config.json"); file >> settings; }
+    std::vector<int> mine(32);
+    for (int i = 0; i < 32; ++i) mine[i] = 4 * (i + 1) - 1;
+    settings["CUSTOM_VELOCITY_CURVES"] = nlohmann::json::array({{{"name", "Mine"}, {"values", mine}}});
+    settings["SHELL_VELOCITY"] = {{"preset", 5}, {"sensitivity", 0}, {"contrast", 0}, {"sustainCutoff", 64}};
+    { std::ofstream file(config); file << settings; }
+    {
+        shell::ShellEngine engine(config);
+        Await([&] { return engine.Snapshot()->curves.size() > midi::kBuiltinVelocityCurves; }, "curves did not load");
+        const auto state = engine.Snapshot();
+        Require(state->curves[state->curve.preset].name == "Mine",
+                "a custom curve saved before Pro existed reopened as a different curve");
+    }
+    std::filesystem::remove(config);
+    std::cout << "PASS built-in curves reach the top step, Pro is the R5 tuning, pre-Pro saves keep their curve\n";
+}
+
+// Drum detection labels tracks, as the original window does. The fixture's
+// "Drums" part is on channel 1 with program 0, which DescribeTracks alone
+// reads as piano; only the heuristic, from the name, knows otherwise.
+void DrumDetectionTests(const std::filesystem::path& directory) {
+    using A = shell::ShellEngine::Action;
+    const auto fixture = directory / L"drums-on-channel-1.mid";
+    WriteTrackFixture(fixture, 0);
+    {
+        shell::ShellEngine engine(directory / L"config.json");
+        engine.Send({A::Load, fixture, 0, 0, true});
+        Await([&] { const auto s = engine.Snapshot(); return !s->busy && (!s->loaded.empty() || !s->error.empty()); }, "drum fixture did not load");
+        const auto state = engine.Snapshot();
+        if (!state->error.empty()) throw std::runtime_error(state->error);
+        const auto& drums = state->rows.back();
+        Require(drums.index == 5 && drums.drums && !drums.piano && drums.instrument.ends_with(" (Drums)"),
+                "the heuristic's drum track is not shown as drums");
+        Require(!state->rows[0].drums && !state->rows[1].drums, "a piano part was flagged as drums");
+        Require(shell::SilentTracks(state->rows) == 3, "a detected drum track survived Solo Piano");
+    }
+    // Auto-transpose goes through the shell's Transpose. The original typed the
+    // game's arrow keys at play start, into whatever had focus.
+    const auto config = directory / L"auto-transpose.json";
+    nlohmann::json settings;
+    { std::ifstream file(directory / L"config.json"); file >> settings; }
+    settings["AUTO_TRANSPOSE"]["ENABLED"] = true;
+    { std::ofstream file(config); file << settings; }
+    {
+        shell::ShellEngine engine(config);
+        engine.Send({A::Load, fixture, 0, 0, false});
+        Await([&] { const auto s = engine.Snapshot(); return !s->busy && (!s->loaded.empty() || !s->error.empty()); }, "auto-transpose fixture did not load");
+        const auto state = engine.Snapshot();
+        if (!state->error.empty()) throw std::runtime_error(state->error);
+        Require(state->transpose >= -12 && state->transpose <= 12, "auto-transpose left the Transpose range");
+        TakeCaptured();
+        engine.Send({A::Play, {}, state->generation});
+        Await([&] { return engine.Snapshot()->playing; }, "auto-transpose play not consumed");
+        Await([&] { return !engine.Snapshot()->playing; }, "auto-transpose playback did not finish");
+        for (const auto& event : TakeCaptured())
+            Require(event.input.ki.wScan != 0x48 && event.input.ki.wScan != 0x50, "auto-transpose typed an arrow key");
+    }
+    std::filesystem::remove(config);
+    std::filesystem::remove(fixture);
+    std::cout << "PASS drum detection labels a non-channel-10 kit and Solo Piano mutes it; auto-transpose types no arrows\n";
 }
 
 void VelocityCurveEditorModelTests() {
@@ -2306,7 +2395,8 @@ int wmain(int argc, wchar_t** argv) {
             else if (group == L"countdown") CountdownTests(directory);
             else if (group == L"library") LibraryParityTests(directory);
             else if (group == L"connect") ConnectAndWarningTests(directory);
-            else if (group == L"curve") { VelocityCurveDrawingTests(directory / L"config.json"); VelocityCurveEditorModelTests(); }
+            else if (group == L"curve") { VelocityCurveDrawingTests(directory / L"config.json"); BuiltinCurveTests(directory); VelocityCurveEditorModelTests(); }
+            else if (group == L"drums") DrumDetectionTests(directory);
             else if (group == L"midi-out") MidiOutputTests(directory / L"config.json");
             else if (group == L"vel-mod") VelocityModifierTests(directory / L"config.json");
             else throw std::runtime_error("Unknown shell test group");
@@ -2325,9 +2415,11 @@ int wmain(int argc, wchar_t** argv) {
         ModelTests(fixture);
         MappingPersistenceTests(directory / L"config.json");
         VelocityCurveDrawingTests(directory / L"config.json");
+        BuiltinCurveTests(directory);
         VelocityCurveEditorModelTests();
         MidiOutputTests(directory / L"config.json");
         VelocityModifierTests(directory / L"config.json");
+        DrumDetectionTests(directory);
         VelocityBatchTests(directory / L"config.json");
         ReleaseAllKeysTests(directory / L"config.json");
         ReleaseTests(directory / L"config.json");
