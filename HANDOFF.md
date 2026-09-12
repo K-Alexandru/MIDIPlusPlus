@@ -292,6 +292,8 @@ Already answered, do **not** re-ask:
   default is **Linear Fine**, because a default should be unbiased rather than
   the best-sounding option; Pro is one click away in the preset list.
   "Radiant Grand" described the soundfont its author used and is retired.
+  **Renamed 2026-09-11 by the owner: the curve is now S-Curve**, because that
+  describes its shape. Mentions of Pro elsewhere in this file mean S-Curve.
 - **Full-window height.** Resolved 2026-09-04: key mapping opens in its own
   window, the velocity editor starts collapsed, Tracks stays permanently
   visible. Rejected alternatives were tabs (biggest saving, but hides Tracks

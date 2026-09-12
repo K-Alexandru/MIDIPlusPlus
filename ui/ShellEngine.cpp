@@ -314,7 +314,7 @@ void ShellEngine::Run(std::stop_token stop) {
         if (configJson.contains("SHELL_VELOCITY")) {
             const auto& saved = configJson.at("SHELL_VELOCITY");
             // Presets are saved by index and custom curves are numbered after
-            // the built-ins, so a file saved before Pro existed has every
+            // the built-ins, so a file saved before S-Curve existed has every
             // custom one lower. "builtins" is absent from those files.
             size_t preset = saved.value("preset", size_t{1});
             const size_t builtins = saved.value("builtins", size_t{5});

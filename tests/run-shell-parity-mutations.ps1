@@ -29,9 +29,9 @@ $cases = @(
     # Puts back the R5 Logarithmic table, which repeats 127 from step 17 and so
     # can never send the top fourteen velocity keys.
     @{Name='logarithmic-capped-again'; File='MIDI++\PlaybackCore.cpp'; Group='curve'; Find='{1,2,3,4,5,6,7,8,9,10,12,14,17,20,23,27,30,35,39,44,49,55,61,67,74,81,89,96,105,113,120,127},'; Replace='{1,2,3,5,7,10,14,19,25,32,40,49,60,72,85,99,115,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127},'; Failure='a built-in curve cannot reach the loudest step'},
-    # A file saved before Pro existed names its first custom curve 5, which is
-    # now Pro. Without the shift the user's own curve is silently swapped out.
-    @{Name='saved-custom-lands-on-pro'; File='ui\ShellEngine.cpp'; Group='curve'; Find='if (preset >= builtins) preset = preset - builtins + midi::kBuiltinVelocityCurves;'; Replace='/* index taken as saved */'; Failure='a custom curve saved before Pro existed reopened as a different curve'},
+    # A file saved before S-Curve existed names its first custom curve 5, which
+    # is now S-Curve. Without the shift the user's own curve is silently swapped.
+    @{Name='saved-custom-lands-on-s-curve'; File='ui\ShellEngine.cpp'; Group='curve'; Find='if (preset >= builtins) preset = preset - builtins + midi::kBuiltinVelocityCurves;'; Replace='/* index taken as saved */'; Failure='a custom curve saved before S-Curve existed reopened as a different curve'},
     # Detection only ever labelled tracks. Dropping the label leaves a drum
     # part that is not on channel 10 looking like piano to Solo Piano.
     @{Name='drum-flags-ignored'; File='ui\ShellEngine.cpp'; Group='drums'; Find='row.drums = true; row.piano = false;'; Replace='/* heuristic ignored */'; Failure='the heuristic''s drum track is not shown as drums'},

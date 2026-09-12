@@ -1196,7 +1196,7 @@ std::string VirtualPianoPlayer::getVelocityCurveName(midi::VelocityCurveType cur
     case VT::ImprovedLowVolume:  return "Improved Low Volume";
     case VT::Logarithmic:        return "Logarithmic";
     case VT::Exponential:        return "Exponential";
-    case VT::Pro:                return "Pro";
+    case VT::SCurve:             return "S-Curve";
     default:                     return "Unknown";
     }
 }
@@ -1214,7 +1214,7 @@ std::string VirtualPianoPlayer::getVelocityKey(int targetVelocity) {
     // them. VELOCITY-CURVES.md, option 2. The two linear tables are the R5
     // tables unchanged.
     //
-    // Pro is the owner's own tuning, copied from the R5 config where it was
+    // S-Curve is the owner's own tuning, copied from the R5 config where it was
     // the custom curve "radiant grand". It is deliberately not stretched: its
     // top three entries are 127 as tuned, so it tops out at step 29.
     static constexpr std::array<int, 32> builtinCurves[midi::kBuiltinVelocityCurves] = {

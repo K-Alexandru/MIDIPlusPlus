@@ -21,7 +21,7 @@ namespace midi {
         ImprovedLowVolume = 2,
         Logarithmic = 3,
         Exponential = 4,
-        Pro = 5,
+        SCurve = 5,
         Custom = 6
     };
 

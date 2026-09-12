@@ -251,14 +251,15 @@ its last interval is 5 where every other is 4, and Linear Coarse ends 124 then
 Logarithmic, which is the flat right-hand third of the graph. Whether to
 change those is the owner's call, because it changes what the app sounds like.
 
-## Pro: done 2026-09-11
+## Pro, now S-Curve: done 2026-09-11
 
 The numbers were on this machine all along, in `D:\MIDI++ 1.0.4.R5 Release\config.json`
-as the custom curve "radiant grand". Pro is now the sixth built-in in
-`PlaybackCore.cpp` with exactly those 32 values, so it cannot be deleted.
-Custom curves are numbered after it, and `SHELL_VELOCITY` records a
+as the custom curve "radiant grand". It is now the sixth built-in in
+`PlaybackCore.cpp` with exactly those 32 values, so it cannot be deleted. The
+owner renamed it from Pro to S-Curve the same day, because that describes its
+shape. Custom curves are numbered after it, and `SHELL_VELOCITY` records a
 `builtins` count so a file saved with five built-ins reopens on the same
-custom curve rather than on Pro. Pro tops out at step 29 of 31 because its
+custom curve rather than on S-Curve. It tops out at step 29 of 31 because its
 last three values are 127 as tuned; it was not stretched.
 
 The rest of this section is the report as filed.

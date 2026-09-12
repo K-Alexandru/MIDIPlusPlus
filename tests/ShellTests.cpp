@@ -471,31 +471,31 @@ void VelocityCurveDrawingTests(const std::filesystem::path& config) {
     std::cout << "PASS velocity curve drawing: every table point hit, saturation, monotonic, Linear Fine tail\n";
 }
 
-// Every built-in but Pro reaches the loudest step. Three of them could not
-// before: the R5 tables repeat 127 and stop at steps 23, 17 and 21. Pro is the
+// Every built-in but S-Curve reaches the loudest step. Three of them could not
+// before: the R5 tables repeat 127 and stop at steps 23, 17 and 21. S-Curve is the
 // owner's R5 tuning copied as it was, so it is checked against that instead.
 void BuiltinCurveTests(const std::filesystem::path& directory) {
     const std::string keys = "1234567890qwertyuiopasdfghjklzxc";
     {
         VirtualPianoPlayer player(false, directory / L"config.json");
         for (size_t curve = 0; curve < midi::kBuiltinVelocityCurves; ++curve) {
-            if (static_cast<midi::VelocityCurveType>(curve) == midi::VelocityCurveType::Pro) continue;
+            if (static_cast<midi::VelocityCurveType>(curve) == midi::VelocityCurveType::SCurve) continue;
             player.setVelocityCurveIndex(curve);
             Require(player.getVelocityKey(127) == "c", "a built-in curve cannot reach the loudest step");
         }
         // The custom curve "radiant grand" in the R5 release's config.json.
         const std::array<int, 32> radiantGrand{25,26,27,28,30,32,35,39,43,48,53,58,63,68,73,78,83,88,92,96,100,104,108,112,116,119,122,124,126,127,127,127};
-        Require(player.getVelocityCurveName(midi::VelocityCurveType::Pro) == "Pro", "Pro is not named Pro");
-        player.setVelocityCurveIndex(static_cast<size_t>(midi::VelocityCurveType::Pro));
+        Require(player.getVelocityCurveName(midi::VelocityCurveType::SCurve) == "S-Curve", "S-Curve is not named S-Curve");
+        player.setVelocityCurveIndex(static_cast<size_t>(midi::VelocityCurveType::SCurve));
         for (int input = 1; input <= 127; ++input) {
             size_t step = 0;
             while (step < 32 && radiantGrand[step] < input) ++step;
             Require(player.getVelocityKey(input) == std::string(1, keys[std::min<size_t>(step, 31)]),
-                    "Pro is not the R5 radiant grand tuning");
+                    "S-Curve is not the R5 radiant grand tuning");
         }
     }
-    // A config saved before Pro existed stores its first custom curve as
-    // preset 5, which is Pro's index now.
+    // A config saved before S-Curve existed stores its first custom curve as
+    // preset 5, which is S-Curve's index now.
     const auto config = directory / L"pre-pro-curves.json";
     nlohmann::json settings;
     { std::ifstream file(directory / L"config.json"); file >> settings; }
@@ -509,10 +509,10 @@ void BuiltinCurveTests(const std::filesystem::path& directory) {
         Await([&] { return engine.Snapshot()->curves.size() > midi::kBuiltinVelocityCurves; }, "curves did not load");
         const auto state = engine.Snapshot();
         Require(state->curves[state->curve.preset].name == "Mine",
-                "a custom curve saved before Pro existed reopened as a different curve");
+                "a custom curve saved before S-Curve existed reopened as a different curve");
     }
     std::filesystem::remove(config);
-    std::cout << "PASS built-in curves reach the top step, Pro is the R5 tuning, pre-Pro saves keep their curve\n";
+    std::cout << "PASS built-in curves reach the top step, S-Curve is the R5 tuning, older saves keep their curve\n";
 }
 
 // Drum detection labels tracks, as the original window does. The fixture's

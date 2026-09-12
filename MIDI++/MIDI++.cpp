@@ -526,7 +526,7 @@ static void RefreshVelocityCurveCombo(HWND hWnd) {
     SendMessageW(cbVelocity, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Improved Low Volume"));
     SendMessageW(cbVelocity, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Logarithmic"));
     SendMessageW(cbVelocity, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Exponential"));
-    SendMessageW(cbVelocity, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Pro"));
+    SendMessageW(cbVelocity, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"S-Curve"));
 
     const auto& customCurves = midi::Config::getInstance().playback.customVelocityCurves;
     for (const auto& curve : customCurves) {
