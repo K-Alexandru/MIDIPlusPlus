@@ -72,3 +72,43 @@ What to add:
 Add a render scenario that shows both switches at every skin and DPI. Add a
 mutation for each handler in `run-shell-parity-mutations.ps1`, following the
 existing `ui\` cases.
+
+## Piece three: the export menu
+
+`Copy as sheet` is the primary button in Playback and should not be. It becomes
+a menu, as `SHELL-GAPS.md` asked in the owner's UI pass. The engine now has the
+formats for its entries, in `MIDI++/SheetExport.hpp`:
+
+- **Copy as sheet.** Unchanged: `sheet::ToVirtualPiano`, as `Action::CopySheet`
+  builds it today.
+- **Copy styled sheet.** `sheet::Style(...).text`. This is midi-converter's
+  notation: braces for spread chords, out-of-range notes kept, tempo comments
+  and a line per bar.
+- **Save coloured sheet.** `sheet::ToHtml(sheet::Style(...))`, written as an
+  `.html` file beside the MIDI file or through a save dialog. Say where it went.
+
+Feed `sheet::Style` like this:
+
+- **Notes:** the same audible note-ons `Action::CopySheet` collects, as
+  `sheet::TimedNote{seconds, midi}`. `MidiNumberForNoteName` in
+  `MidiOutput.hpp` turns the event's name back into a number.
+- **Tempo and meter:** `sheet::TempoMarksFromTicks` and
+  `sheet::MeterMarksFromTicks`, from `midi_file.tempoChanges`, the file's
+  time-signature events and `midi_file.division`.
+
+Every field of `sheet::StyleOptions` is a setting midi-converter exposes, so
+all of them are owed a control. Nothing is optional. Group them under the menu
+or in Settings, whichever reads better; that call is yours.
+
+Two midi-converter features have no engine half, because they are UI:
+
+- **Image export.** It screenshots the rendered sheet. Render the coloured
+  items with ImGui to a PNG, or leave it to the HTML page, which prints and
+  screenshots cleanly. Pick one and say which.
+- **Per-region transposition.** A user selects a run of chords and transposes
+  just those. `sheet::StyledItem` keeps each chord's position, so a selection
+  can be mapped back to notes.
+
+The notation is MIT-licensed from ArijanJ. Credit it in the About box next to
+the other third-party notices. The build already copies its licence beside the
+executable as `midi-converter-LICENSE.txt`.

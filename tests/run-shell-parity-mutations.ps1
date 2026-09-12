@@ -32,6 +32,12 @@ $cases = @(
     # A file saved before S-Curve existed names its first custom curve 5, which
     # is now S-Curve. Without the shift the user's own curve is silently swapped.
     @{Name='saved-custom-lands-on-s-curve'; File='ui\ShellEngine.cpp'; Group='curve'; Find='if (preset >= builtins) preset = preset - builtins + midi::kBuiltinVelocityCurves;'; Replace='/* index taken as saved */'; Failure='a custom curve saved before S-Curve existed reopened as a different curve'},
+    # midi-converter's window is chained. Measuring from the chord's first
+    # note instead splits a roll the original keeps as one braced group.
+    @{Name='quantize-not-chained'; File='MIDI++\SheetExport.hpp'; Group='sheet'; Find='{ current.push_back(placed); last = placed.ms; }'; Replace='{ current.push_back(placed); }'; Failure='a spread chord is one braced group in played order'},
+    # Out-of-range notes are the notation's main difference from ours, which
+    # drops them. Dropping them here too loses the feature silently.
+    @{Name='out-of-range-dropped'; File='MIDI++\SheetExport.hpp'; Group='sheet'; Find='const bool drawOor = n.outOfRange && o.showOutOfRange;'; Replace='const bool drawOor = false;'; Failure='an out-of-range note is kept and marked'},
     # Detection only ever labelled tracks. Dropping the label leaves a drum
     # part that is not on channel 10 looking like piano to Solo Piano.
     @{Name='drum-flags-ignored'; File='ui\ShellEngine.cpp'; Group='drums'; Find='row.drums = true; row.piano = false;'; Replace='/* heuristic ignored */'; Failure='the heuristic''s drum track is not shown as drums'},

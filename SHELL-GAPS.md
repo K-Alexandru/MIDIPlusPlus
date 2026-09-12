@@ -317,8 +317,27 @@ that `Copy as sheet` becomes, and the engine owes what the menu entries do.
 - **The miditoqwerty projects are not the sheet tool.** ArijanJ/miditoqwerty is
   MIT and shizuhaki/miditoqwerty has no licence file, which means all rights
   reserved: nothing from the second may be copied. Neither makes sheets.
-- **MP3 to MIDI is still unread.** It is not named anywhere in the project, so
-  the owner has to say which converter it is before its licence can be read.
+- **MP3 to MIDI is LioK251's `mp3converter`**, github.com/LioK251/mp3converter,
+  MIT, "Copyright (c) 2025-2026 LioK", named by the owner 2026-09-11. It is a
+  Python Flask app around the Transkun transcription model, with PyTorch,
+  yt-dlp and FFmpeg. A neural model cannot be translated into C++ the way the
+  sheet notation was, so using it means running it beside the app as a
+  sidecar, which needs Python and those tools installed. None is on this
+  machine, so it starts with an install decision for the owner.
+
+### The sheet port, engine side: done 2026-09-11
+
+`sheet::Style` in `MIDI++/SheetExport.hpp` is midi-converter's notation,
+translated, with every setting above except the image export and the
+interactive per-region transposition, which are UI. `sheet::ToHtml` writes the
+coloured sheet as one self-contained page. `SheetStyleTests` covers each
+behaviour, and the `quantize-not-chained` and `out-of-range-dropped` mutations
+guard the two that matter most. The notice is in
+`third_party/midi-converter/LICENSE`.
+
+Nothing reaches a user yet. The menu `Copy as sheet` becomes, its entries and
+their settings are an `Action` and `EngineSnapshot` fields, which belong to the
+panel seat; `PROMPT-S-CURVE-AND-SWITCHES.md` piece three has them.
 
 ## Also owed, from elsewhere
 

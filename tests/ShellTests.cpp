@@ -1305,6 +1305,111 @@ void SheetExportTests() {
     std::cout << "PASS MIDI to virtual piano sheet: chords, spacing, wrapping, merged and unmapped notes\n";
 }
 
+// The styled sheet is midi-converter's notation, ported. Each case below is a
+// behaviour of the original, checked against what its code does.
+void SheetStyleTests() {
+    const std::map<std::string, std::string> mapping{
+        {"C4", "t"}, {"E4", "y"}, {"G4", "u"}, {"C5", "i"}, {"C#4", "%"}, {"A1", "ctrl+q"}, {"C7", "m"}};
+    sheet::StyleOptions plain;
+    plain.bpmChanges = false;
+    const auto midi = [](std::initializer_list<std::pair<double, int>> list) {
+        std::vector<sheet::TimedNote> notes;
+        for (const auto& [seconds, note] : list) notes.push_back({seconds, note});
+        return notes;
+    };
+
+    // The window is chained: each note is measured against the one before it.
+    // 0, 30 and 60 ms is one chord, and because its notes were not struck
+    // together it is written in braces in the order played.
+    auto spread = sheet::Style(midi({{0.0, 64}, {0.030, 60}, {0.060, 67}}), mapping, {}, {}, plain);
+    Require(spread.text == "{ytu}", "a spread chord is one braced group in played order");
+    auto struck = sheet::Style(midi({{0.0, 67}, {0.0, 60}, {0.0, 64}}), mapping, {}, {}, plain);
+    Require(struck.text == "[tyu]", "a struck chord is bracketed in pitch order");
+
+    // A pitch repeated in a struck chord is written once and counted.
+    auto doubled = sheet::Style(midi({{0.0, 60}, {0.0, 60}}), mapping, {}, {}, plain);
+    Require(doubled.text == "t" && doubled.merged == 1, "a repeated pitch is merged");
+
+    // Shifted characters go first by default, last when asked.
+    auto shifted = sheet::Style(midi({{0.0, 60}, {0.0, 61}}), mapping, {}, {}, plain);
+    Require(shifted.text == "[%t]", "a shifted character leads its chord");
+    auto shiftedEnd = plain; shiftedEnd.shifts = sheet::Place::End;
+    Require(sheet::Style(midi({{0.0, 60}, {0.0, 61}}), mapping, {}, {}, shiftedEnd).text == "[t%]",
+            "a shifted character can trail its chord");
+
+    // Out of range is kept, marked when asked, and hidden only when asked.
+    // An 88-key ctrl binding is written as its key.
+    auto marked = plain; marked.outOfRangeMarks = true;
+    Require(sheet::Style(midi({{0.0, 33}, {0.0, 60}}), mapping, {}, {}, marked).text == "[:q't]",
+            "an out-of-range note is kept and marked");
+    Require(sheet::Style(midi({{0.0, 33}, {0.0, 60}}), mapping, {}, {}, plain).text == "[qt]",
+            "an out-of-range note is kept unmarked");
+    auto hide = plain; hide.showOutOfRange = false;
+    auto hidden = sheet::Style(midi({{0.0, 33}, {0.0, 60}}), mapping, {}, {}, hide);
+    Require(hidden.text == "t" && hidden.hidden == 1, "hiding out-of-range notes counts them");
+    // A 61-key mapping stops at C2, so the original's own character is used.
+    Require(sheet::Style(midi({{0.0, 33}, {0.0, 60}}), {{"C4", "t"}}, {}, {}, plain).text == "[et]",
+            "an out-of-range note a 61-key mapping lacks takes the original's character");
+    auto invalid = sheet::Style(midi({{0.0, 10}}), mapping, {}, {}, plain);
+    Require(invalid.text == "_" && invalid.unmapped == 1 && invalid.notes == 0, "a note below A0 is written as _");
+
+    // Rhythm: at 120 BPM a beat is 500 ms. The chord before a quarter-note gap
+    // is yellow with " - ", before a half-note gap green with ", ".
+    auto timed = sheet::StyleOptions{}; timed.tempoMarks = true;
+    auto rhythm = sheet::Style(midi({{0.0, 60}, {0.5, 64}, {1.5, 67}}), mapping, {{0.0, 120}}, {}, timed);
+    Require(rhythm.text == "Tempo: 120 BPM\nt - y, u", "tempo comment and rhythm separators");
+    // The tempo change also schedules a line break, kept in the items and left
+    // out of the text because it sits beside the comment.
+    std::vector<sheet::Rhythm> rhythms;
+    for (const auto& item : rhythm.items)
+        if (item.kind == sheet::StyledItem::Kind::Chord) rhythms.push_back(item.rhythm);
+    Require(rhythms == std::vector<sheet::Rhythm>{sheet::Rhythm::Quarter, sheet::Rhythm::Half, sheet::Rhythm::Long},
+            "each chord is coloured by the gap to the next");
+    const auto html = sheet::ToHtml(rhythm);
+    Require(html.find("#c0c05a") != std::string::npos && html.find("#9ada5a") != std::string::npos,
+            "the HTML carries the rhythm colours");
+    Require(sheet::ToHtml(sheet::Style(midi({{0.0, 33}}), mapping, {}, {}, plain)).find("border-bottom:2px solid") != std::string::npos,
+            "the HTML underlines an out-of-range note");
+
+    // A line per 4/4 bar.
+    auto bars = sheet::Style(midi({{0.0, 60}, {0.5, 64}, {1.0, 67}, {1.5, 72}, {2.0, 60}, {2.5, 64}}),
+                             mapping, {{0.0, 120}}, {{0.0, 4}}, plain);
+    Require(bars.text == "t y u i\nt y", "a bar of four beats is one line");
+
+    // Tempo changes are described, and small ones are not.
+    auto faster = sheet::Style(midi({{0.0, 60}, {2.0, 64}}), mapping, {{0.0, 120}, {1.0, 150}});
+    Require(faster.text.find("25% faster - BPM changed to 150") != std::string::npos, "a tempo change is described");
+    auto simple = sheet::StyleOptions{}; simple.bpmStyle = sheet::BpmStyle::Simple;
+    Require(sheet::Style(midi({{0.0, 60}, {2.0, 64}}), mapping, {{0.0, 120}, {1.0, 150}}, {}, simple).text.find(">>") != std::string::npos,
+            "a simple tempo change is arrows");
+    Require(sheet::Style(midi({{0.0, 60}, {2.0, 64}}), mapping, {{0.0, 120}, {1.0, 125}}).text.find("faster") == std::string::npos,
+            "a change under the minimum is not mentioned");
+
+    // Auto-transpose brings a note the layout cannot reach into range, and
+    // says how far to transpose the game back. The original searches eleven
+    // semitones either way, so B7 reaches C7 and C8 would not.
+    auto search = plain; search.autoTranspose = true;
+    auto moved = sheet::Style(midi({{0.0, 96 + 11}}), mapping, {}, {}, search);
+    Require(moved.transposition == -11 && moved.text == "Transpose by: 11\nm", "auto-transpose finds a playable key");
+
+    // Every note lands in exactly one counter.
+    const auto mixed = midi({{0.0, 60}, {0.0, 60}, {0.5, 10}, {1.0, 33}, {1.5, 64}});
+    auto counted = sheet::Style(mixed, mapping, {}, {}, hide);
+    Require(counted.notes + counted.merged + counted.unmapped + counted.hidden == mixed.size(),
+            "notes + merged + unmapped + hidden accounts for every note");
+
+    // Tick-timed tempo and meter events become seconds.
+    const std::vector<sheet::TickTempo> ticks{{0, 500000}, {960, 250000}};
+    const auto marks = sheet::TempoMarksFromTicks(ticks, 480);
+    Require(marks.size() == 2 && std::abs(marks[1].seconds - 1.0) < 1e-9 && std::abs(marks[1].bpm - 240) < 1e-9,
+            "a tempo change is placed in seconds");
+    const auto meters = sheet::MeterMarksFromTicks({{1920, 3}}, ticks, 480);
+    Require(meters.size() == 1 && std::abs(meters[0].seconds - 1.5) < 1e-9 && meters[0].numerator == 3,
+            "a meter change is placed in seconds");
+
+    std::cout << "PASS styled sheet: chained quantize, orders, out of range, rhythm colours, bars, tempo, transpose, HTML\n";
+}
+
 // Three index spaces once disagreed about what "device 1" meant, which is
 // harmless with one device and wrong with two. Ids fixed the disagreement but
 // not the resolution: RtMidi welds the port index onto every WinMM port name,
@@ -2397,6 +2502,7 @@ int wmain(int argc, wchar_t** argv) {
             else if (group == L"connect") ConnectAndWarningTests(directory);
             else if (group == L"curve") { VelocityCurveDrawingTests(directory / L"config.json"); BuiltinCurveTests(directory); VelocityCurveEditorModelTests(); }
             else if (group == L"drums") DrumDetectionTests(directory);
+            else if (group == L"sheet") { SheetExportTests(); SheetStyleTests(); }
             else if (group == L"midi-out") MidiOutputTests(directory / L"config.json");
             else if (group == L"vel-mod") VelocityModifierTests(directory / L"config.json");
             else throw std::runtime_error("Unknown shell test group");
@@ -2411,6 +2517,7 @@ int wmain(int argc, wchar_t** argv) {
         KernelStreamingIdentityTests();
         PortResolutionTests();
         SheetExportTests();
+        SheetStyleTests();
         TwoDeviceTests();
         ModelTests(fixture);
         MappingPersistenceTests(directory / L"config.json");

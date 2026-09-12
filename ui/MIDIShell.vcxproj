@@ -58,6 +58,7 @@
     <Copy SourceFiles="$(MSBuildThisFileDirectory)..\x64\Release\config.json" DestinationFiles="$(OutDir)config.json" Condition="!Exists('$(OutDir)config.json')" />
     <Copy SourceFiles="$(MSBuildThisFileDirectory)..\third_party\fonts\ibm-plex-sans\LICENSE.txt" DestinationFiles="$(OutDir)IBM-Plex-LICENSE.txt" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(MSBuildThisFileDirectory)..\third_party\imgui\LICENSE.txt" DestinationFiles="$(OutDir)ImGui-LICENSE.txt" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(MSBuildThisFileDirectory)..\third_party\midi-converter\LICENSE" DestinationFiles="$(OutDir)midi-converter-LICENSE.txt" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(MSBuildThisFileDirectory)..\LICENSE" DestinationFiles="$(OutDir)LICENSE" SkipUnchangedFiles="true" />
   </Target>
 </Project>
