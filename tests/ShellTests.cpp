@@ -6,6 +6,7 @@
 #include "../MIDI++/MidiInput.hpp"
 #include "../MIDI++/MidiOutput.hpp"
 #include "../MIDI++/SheetExport.hpp"
+#include "../MIDI++/AudioToMidi.hpp"
 #include "../MIDI++/MidiStreamSplit.hpp"
 #include "../MIDI++/config.hpp"
 #include "../MIDI++/MIDI2Key.hpp"
@@ -2472,6 +2473,88 @@ void ConnectAndWarningTests(const std::filesystem::path& directory) {
     std::cout << "PASS warning gates, real MidiConnect protocol, route/device changes, failed open, Stop/shutdown and worker ownership\n";
 }
 
+// The converter sidecar, without Python: its status lines, the command line it
+// is started with, and a real child process standing in for it.
+void AudioToMidiTests() {
+    using audio_to_midi::Status;
+    Require(audio_to_midi::ParseLine("step: Downloading the audio\r\n").kind == Status::Kind::Step,
+            "a step line is a step, line ending stripped");
+    const auto done = audio_to_midi::ParseLine("done: C:\\midi\\song.mid");
+    Require(done.kind == Status::Kind::Done && done.text == "C:\\midi\\song.mid", "a done line carries the path");
+    Require(audio_to_midi::ParseLine("error: no audio").kind == Status::Kind::Error, "an error line is an error");
+    Require(audio_to_midi::ParseLine(" 42%|####").kind == Status::Kind::Text, "anything else is plain text");
+
+    Require(audio_to_midi::IsLink(L"HTTPS://youtu.be/x") && !audio_to_midi::IsLink(L"C:\\song.mp3"),
+            "a link is told from a file");
+
+    // Round-trip through the parser Windows itself uses, including the cases
+    // naive quoting gets wrong: a trailing backslash and an embedded quote.
+    const std::vector<std::wstring> arguments{L"C:\\Program Files\\py\\python.exe", L"plain", L"",
+                                              L"D:\\midi folder\\", L"say \"hi\"", L"a\\\\b", L"\u97f3\u4e50 \u66f2.mp3"};
+    std::wstring line;
+    for (const auto& argument : arguments) line += (line.empty() ? L"" : L" ") + audio_to_midi::QuoteArgument(argument);
+    int count = 0;
+    LPWSTR* parsed = CommandLineToArgvW(line.c_str(), &count);
+    Require(parsed && count == static_cast<int>(arguments.size()), "every argument survives as one");
+    for (int i = 0; i < count; ++i) Require(parsed[i] == arguments[i], "and reads back unchanged");
+    LocalFree(parsed);
+
+    const auto command = audio_to_midi::CommandLine(L"C:\\py\\python.exe", L"C:\\app\\converter\\convert.py",
+                                                    L"https://youtu.be/x", L"D:\\my midi");
+    parsed = CommandLineToArgvW(command.c_str(), &count);
+    Require(parsed && count == 6 && std::wstring(parsed[3]) == L"https://youtu.be/x" &&
+            std::wstring(parsed[4]) == L"--out-dir" && std::wstring(parsed[5]) == L"D:\\my midi",
+            "the converter gets its source and output folder as separate arguments");
+    LocalFree(parsed);
+
+    // A real process: statuses arrive in order, the last is Done, and noise
+    // between them is passed through as text.
+    const auto run = [](const std::wstring& script, bool cancel = false) {
+        std::mutex mutex;
+        std::condition_variable ended;
+        std::vector<Status> seen;
+        size_t finals = 0;
+        {
+            // Destroyed before seen is read: the destructor cancels, and a
+            // Cancel after Done once added a second, false, final status.
+            audio_to_midi::Job job;
+            wchar_t system[MAX_PATH];
+            GetSystemDirectoryW(system, MAX_PATH);
+            const bool started = job.Start(L"\"" + std::wstring(system) + L"\\cmd.exe\" /d /c \"" + script + L"\"",
+                                           [&](const Status& status) {
+                std::lock_guard lock(mutex);
+                seen.push_back(status);
+                if (status.kind == Status::Kind::Done || status.kind == Status::Kind::Error) { ++finals; ended.notify_all(); }
+            });
+            Require(started, "cmd.exe starts as a converter stand-in");
+            if (cancel) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                job.Cancel();
+            }
+            std::unique_lock lock(mutex);
+            Require(ended.wait_for(lock, std::chrono::seconds(20), [&] { return finals > 0; }),
+                    "the job always ends with Done or Error");
+        }
+        Require(finals == 1, "and ends exactly once, even when destroyed right after");
+        return seen;
+    };
+    auto seen = run(L"echo step: one&echo  50%%&echo done: C:\\x.mid");
+    Require(seen.size() == 3 && seen[0].kind == Status::Kind::Step && seen[1].kind == Status::Kind::Text &&
+            seen[2].kind == Status::Kind::Done && seen[2].text == "C:\\x.mid", "statuses arrive in order");
+
+    seen = run(L"echo step: one&exit 3");
+    Require(seen.back().kind == Status::Kind::Error && seen.back().text.find("exit code 3") != std::string::npos,
+            "a converter that dies silently still ends in an error naming its exit code");
+
+    // Cancel stops the whole tree: the ping below is a grandchild, and if it
+    // survived, the pipe would stay open and the job would not end.
+    seen = run(L"echo step: waiting&ping -n 30 127.0.0.1 >nul&echo done: never", true);
+    Require(seen.back().kind == Status::Kind::Error && seen.back().text == "Conversion cancelled.",
+            "Cancel ends the job and says so");
+
+    std::cout << "PASS audio to MIDI: status lines, argument quoting, process tree, silent exit and cancel\n";
+}
+
 int wmain(int argc, wchar_t** argv) {
     // Before anything constructs a player, not partway through the run.
     //
@@ -2503,6 +2586,7 @@ int wmain(int argc, wchar_t** argv) {
             else if (group == L"curve") { VelocityCurveDrawingTests(directory / L"config.json"); BuiltinCurveTests(directory); VelocityCurveEditorModelTests(); }
             else if (group == L"drums") DrumDetectionTests(directory);
             else if (group == L"sheet") { SheetExportTests(); SheetStyleTests(); }
+            else if (group == L"audio") AudioToMidiTests();
             else if (group == L"midi-out") MidiOutputTests(directory / L"config.json");
             else if (group == L"vel-mod") VelocityModifierTests(directory / L"config.json");
             else throw std::runtime_error("Unknown shell test group");
@@ -2518,6 +2602,7 @@ int wmain(int argc, wchar_t** argv) {
         PortResolutionTests();
         SheetExportTests();
         SheetStyleTests();
+        AudioToMidiTests();
         TwoDeviceTests();
         ModelTests(fixture);
         MappingPersistenceTests(directory / L"config.json");
