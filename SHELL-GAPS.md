@@ -322,8 +322,29 @@ that `Copy as sheet` becomes, and the engine owes what the menu entries do.
   Python Flask app around the Transkun transcription model, with PyTorch,
   yt-dlp and FFmpeg. A neural model cannot be translated into C++ the way the
   sheet notation was, so using it means running it beside the app as a
-  sidecar, which needs Python and those tools installed. None is on this
-  machine, so it starts with an install decision for the owner.
+  sidecar, which needs Python and those tools installed.
+
+### MP3 to MIDI: built 2026-09-14
+
+The owner chose to install for testing and to aim at bundling with a release.
+`tools/mp3-to-midi/convert.py` is this fork's own sidecar: a file or link in,
+yt-dlp for links, Transkun, one status per line out. It copies no code from
+mp3converter. `MIDI++/AudioToMidi.hpp` runs it on its own thread in a job
+object. In the shell, the plus button beside Choose MIDI folder opens Convert
+audio, and a finished `.mid` is saved in the MIDI folder and rescanned.
+
+The owner let Claude add `ConvertAudio`, `ConvertCancel` and `ConvertProgress`
+and the `converting`, `conversionFailed` and `conversionStatus` fields this
+once, outside the usual seat split. The popup is minimal and still owes the
+panel seat a styling pass.
+
+Still open:
+- A release bundle: `converter\` beside the exe with an embeddable Python,
+  the packages and `ffmpeg\`. CPU PyTorch alone is several hundred MB.
+- GPU speed on this machine. The card is AMD, so PyTorch runs on the CPU;
+  about 24 s for 93 s of solo piano.
+- Links from sites that refuse yt-dlp's default client, as Wikimedia does
+  with a 403.
 
 ### The sheet port, engine side: done 2026-09-11
 

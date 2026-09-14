@@ -298,14 +298,15 @@ void BeginPanel(const char* id, ImVec2 min, ImVec2 max, const skin::Skin& s, ImG
 // common dialog, and under this window -- layered for the opacity setting, and
 // topmost whenever Always on top is on -- it returned without ever showing.
 // The click reached here; nothing appeared. The two pickers now share an API.
-std::filesystem::path PickFile(HWND hwnd) {
+std::filesystem::path PickFile(HWND hwnd, bool audio = false) {
     IFileOpenDialog* dialog = nullptr;
     if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))) return {};
     DWORD options = 0;
     dialog->GetOptions(&options);
     dialog->SetOptions(options | FOS_FILEMUSTEXIST | FOS_PATHMUSTEXIST | FOS_FORCEFILESYSTEM | FOS_NOCHANGEDIR);
-    const COMDLG_FILTERSPEC filters[]{{L"MIDI files", L"*.mid;*.midi"}, {L"All files", L"*.*"}};
-    dialog->SetFileTypes(static_cast<UINT>(std::size(filters)), filters);
+    const COMDLG_FILTERSPEC midi[]{{L"MIDI files", L"*.mid;*.midi"}, {L"All files", L"*.*"}};
+    const COMDLG_FILTERSPEC sound[]{{L"Audio files", L"*.mp3;*.wav;*.flac;*.ogg;*.oga;*.opus;*.m4a;*.aac"}, {L"All files", L"*.*"}};
+    dialog->SetFileTypes(2, audio ? sound : midi);
     std::filesystem::path path;
     if (SUCCEEDED(dialog->Show(hwnd))) {
         IShellItem* item = nullptr;
@@ -1706,7 +1707,7 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     ImGui::BeginDisabled(state->playing || state->busy || state->folder.empty());
     if (IconButton("##refresh-files", Icon::Refresh, "Refresh MIDI files", s, dpi)) engine.Send({ShellEngine::Action::Scan, state->folder});
     ImGui::EndDisabled(); ImGui::PopStyleVar();
-    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 2 * s.metric.controlHeight - 2 * s.spacing.s2);
+    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 3 * s.metric.controlHeight - 3 * s.spacing.s2);
     ImGui::InputTextWithHint("##search", "Search MIDI files", search_, sizeof(search_));
     ImGui::SameLine();
     if (IconButton("##open", Icon::Open, "Open MIDI file", s, dpi)) load(PickMidiFile(hwnd));
@@ -1717,6 +1718,35 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
         if (!path.empty()) { preferences.folder = path; engine.Send({ShellEngine::Action::Scan, path}); }
     }
     ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (IconButton("##convert", Icon::Plus, state->converting ? "Converting audio to MIDI" : "Convert audio to MIDI", s, dpi))
+        ImGui::OpenPopup("Convert audio");
+    if (ImGui::BeginPopup("Convert audio")) {
+        ImGui::TextUnformatted("Make a MIDI file from a recording. Solo piano works best.");
+        ImGui::BeginDisabled(state->converting || state->folder.empty());
+        if (ImGui::Button("Choose audio file")) {
+            const auto path = PickFile(hwnd, true);
+            if (!path.empty()) engine.Send({ShellEngine::Action::ConvertAudio, path});
+        }
+        ImGui::SetNextItemWidth(300 * dpi);
+        ImGui::InputTextWithHint("##convert-link", "Or paste a YouTube link", convertLink_, sizeof(convertLink_));
+        ImGui::SameLine();
+        ImGui::BeginDisabled(!convertLink_[0]);
+        if (ImGui::Button("Convert link")) engine.Send({ShellEngine::Action::ConvertAudio, {}, 0, 0, false, 0, convertLink_});
+        ImGui::EndDisabled();
+        ImGui::EndDisabled();
+        if (state->folder.empty()) ImGui::TextDisabled("Choose a MIDI folder first. The new file is saved there.");
+        if (!state->conversionStatus.empty()) {
+            // Worded as a failure, not only coloured as one.
+            const auto line = (state->conversionFailed ? "Failed: " : "") + state->conversionStatus;
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 420 * dpi);
+            if (state->conversionFailed) ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(Colour(s.accent.accent)), "%s", line.c_str());
+            else ImGui::TextUnformatted(line.c_str());
+            ImGui::PopTextWrapPos();
+        }
+        if (state->converting && ImGui::Button("Cancel conversion")) engine.Send({ShellEngine::Action::ConvertCancel});
+        ImGui::EndPopup();
+    }
     const ImVec2 listMin = ImGui::GetCursorScreenPos();
     const ImVec2 listSize = ImGui::GetContentRegionAvail();
     skin::RecessedField(listMin, ImVec2(listMin.x + listSize.x, listMin.y + listSize.y), s);

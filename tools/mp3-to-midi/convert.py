@@ -84,6 +84,10 @@ def main():
 
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    # A release ships FFmpeg beside this script rather than asking for PATH.
+    bundled = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ffmpeg")
+    if os.path.isdir(bundled):
+        os.environ["PATH"] = bundled + os.pathsep + os.environ.get("PATH", "")
     if not os.path.isdir(args.out_dir):
         say("error", f"The output folder does not exist: {args.out_dir}")
         return 2
@@ -118,7 +122,8 @@ def main():
         say("done", target)
         return 0
     except Exception as failure:  # the app needs one line, not a traceback
-        say("error", str(failure) or type(failure).__name__)
+        # yt-dlp has already printed its own "ERROR: " line; keep only the reason.
+        say("error", str(failure).removeprefix("ERROR: ") or type(failure).__name__)
         return 1
     finally:
         shutil.rmtree(work, ignore_errors=True)

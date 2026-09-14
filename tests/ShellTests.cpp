@@ -2475,7 +2475,7 @@ void ConnectAndWarningTests(const std::filesystem::path& directory) {
 
 // The converter sidecar, without Python: its status lines, the command line it
 // is started with, and a real child process standing in for it.
-void AudioToMidiTests() {
+void AudioToMidiTests(const std::filesystem::path& directory) {
     using audio_to_midi::Status;
     Require(audio_to_midi::ParseLine("step: Downloading the audio\r\n").kind == Status::Kind::Step,
             "a step line is a step, line ending stripped");
@@ -2552,7 +2552,38 @@ void AudioToMidiTests() {
     Require(seen.back().kind == Status::Kind::Error && seen.back().text == "Conversion cancelled.",
             "Cancel ends the job and says so");
 
-    std::cout << "PASS audio to MIDI: status lines, argument quoting, process tree, silent exit and cancel\n";
+    // The engine side, which needs no Python: this test exe finds the script in
+    // tools/ but no interpreter, so a conversion must say so rather than fail
+    // to start or hang in "converting".
+    {
+        using A = shell::ShellEngine::Action;
+        // A converter set up for the owner's own runs must not change the result.
+        SetEnvironmentVariableW(L"MIDIPP_CONVERTER_PYTHON", nullptr);
+        shell::ShellEngine engine(directory / L"config.json");
+        engine.Send({A::ConvertAudio, directory / L"song.mp3"});
+        Await([&] { return !engine.Snapshot()->error.empty(); }, "a conversion with no folder was not refused");
+        Require(engine.Snapshot()->error.find("MIDI folder") != std::string::npos && !engine.Snapshot()->converting,
+                "with no folder it names the folder, and nothing starts");
+
+        engine.Send({A::Scan, directory});
+        Await([&] { const auto s = engine.Snapshot(); return !s->busy && !s->folder.empty(); }, "the test folder did not scan");
+        engine.Send({A::ConvertAudio, directory / L"song.mp3"});
+        Await([&] { return !engine.Snapshot()->conversionStatus.empty(); }, "a conversion gave no status");
+        auto state = engine.Snapshot();
+        Require(state->conversionFailed && !state->converting &&
+                state->conversionStatus.find("not installed") != std::string::npos,
+                "with no Python found it reports the converter as not installed");
+
+        // A status from the converter's thread leaves an error on screen alone.
+        engine.Send({A::Scan, directory / L"no-such-folder"});
+        Await([&] { return !engine.Snapshot()->error.empty(); }, "a bad folder raised no error");
+        const auto error = engine.Snapshot()->error;
+        engine.Send({A::ConvertProgress, {}, 0, static_cast<size_t>(Status::Kind::Step), false, 0, "Transcribing"});
+        Await([&] { return engine.Snapshot()->conversionStatus == "Transcribing"; }, "a converter step did not reach the snapshot");
+        Require(engine.Snapshot()->error == error, "a converter status cleared an unrelated error");
+    }
+
+    std::cout << "PASS audio to MIDI: status lines, argument quoting, process tree, silent exit, cancel and engine refusals\n";
 }
 
 int wmain(int argc, wchar_t** argv) {
@@ -2586,7 +2617,7 @@ int wmain(int argc, wchar_t** argv) {
             else if (group == L"curve") { VelocityCurveDrawingTests(directory / L"config.json"); BuiltinCurveTests(directory); VelocityCurveEditorModelTests(); }
             else if (group == L"drums") DrumDetectionTests(directory);
             else if (group == L"sheet") { SheetExportTests(); SheetStyleTests(); }
-            else if (group == L"audio") AudioToMidiTests();
+            else if (group == L"audio") AudioToMidiTests(directory);
             else if (group == L"midi-out") MidiOutputTests(directory / L"config.json");
             else if (group == L"vel-mod") VelocityModifierTests(directory / L"config.json");
             else throw std::runtime_error("Unknown shell test group");
@@ -2602,7 +2633,7 @@ int wmain(int argc, wchar_t** argv) {
         PortResolutionTests();
         SheetExportTests();
         SheetStyleTests();
-        AudioToMidiTests();
+        AudioToMidiTests(directory);
         TwoDeviceTests();
         ModelTests(fixture);
         MappingPersistenceTests(directory / L"config.json");

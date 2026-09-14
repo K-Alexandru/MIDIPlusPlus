@@ -101,7 +101,8 @@ inline Install FindInstall(const std::filesystem::path& exeFolder) {
         if (fs::is_regular_file(value, ec)) found.python = value;
     }
     if (found.python.empty() && !found.script.empty())
-        for (const auto& candidate : {found.script.parent_path() / L"python" / L"python.exe",
+        for (const auto& candidate : {exeFolder / L"converter" / L"python" / L"python.exe",
+                                      exeFolder / L"converter" / L".venv" / L"Scripts" / L"python.exe",
                                       found.script.parent_path() / L".venv" / L"Scripts" / L"python.exe"})
             if (fs::is_regular_file(candidate, ec)) { found.python = candidate; break; }
     return found;

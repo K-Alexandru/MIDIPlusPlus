@@ -97,6 +97,11 @@ struct EngineSnapshot {
     double wootingTriggerThreshold = 0.5;
     int wootingShiftAmount = 12;
     double wootingVelocityScale = 5.0;
+    // Audio to MIDI, tools/mp3-to-midi run beside the app. The status is the
+    // converter's latest line; a finished .mid lands in the MIDI folder.
+    bool converting = false;
+    bool conversionFailed = false;
+    std::string conversionStatus;
     std::string ActiveVelocityName() const {
         return comparingCurve ? previousPreset.name + (VelocityEdited(previousCurve) ? " (edited)" : "") : VelocityName(curves, curve);
     }
@@ -113,7 +118,11 @@ public:
                         WootingTriggerThreshold, WootingShiftAmount, WootingVelocityScale, EightyEightKeys,
                         AutoVolumeScan, AutoVolumeCalibrate, AutoVolumeOff, AutoVolumeCancel, ClearLog,
                         PlayCountdown, PlaybackDelay, AcknowledgeTyping,
-                        LegitMode, Shuffle, Previous, Next, SortFiles, MidiConnect, OutRange, SeekStep };
+                        LegitMode, Shuffle, Previous, Next, SortFiles, MidiConnect, OutRange, SeekStep,
+                        // path is an audio file, or key is a link. ConvertProgress is
+                        // the converter's own thread reporting back: key is the
+                        // text and track an audio_to_midi::Status::Kind.
+                        ConvertAudio, ConvertCancel, ConvertProgress };
     struct Command {
         Action action;
         std::filesystem::path path;

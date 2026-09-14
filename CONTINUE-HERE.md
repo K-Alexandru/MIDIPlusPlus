@@ -1,7 +1,8 @@
 # Start here
 
-Entry point for the next session. Updated 2026-09-14 at `input-path-r5`
-(`d54d8b3`). Then read `HANDOFF.md` for architecture and decisions,
+Entry point for the next session. Updated 2026-09-14 on
+`claude/continue-here-4d1c91`, which is `claude/curves-pro-drums` plus the MP3
+to MIDI work. Then read `HANDOFF.md` for architecture and decisions,
 `SHELL-GAPS.md` for what the shell still owes, and `SEATS.md` for who does what.
 
 ## Goal
@@ -14,83 +15,71 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 ## Seats
 
 - The panel seat, a second assistant in another app, owns `ui/`, including
-  `ShellEngine::Action` and `EngineSnapshot`. Claude never extends those two
-  types. It asks for them and waits.
+  `ShellEngine::Action` and `EngineSnapshot`.
 - Claude owns `MIDI++/`, `tests/`, specs, and engine-side seams in `ui/`.
+- One recorded exception: on 2026-09-14 the owner let Claude add the three
+  Convert actions, their snapshot fields and a minimal popup. It is not a
+  precedent.
 - Cursor-driving or DPI-sensitive checks go to the panel seat (`SEATS.md`).
-  Hand it work as a `PROMPT-*.md` file the owner pastes in.
 
 ## Decisions made, do not reopen
 
-- Velocity stays on a modifier (`VELOCITY_MODIFIER`: alt, ctrl or shift). A bare
-  velocity key would play a note. The tap is four events in one `SendInput`
-  call.
+- Velocity stays on a modifier (`VELOCITY_MODIFIER`); the tap is four events
+  in one `SendInput` call.
 - Injection never shares a thread with the message loop (`HANDOFF.md` section 4).
 - Legit mode applies at dispatch, never at parse time (`LEGIT-MODE.md`).
-- Timing numbers stop at the keyboard hook. Never call them end-to-end latency.
-- A skin chooses colour only. Every skin is 1090 x 635 collapsed.
-- Built-in velocity curves are six. Improved Low Volume, Logarithmic and
-  Exponential were stretched to reach step 31 (`VELOCITY-CURVES.md`, option 2).
-- The sixth built-in, **S-Curve**, is the owner's R5 curve "radiant grand",
-  unstretched, so it tops out at step 29. It was named Pro until 2026-09-11.
-- Linear Coarse and Fine stay as the R5 shipped them (one curve, offset by 2).
-- Drum detection only labels tracks, as the original does. Auto-transpose goes
-  through the shell's Transpose and never types arrow keys.
-- UI copy follows `HANDOFF.md` section 15, and attribution follows section 13.
+- Timing numbers stop at the keyboard hook; never call them end-to-end latency.
+- A skin chooses colour only; every skin is 1090 x 635 collapsed.
+- Six built-in velocity curves, the sixth being S-Curve (`VELOCITY-CURVES.md`).
+- Drum detection only labels tracks; auto-transpose never types arrow keys.
+- MP3 to MIDI runs as a Python sidecar, never in process, and ships bundled
+  with a release (the owner's choice, 2026-09-14).
+- UI copy follows `HANDOFF.md` section 15; attribution follows section 13.
+
+## Work completed, 2026-09-14
+
+- Python 3.12.10 and FFmpeg 9.0.1 installed by winget, user scope.
+- LioK251's mp3converter cloned to `D:\Dev\mp3converter` for reference only,
+  with a venv holding torch 2.14.0+cpu, transkun 2.0.1 and yt-dlp 2026.8.19.
+- `tools/mp3-to-midi/convert.py`: file or link in, one status per line out.
+- `MIDI++/AudioToMidi.hpp`: runs it on its own thread in a job object.
+- Shell: the plus button beside Choose MIDI folder opens Convert audio.
+- `build\shell\converter\.venv` is a junction to the venv above, so the local
+  shell finds Python; `build/` is not committed.
+- `AudioToMidiTests` caught a Cancel after Done reporting a false second
+  final status, fixed in `Job::Pump`.
 
 ## Verified facts
 
-- `D:\MIDI++ 1.0.4.R5 Release\` is the original app. Its exe's five curve tables
-  are byte-identical to ours, and its `config.json` holds eight custom curves.
-- `SHELL_VELOCITY` stores a `builtins` count, so a config saved with five
-  built-ins reopens on the same custom curve.
-- `drum_flags` never removed notes, upstream or here.
-- midi-converter (ArijanJ) and LioK251/mp3converter are both MIT.
-  shizuhaki/miditoqwerty has no licence, so nothing may be copied from it.
-- The display runs at 125%. Read `tests/NativeShell.ps1` before scripting any
+- Transkun and mp3converter are both MIT; `convert.py` copies no code.
+- 93 s of solo piano transcribed in 24 s on the CPU: 1201 notes, C2 to A6.
+- Pure sine tones transcribe to zero notes, because Transkun is a piano model.
+- The GPU is an AMD RX 7900 XTX, so CUDA PyTorch does not apply here.
+- Wikimedia refuses yt-dlp's default client with a 403; YouTube is untried.
+- The display runs at 125%; read `tests/NativeShell.ps1` before scripting any
   click or screenshot.
-
-## Work completed, 2026-09-11
-
-- S-Curve as a built-in, the three stretched curves, and the preset index
-  migration. `BuiltinCurveTests`.
-- Drum detection and auto-transpose honoured from the config.
-  `DrumDetectionTests`.
-- `sheet::Style` and `sheet::ToHtml` in `MIDI++/SheetExport.hpp`: the
-  midi-converter notation ported, with its licence at
-  `third_party/midi-converter/LICENSE`, copied beside the shell exe.
-  `SheetStyleTests`.
-- Five new mutations in `tests/run-shell-parity-mutations.ps1`.
-- `PROMPT-S-CURVE-AND-SWITCHES.md` written for the panel seat.
 
 ## Unresolved
 
-- **Panel seat, not started as of 2026-09-14:** `PROMPT-S-CURVE-AND-SWITCHES.md`
-  has three pieces:
-  1. Rename Pro to S-Curve in `skin-system.html` and `docs/design/`.
-  2. Settings switches for drum detection and auto-transpose.
-  3. The export menu that replaces Copy as sheet, with a control for every
-     `sheet::StyleOptions` field, image export, and per-region transpose.
-  Until it lands, users can reach none of it. The owner's UI pass items in
-  `SHELL-GAPS.md` are also still owed.
-- **MP3 to MIDI:** blocked on the owner's install decision. LioK's converter
-  needs Python 3.10+, PyTorch, Transkun, yt-dlp and FFmpeg; none is installed.
-  The options were: install for testing (list each package, source and size for
-  approval first), bundle a helper with a release, or not now. Unanswered.
+- **The owner's in-app test:** run `build\shell\MIDIShell.exe`, open Convert
+  audio, try one file and one YouTube link.
+- **Release bundle:** `converter\` beside the exe with an embeddable Python,
+  the packages, `convert.py` and `ffmpeg\`. Size and a download-on-first-use
+  alternative are not yet weighed.
+- **Panel seat, not started:** `PROMPT-S-CURVE-AND-SWITCHES.md` (S-Curve
+  rename, two Settings switches, the export menu), a styling pass on the
+  Convert popup, and the owner's UI pass items in `SHELL-GAPS.md`.
 - **Needs the owner at the keyboard:** delivery into a game from the shell,
-  Wooting feel and held-Shift black keys, two devices played at once, live
-  curve reconnection, and a mixed-DPI monitor move.
+  Wooting feel, two devices at once, live curve reconnection, a mixed-DPI move.
 
-## Validation actually run, at `d54d8b3`
+## Validation actually run, at this branch's head
 
-- `tests\run-shell-tests.ps1`: all passed.
-- `tests\run-shell-parity-mutations.ps1`: 19 of 19 killed, sources restored.
-- `ui\MIDIShell.vcxproj` and `MIDI++.sln` Release x64 both built.
-- `run-shell-tests.ps1 -Render` last passed at `a92ea8e`. It was not rerun after
-  the sheet port, which changed no UI.
-- Not run: `run-native-tests.ps1` and `run-latency-tests.ps1`. Both take the
-  cursor and type into whatever has focus, so they need the owner's OK.
-  Nothing was played into a game.
+- `tests\run-shell-tests.ps1 -Render`: every shell test and every render
+  view at 100, 125, 150 and 200% passed.
+- `tests\run-shell-parity-mutations.ps1`: see the commit that updates this
+- `ui\MIDIShell.vcxproj` Release x64 built.
+- Not run: `run-native-tests.ps1` and `run-latency-tests.ps1`, which take the
+  cursor. Nothing was played into a game, and no one has clicked Convert yet.
 
 ## Build and test
 
@@ -107,13 +96,12 @@ Shell tests capture injection in process and are always safe. In PowerShell
 
 - `origin` is K-Alexandru/MIDIPlusPlus; `upstream` is Zephkek/MIDIPlusPlus.
   `main` stays at `e37ba7e`. Pushing without asking is authorized.
-- `input-path-r5` = `claude/curves-pro-drums` = `d54d8b3`, pushed. It contains
-  `output-panel`, `claude/velocity-graph-parametric` and `velocity-editor`.
-- Main checkout is on `output-panel` with a modified `x64/Release/MIDI++.exe`;
-  `D:\Dev\mpp-panels` is on the old `astra/shell-parity` (`bdd7e85`).
+- `claude/curves-pro-drums` = `887336d`; this branch builds on it and is pushed.
+- Main checkout is on `output-panel`; `D:\Dev\mpp-panels` is on the old
+  `astra/shell-parity` (`bdd7e85`).
 - Never commit `x64/Release/midi/` (the owner's music) or `build/`.
 
 ## Next action
 
-Ask the owner the MP3 install question above, with its three options, and act
-on the answer. Every other engine item is done or waiting on the panel seat.
+Ask the owner how the in-app Convert test went, then fix what it shows; if it
+worked, scope the release bundle.

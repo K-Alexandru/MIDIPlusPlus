@@ -1,4 +1,5 @@
 #include "ShellEngine.hpp"
+#include "../MIDI++/AudioToMidi.hpp"
 #include "PlaybackSystem.hpp"
 #include "MIDI2Key.hpp"
 #include "MidiOutput.hpp"
@@ -114,6 +115,9 @@ void ShellEngine::Run(std::stop_token stop) {
     // Destroyed before the player it points at, since it is declared after it.
     std::unique_ptr<MIDI2Key> live;
     std::unique_ptr<ConnectInput> connect;
+    // Its thread reports through Send, and its destructor kills the converter's
+    // whole process tree, so closing the app never leaves Transkun running.
+    audio_to_midi::Job converter;
     uint64_t liveMappings = 0;
     int liveTranspose = 0;
     std::chrono::steady_clock::time_point volumeDue{};
@@ -431,10 +435,13 @@ void ShellEngine::Run(std::stop_token stop) {
                 // A transport or mapping command cancels an armed calibration
                 // before it can focus another window. Reopening the dialog is
                 // not permission to send keys; only Calibrate starts a sweep.
+                // A converter status is not something the user did, so it
+                // neither cancels a calibration nor clears an error on screen.
+                const bool fromConverter = command.action == Action::ConvertProgress;
                 if (volumePending && command.action != Action::AutoVolumeCalibrate &&
-                    command.action != Action::AutoVolumeScan && command.action != Action::Scan)
+                    command.action != Action::AutoVolumeScan && command.action != Action::Scan && !fromConverter)
                     cancelVolume();
-                state.error.clear();
+                if (!fromConverter) state.error.clear();
                 switch (command.action) {
                 case Action::MidiConnect:
                     if (!command.value) { stopConnect(); break; }
@@ -885,6 +892,55 @@ void ShellEngine::Run(std::stop_token stop) {
                     break;
                 case Action::SoloPiano: SoloPiano(state.rows); applyTracks(); invalidateSheet(); break;
                 case Action::UnmuteAll: UnmuteAll(state.rows); applyTracks(); invalidateSheet(); break;
+                case Action::ConvertAudio: {
+                    if (state.converting) { state.error = "A conversion is already running."; break; }
+                    if (state.folder.empty()) { state.error = "Choose a MIDI folder first. The converted file is saved there."; break; }
+                    const std::wstring source = command.key.empty() ? command.path.native()
+                        : std::filesystem::path(std::u8string(command.key.begin(), command.key.end())).native();
+                    if (source.empty()) break;
+                    wchar_t executable[MAX_PATH]{};
+                    GetModuleFileNameW(nullptr, executable, MAX_PATH);
+                    const auto install = audio_to_midi::FindInstall(std::filesystem::path(executable).parent_path());
+                    if (!install.Found()) {
+                        state.conversionFailed = true;
+                        state.conversionStatus = "The converter is not installed. tools/mp3-to-midi/README.md says what it needs.";
+                        break;
+                    }
+                    const bool started = converter.Start(
+                        audio_to_midi::CommandLine(install.python, install.script, source, state.folder),
+                        [this](const audio_to_midi::Status& status) {
+                            Send({Action::ConvertProgress, {}, 0, static_cast<size_t>(status.kind), false, 0, status.text});
+                        });
+                    state.converting = started;
+                    state.conversionFailed = !started;
+                    state.conversionStatus = started ? "Starting the converter..." : "The converter could not start.";
+                    break;
+                }
+                case Action::ConvertCancel: converter.Cancel(); break;
+                case Action::ConvertProgress: {
+                    using Kind = audio_to_midi::Status::Kind;
+                    const auto kind = static_cast<Kind>(command.track);
+                    if (kind == Kind::Text) {
+                        // Transkun's own output: kept in the log, not on screen.
+                        ShellLog::Instance().Append("[convert] " + command.key + "\n");
+                        break;
+                    }
+                    if (kind == Kind::Step) { state.conversionStatus = command.key; break; }
+                    state.converting = false;
+                    state.conversionFailed = kind == Kind::Error;
+                    if (kind == Kind::Error) {
+                        state.conversionStatus = command.key;
+                        ShellLog::Instance().Append("[error] Conversion failed: " + command.key + "\n");
+                        break;
+                    }
+                    const auto name = Utf8(std::filesystem::path(std::u8string(command.key.begin(), command.key.end())).filename());
+                    state.conversionStatus = "Converted " + name + ".";
+                    // The new file joins the list the same way Refresh would, and a
+                    // scan is refused during playback, so say when it will appear.
+                    if (state.playing) state.conversionStatus += " Refresh the list after playback to see it.";
+                    else Send({Action::Scan, state.folder});
+                    break;
+                }
                 case Action::CopySheet: {
                     if (!player || state.loaded.empty()) break;
                     const bool anySolo = AnySolo(state.rows);

@@ -59,6 +59,7 @@ private:
     uint64_t sheetStatusGeneration_ = 0;
     std::string sheetStatus_;
     bool sheetPending_ = false;
+    char convertLink_[1024]{};
     void DrawVelocity(const Fonts&, const skin::Skin&, float, ShellEngine&, ImVec2, ImVec2);
     void DrawSettings(const Fonts&, const skin::Skin&, float, ShellEngine&);
     void DrawAutoVolume(const Fonts&, const skin::Skin&, float, ShellEngine&);

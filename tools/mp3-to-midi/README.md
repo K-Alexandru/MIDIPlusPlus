@@ -21,9 +21,15 @@ no code from it. Transkun is by Yujia Yan, [MIT](https://github.com/Yujia-Yan/Tr
    packages above.
 2. `converter\python\python.exe` or `converter\.venv\Scripts\python.exe` beside
    the app's exe, which is how a release bundles it.
+3. `.venv\Scripts\python.exe` in this folder.
 
 The script itself is `converter\convert.py` beside the exe, or this folder for a
-development build.
+development build. FFmpeg is found on `PATH`, or in an `ffmpeg` folder beside
+the script.
+
+For a development build, the quickest setup is a junction from
+`build\shell\converter\.venv` to an existing environment. The shell tests run
+from `build\shell-tests`, which has no converter, so they stay unaffected.
 
 ## Test it by hand
 
