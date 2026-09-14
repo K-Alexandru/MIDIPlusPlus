@@ -76,7 +76,7 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 
 - `tests\run-shell-tests.ps1 -Render`: every shell test and every render
   view at 100, 125, 150 and 200% passed.
-- `tests\run-shell-parity-mutations.ps1`: see the commit that updates this
+- `tests\run-shell-parity-mutations.ps1`: 19 of 19 killed, sources restored.
 - `ui\MIDIShell.vcxproj` Release x64 built.
 - Not run: `run-native-tests.ps1` and `run-latency-tests.ps1`, which take the
   cursor. Nothing was played into a game, and no one has clicked Convert yet.
