@@ -85,11 +85,11 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 
 ## Validation actually run
 
-- At `d76483d`: shell built; `ShellTests.exe` 35 PASS, 0 FAIL.
-- At `2a60a25`: `make-release.ps1` swept 334 binaries for VC runtime imports,
-  imported torch, transkun, yt-dlp and pywebview with PATH cut to Windows,
-  converted a 3 s mp3, zipped; the staged bundle then converted a YouTube
-  link with no sign-in on a bare PATH, 11 s end to end.
+- `d76483d`: shell built; `ShellTests.exe` 35 PASS, 0 FAIL. `2a60a25`:
+  `make-release.ps1` swept 334 binaries for VC runtime imports, imported
+  torch, transkun, yt-dlp and pywebview with PATH cut to Windows, converted a
+  3 s mp3, zipped; the staged bundle then converted a YouTube link with no
+  sign-in on a bare PATH, 11 s end to end.
 - Not run: render tests and parity mutations (no `ui/` or engine change),
   native and latency tests, `signin.py`, the shell live.
 
