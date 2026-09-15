@@ -15,11 +15,11 @@ and WinMM backends, the target switch and its release ordering on
 get wrong. The whole solution builds: the original window, the shell, and both
 test executables.
 
-**The panel half is not built,** and is the reason none of this is reachable
-yet. Everything under "What the panel half adds" is still owed, unchanged. The
-engine side deliberately added nothing to `ShellEngine::Action` or
-`EngineSnapshot`, so that list can still be written once by the seat that owns
-those types.
+**The panel half was built at `08aa1ab`,** as the actions and fields listed
+under "What the panel half adds": a Keystrokes or MIDI switch and an output
+picker in Settings, through `OutputTarget`, `OutputScan` and `OutputOpen`.
+Nothing has been played into a real synth through it yet; that check needs
+the owner at the keyboard.
 
 Two places where the build does not match what is written below, both
 deliberate:

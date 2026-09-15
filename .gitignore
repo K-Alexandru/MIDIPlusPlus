@@ -29,3 +29,6 @@
 # they are notes to a collaborator rather than part of the project.
 /sol-prompt*.md
 /claude-prompt*.md
+
+# The same stray output when MIDI++.vcxproj is built from another directory.
+/MIDI++/MIDI++/

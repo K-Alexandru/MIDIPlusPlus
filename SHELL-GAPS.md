@@ -367,13 +367,14 @@ panel seat; `PROMPT-S-CURVE-AND-SWITCHES.md` piece three has them.
 
 Listed here so one page holds the whole obligation.
 
-- **MIDI output**, the route switch specified in `MIDI-OUTPUT.md`.
+- **MIDI output**, the route switch specified in `MIDI-OUTPUT.md`. Built,
+  both halves, by `08aa1ab`; unplayed on hardware.
 - **The transport bindings on screen.** F1 to F4 are registered at startup and
   named nowhere. `HANDOFF.md` section 15.
 - **The countdown before playback starts**, removed in the same change that
   registered those hotkeys, and asked for again by a tester on 2026-09-07.
-- **A settable velocity key.** Engine side done 2026-09-09, panel side owed;
-  see item 5 under Sequencing. Building it turned up a hole the hardcoding had
+- **A settable velocity key.** Engine side done 2026-09-09, panel side at
+  `08aa1ab`; see item 5 under Sequencing. Building it turned up a hole the hardcoding had
   been hiding: `release_keys` lifted Alt and Ctrl unconditionally and nothing
   else, which was exactly right while the tap always held ALT and is a gap the
   size of the third option once it does not. An interrupted tap would have left
@@ -405,10 +406,10 @@ for the owner rather than a task. What is left, reordered 2026-09-09:
    built-in but Pro can play loud. The Linear Coarse and Linear Fine naming is
    still open, see `VELOCITY-CURVES.md`.
 3. **Done 2026-09-11.** Pro, from the R5 config. See the Pro section above.
-4. MIDI output, `MIDI-OUTPUT.md`. The engine half is built as of 2026-09-09;
-   what is left is the panel half, which is a picker and a two-way switch and
-   is listed in that file ready to be written. Until it exists no user can
-   reach any of it.
+4. **Done 2026-09-09, both halves.** MIDI output, `MIDI-OUTPUT.md`: the
+   engine half at `7205e37`, the panel half at `08aa1ab` as a Keystrokes or
+   MIDI switch and an output picker in Settings. Nothing has been played into
+   a real synth through it yet.
 5. **Done 2026-09-09.** A settable velocity key, as
    `VELOCITY_MODIFIER` in `config.json`: alt, ctrl or shift, defaulting to alt.
    The config refuses anything that is not a modifier, because the velocity
@@ -416,9 +417,8 @@ for the owner rather than a task. What is left, reordered 2026-09-09:
    would play a note, which is the closed decision in `CONTINUE-HERE.md`.
    `velocity_modifier_conflicts()` names the combinations that collide with the
    selected layout, since choosing ctrl makes fifteen taps play a note in the
-   88-key layout and the app is the only thing that can work that out. **The
-   panel still owes the control and the conflict warning**; the engine will not
-   surface either on its own.
+   88-key layout and the app is the only thing that can work that out. The
+   panel control and the conflict list landed at `08aa1ab`.
 6. **Done 2026-09-11, engine side.** Drum detection and auto-transpose; the
    panel still owes their two Settings switches.
 7. The conversion pipeline, which starts with reading two licences.

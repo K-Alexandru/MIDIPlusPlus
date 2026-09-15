@@ -8,10 +8,11 @@ addressed to the owner mixed in.
 You own `ui/` in the MIDI++ ImGui shell at `D:\Dev\MIDIPlusPlus-modded`. C++20,
 MSVC, ImGui, GPLv3.
 
-Start from `claude/curves-pro-drums`, which carries the engine halves below:
+Start from `claude/consolidate-2026-09-15`, which carries the engine halves
+below and everything since, in a worktree of your own:
 
     git fetch origin
-    git checkout -b s-curve-switches origin/claude/curves-pro-drums
+    git worktree add ..\mpp-switches -b s-curve-switches origin/claude/consolidate-2026-09-15
 
 Build and test with `tests\run-shell-tests.ps1 -Render` and
 `tests\run-shell-parity-mutations.ps1`. Both are safe to run at any time. Do
@@ -22,7 +23,9 @@ asking first: they take the real cursor and type into whatever has focus.
 
 You own `ui/`, including `ShellEngine::Action` and `EngineSnapshot`. The engine
 halves added nothing to either type. The other seat owns `MIDI++/` and `tests/`
-and is not editing `ui/` while you work on this.
+and is not editing `ui/` while you work on this. The Convert audio popover,
+`DrawConvert` in `ui/Panels.cpp`, was reworked by that seat on 2026-09-15 at
+the owner's request; leave it unless the owner asks for more.
 
 ## Piece one: rename Pro to S-Curve in the spec
 

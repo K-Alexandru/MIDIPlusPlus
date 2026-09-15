@@ -32,6 +32,10 @@ public:
     bool miniAutoplay = false;
     bool autoVolumeOpen = false;
     bool logOpen = false;
+    // A one-frame request to open the Convert audio popover, consumed by the
+    // next Draw. The menu that normally opens it needs a click a render test
+    // cannot place reliably, so the test asks here instead.
+    bool openConvert = false;
     ~Panels();
     ImVec2 DesiredSize() const;
     void LoadPreferences(const std::filesystem::path& path);
@@ -63,6 +67,7 @@ private:
     bool convertPlaylist_ = false;
     void DrawVelocity(const Fonts&, const skin::Skin&, float, ShellEngine&, ImVec2, ImVec2);
     void DrawSettings(const Fonts&, const skin::Skin&, float, ShellEngine&);
+    void DrawConvert(HWND, const Fonts&, const skin::Skin&, float, ShellEngine&);
     void DrawAutoVolume(const Fonts&, const skin::Skin&, float, ShellEngine&);
     void DrawLog(HWND, const Fonts&, const skin::Skin&, float, ShellEngine&);
     std::string TransportHints(int seekStep) const;

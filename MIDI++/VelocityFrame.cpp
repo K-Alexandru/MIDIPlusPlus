@@ -1,5 +1,6 @@
 ﻿#include "PlaybackSystem.hpp"
 #include "VelocityCurveEditor.hpp"
+#include "VelocityPresets.hpp"
 #include <cmath>
 #include <algorithm>
 #include <vector>
@@ -10,7 +11,9 @@
 #include <windowsx.h>
 #pragma comment(lib, "Gdiplus.lib")
 
-constexpr int POINT_COUNT = 33;     // number of control points
+// POINT_COUNT is the class's own constant, 32. A file-scope 33 used to sit
+// here, shadowed inside every member and so never read, which made the loops
+// below look like an off-by-one they were not.
 constexpr int MAX_VELOCITY = 127;
 constexpr int HIT_RADIUS = 6;      // radius (in pixels) for hit detection
 
@@ -434,27 +437,10 @@ void VelocityCurveEditor::SmoothCurve() {
 
 void VelocityCurveEditor::LoadPreset(const std::string& preset) {
     currentPreset = preset;
-    if (preset == "Linear") {
-        ResetToLinear();
-    }
-    else if (preset == "Logarithmic") {
-        for (int i = 0; i < POINT_COUNT; i++) {
-            double x = static_cast<double>(i) / (POINT_COUNT - 1);
-            points[i] = static_cast<int>(127.0 * (std::log(x * 9 + 1) / std::log(10)));
-        }
-    }
-    else if (preset == "Exponential") {
-        for (int i = 0; i < POINT_COUNT; i++) {
-            double x = static_cast<double>(i) / (POINT_COUNT - 1);
-            points[i] = static_cast<int>(127.0 * std::pow(x, 2));
-        }
-    }
-    else if (preset == "S-Curve") {
-        for (int i = 0; i < POINT_COUNT; i++) {
-            double x = static_cast<double>(i) / (POINT_COUNT - 1);
-            points[i] = static_cast<int>(127.0 * (0.5 + 0.5 * std::tanh((x - 0.5) * 5)));
-        }
-    }
+    // The shapes live in VelocityPresets.hpp, where a test can reach them.
+    // Generated here, every preset started at 0, a threshold no input reaches,
+    // so its quietest step could never be played; see VELOCITY-CURVES.md.
+    points = velocity_presets::Build(preset, POINT_COUNT);
     InvalidateCurveArea();
 }
 
@@ -638,9 +624,7 @@ void VelocityCurveEditor::OnClose() {
 }
 
 void VelocityCurveEditor::ResetToLinear() {
-    for (int i = 0; i < POINT_COUNT; i++) {
-        points[i] = (i * MAX_VELOCITY) / (POINT_COUNT - 1);
-    }
+    points = velocity_presets::Build("Linear", POINT_COUNT);
 }
 
 LRESULT CALLBACK VelocityCurveEditor::EditorWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {

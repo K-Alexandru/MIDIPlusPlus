@@ -1,6 +1,9 @@
 # MIDI++ successor: handoff brief
 
-> New here? Read `CONTINUE-HERE.md` first. This file is the full brief.
+> New here? Read `CONTINUE-HERE.md` first, then only the sections of this file
+> it points you to. This is the durable record of decisions and their reasons,
+> not the current task, and where it disagrees with the code or
+> `CONTINUE-HERE.md`, they win.
 
 **2026-09-05 update:** `CONTINUE-HERE.md` supersedes the implementation-status
 claims below. The ImGui shell now has embedded/system fonts, DPI support,

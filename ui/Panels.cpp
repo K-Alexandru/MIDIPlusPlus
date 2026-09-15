@@ -1392,6 +1392,115 @@ void Panels::SettingsControl(const Fonts& fonts, const skin::Skin& design, float
     }
 }
 
+// The Convert audio popover. It used to be five buttons of equal weight in a
+// bare popup: a file picker, a link button, a sign-in, a cancel, and a
+// checkbox with a sentence beside it. Now there is one primary action, at
+// the end of the field it acts on, and the same button becomes Cancel while
+// the run it started is going, so the thing you press is always in one place.
+// The file picker is the quieter second source, and sign-in is a footnote
+// row, because it is done once and then forgotten. Errors use the bad colour
+// rather than the accent, which the house rules keep for selection.
+void Panels::DrawConvert(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float dpi, ShellEngine& engine) {
+    const auto state = engine.Snapshot();
+    const auto s = skin::ScaleGeometry(design, dpi);
+    FontScope font(fonts, design, design.type.body * SpecFontScale(design));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12 * dpi, (s.metric.controlHeight - ImGui::GetTextLineHeight()) / 2));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(s.spacing.s2, s.spacing.s2));
+    const float width = ImGui::GetContentRegionAvail().x;
+    { FontScope title(fonts, design, design.type.heading * SpecFontScale(design), Weight::Semibold);
+      ImGui::TextUnformatted("Convert audio to MIDI"); }
+    { FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
+      ImGui::PushStyleColor(ImGuiCol_Text, Colour(s.ink.secondary));
+      ImGui::PushTextWrapPos(width);
+      ImGui::TextUnformatted("A recording or a YouTube link becomes a MIDI file in your MIDI folder. Solo piano converts best.");
+      ImGui::PopTextWrapPos();
+      ImGui::PopStyleColor(); }
+    ImGui::Dummy(ImVec2(0, s.spacing.s1));
+
+    const bool busy = state->converting;   // true while the sign-in window is open too
+    const bool ready = !state->folder.empty();
+    const bool playlistLink = audio_to_midi::IsPlaylistLink(convertLink_);
+    // Sized for the widest label it carries, so the field beside it does not
+    // jump when Convert becomes Cancel.
+    const float actionWidth = ImGui::CalcTextSize("Convert").x + 2 * 16 * dpi;
+    ImGui::BeginDisabled(busy || !ready);
+    ImGui::SetNextItemWidth(width - actionWidth - s.spacing.s2);
+    ImGui::InputTextWithHint("##convert-link", "Paste a YouTube link", convertLink_, sizeof(convertLink_));
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (busy) {
+        if (ImGui::Button(state->signingIn ? "Close" : "Cancel", ImVec2(actionWidth, s.metric.controlHeight)))
+            engine.Send({ShellEngine::Action::ConvertCancel});
+    } else {
+        ImGui::BeginDisabled(!ready || !convertLink_[0]);
+        if (ImGui::Button("Convert", ImVec2(actionWidth, s.metric.controlHeight)))
+            engine.Send({ShellEngine::Action::ConvertAudio, {}, 0, 0, playlistLink && convertPlaylist_, 0, convertLink_});
+        ImGui::EndDisabled();
+    }
+    ImGui::BeginDisabled(busy || !ready);
+    // Only for a link that names a playlist. Unticked, a video watched inside
+    // a playlist still converts on its own.
+    if (playlistLink) {
+        ImGui::Checkbox("Whole playlist", &convertPlaylist_);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("Every video in turn. Cancel keeps the files made so far.");
+    }
+    if (TransportButton("##convert-file", Icon::Open, "Choose an audio file", s, dpi)) {
+        const auto path = PickFile(hwnd, true);
+        if (!path.empty()) engine.Send({ShellEngine::Action::ConvertAudio, path});
+    }
+    ImGui::EndDisabled();
+    if (!ready) {
+        FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
+        ImGui::PushStyleColor(ImGuiCol_Text, Colour(s.ink.secondary));
+        ImGui::TextUnformatted("Choose a MIDI folder first. The file is saved there.");
+        ImGui::PopStyleColor();
+    }
+
+    // Sign-in is a footnote: done once, then it only says which state it is in.
+    ImGui::Separator();
+    {
+        FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
+        const char* account = state->youtubeSignedIn ? "Signed in to YouTube" : "Not signed in to YouTube";
+        const char* action = state->youtubeSignedIn ? "Sign in again" : "Sign in";
+        const float actionText = ImGui::CalcTextSize(action).x + 2 * 8 * dpi;
+        ImGui::PushStyleColor(ImGuiCol_Text, Colour(s.ink.secondary));
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted(account);
+        ImGui::PopStyleColor();
+        ImGui::SameLine(width - actionText);
+        ImGui::BeginDisabled(busy);
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8 * dpi, (s.metric.innerHeight - ImGui::GetTextLineHeight()) / 2));
+        if (ImGui::Button(action, ImVec2(actionText, s.metric.innerHeight))) engine.Send({ShellEngine::Action::YouTubeSignIn});
+        ImGui::PopStyleVar();
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Needed when YouTube refuses links. You sign in yourself, in a window the app opens.");
+    }
+
+    // Progress: an indeterminate bar while a run is going, then the last line
+    // the converter said, worded as a failure when it was one.
+    if (busy && !state->signingIn) {
+        const ImVec2 min = ImGui::GetCursorScreenPos();
+        const float height = 4 * dpi;
+        auto* draw = ImGui::GetWindowDrawList();
+        draw->AddRectFilled(min, ImVec2(min.x + width, min.y + height), Colour(s.surface.recessed), height / 2);
+        const float span = width * .3f;
+        const float travel = static_cast<float>(std::fmod(ImGui::GetTime() * .6, 1.0)) * (width + span) - span;
+        draw->AddRectFilled(ImVec2(min.x + std::max(0.f, travel), min.y),
+                            ImVec2(min.x + std::min(width, travel + span), min.y + height), Colour(s.accent.accent), height / 2);
+        ImGui::Dummy(ImVec2(width, height));
+    }
+    if (!state->conversionStatus.empty()) {
+        const auto line = (state->conversionFailed ? "Failed: " : "") + state->conversionStatus;
+        ImGui::PushStyleColor(ImGuiCol_Text, Colour(state->conversionFailed ? s.accent.bad : s.ink.primary));
+        ImGui::PushTextWrapPos(width);
+        ImGui::TextUnformatted(line.c_str());
+        ImGui::PopTextWrapPos();
+        ImGui::PopStyleColor();
+    }
+    ImGui::PopStyleVar(2);
+}
+
 void Panels::DrawStatus(const Fonts& fonts, const skin::Skin& design, float dpi, const EngineSnapshot& state,
                        ImVec2 min, float width, float height) {
     const auto s = skin::ScaleGeometry(design, dpi);
@@ -1406,6 +1515,8 @@ void Panels::DrawStatus(const Fonts& fonts, const skin::Skin& design, float dpi,
     else if (state.busy) fields.push_back("Loading...");
     else {
         fields.push_back(state.playing ? "Playing" : state.midiConnect ? "MidiConnect" : state.liveActive ? "Live" : "Ready");
+        // A conversion outlives its popup, so the bar says one is running.
+        if (state.converting) fields.push_back(state.signingIn ? "Signing in to YouTube" : "Converting audio");
         fields.push_back("Curve " + state.ActiveVelocityName());
         std::string input = "Input ";
         input += state.liveDevice.empty() ? "None" : BackendName(BackendForDeviceId(state.liveDevice));
@@ -1720,64 +1831,27 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     // One button for the three ways a file arrives. Three separate icon
     // buttons beside the search box, under two more in the header, was too
     // many controls for one small panel.
-    if (IconButton("##add-files", Icon::Plus, state->converting ? "Add MIDI files (converting audio)" : "Add MIDI files", s, dpi))
+    // Marked while a conversion runs, because the popup can be closed over
+    // it and this button is where the run is found again.
+    if (IconButton("##add-files", Icon::Plus, state->converting ? "Add MIDI files (converting audio)" : "Add MIDI files", s, dpi, state->converting))
         ImGui::OpenPopup("Add MIDI files");
-    bool openConvert = false;
+    bool convertRequested = openConvert;
+    openConvert = false;
     if (ImGui::BeginPopup("Add MIDI files")) {
         if (ImGui::MenuItem("Open MIDI file...")) load(PickMidiFile(hwnd));
         if (ImGui::MenuItem("Choose MIDI folder...", nullptr, false, !state->playing && !state->busy)) {
             const auto path = PickFolder(hwnd);
             if (!path.empty()) { preferences.folder = path; engine.Send({ShellEngine::Action::Scan, path}); }
         }
-        if (ImGui::MenuItem("Convert audio to MIDI...")) openConvert = true;
+        if (ImGui::MenuItem("Convert audio to MIDI...")) convertRequested = true;
         ImGui::EndPopup();
     }
     // Opened out here, where the menu was, rather than from inside the menu,
     // so it is a sibling of the menu and not a child that closes with it.
-    if (openConvert) ImGui::OpenPopup("Convert audio");
+    if (convertRequested) ImGui::OpenPopup("Convert audio");
+    ImGui::SetNextWindowSizeConstraints(ImVec2(360 * dpi, 0), ImVec2(360 * dpi, 10000 * dpi));
     if (ImGui::BeginPopup("Convert audio")) {
-        ImGui::TextUnformatted("Make a MIDI file from a recording. Solo piano works best.");
-        ImGui::BeginDisabled(state->converting || state->folder.empty());
-        if (ImGui::Button("Choose audio file")) {
-            const auto path = PickFile(hwnd, true);
-            if (!path.empty()) engine.Send({ShellEngine::Action::ConvertAudio, path});
-        }
-        ImGui::SetNextItemWidth(300 * dpi);
-        ImGui::InputTextWithHint("##convert-link", "Or paste a YouTube link", convertLink_, sizeof(convertLink_));
-        ImGui::SameLine();
-        const bool playlistLink = audio_to_midi::IsPlaylistLink(convertLink_);
-        ImGui::BeginDisabled(!convertLink_[0]);
-        if (ImGui::Button("Convert link"))
-            engine.Send({ShellEngine::Action::ConvertAudio, {}, 0, 0, playlistLink && convertPlaylist_, 0, convertLink_});
-        ImGui::EndDisabled();
-        // Only for a link that names a playlist. Unticked, a video watched
-        // inside a playlist still converts on its own.
-        if (playlistLink) {
-            ImGui::Checkbox("Whole playlist", &convertPlaylist_);
-            ImGui::SameLine();
-            ImGui::TextDisabled("Every video in turn. Cancel stops it and keeps the files made so far.");
-        }
-        ImGui::EndDisabled();
-        // YouTube refuses some connections unless signed in; the window keeps
-        // its own profile, so this is needed once.
-        ImGui::BeginDisabled(state->converting);
-        if (ImGui::Button(state->youtubeSignedIn ? "Sign in again" : "Sign in to YouTube"))
-            engine.Send({ShellEngine::Action::YouTubeSignIn});
-        ImGui::EndDisabled();
-        ImGui::SameLine();
-        ImGui::TextDisabled(state->youtubeSignedIn ? "Signed in. Links use this session."
-                                                   : "Needed when YouTube refuses links.");
-        if (state->folder.empty()) ImGui::TextDisabled("Choose a MIDI folder first. The new file is saved there.");
-        if (!state->conversionStatus.empty()) {
-            // Worded as a failure, not only coloured as one.
-            const auto line = (state->conversionFailed ? "Failed: " : "") + state->conversionStatus;
-            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 420 * dpi);
-            if (state->conversionFailed) ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(Colour(s.accent.accent)), "%s", line.c_str());
-            else ImGui::TextUnformatted(line.c_str());
-            ImGui::PopTextWrapPos();
-        }
-        if (state->converting && ImGui::Button(state->signingIn ? "Close sign-in window" : "Cancel conversion"))
-            engine.Send({ShellEngine::Action::ConvertCancel});
+        DrawConvert(hwnd, fonts, design, dpi, engine);
         ImGui::EndPopup();
     }
     const ImVec2 listMin = ImGui::GetCursorScreenPos();

@@ -7,6 +7,7 @@
 #include "../MIDI++/MidiOutput.hpp"
 #include "../MIDI++/SheetExport.hpp"
 #include "../MIDI++/AudioToMidi.hpp"
+#include "../MIDI++/VelocityPresets.hpp"
 #include "../MIDI++/MidiStreamSplit.hpp"
 #include "../MIDI++/config.hpp"
 #include "../MIDI++/MIDI2Key.hpp"
@@ -559,6 +560,27 @@ void DrumDetectionTests(const std::filesystem::path& directory) {
     std::filesystem::remove(config);
     std::filesystem::remove(fixture);
     std::cout << "PASS drum detection labels a non-channel-10 kit and Solo Piano mutes it; auto-transpose types no arrows\n";
+}
+
+// The original window's editor presets. Every threshold must be one an input
+// can select: at least 1, and above the one before it. The presets used to
+// start at 0, and Exponential at 0, 0, 0, so the quietest steps were dead.
+void VelocityPresetTests() {
+    for (const char* name : {"Linear", "Logarithmic", "Exponential", "S-Curve"}) {
+        const auto points = velocity_presets::Build(name, 32);
+        Require(points.size() == 32, "a preset has one threshold per step");
+        Require(points.front() >= 1, "a preset threshold that no input can select");
+        for (size_t i = 1; i < points.size(); ++i)
+            Require(points[i] > points[i - 1] && points[i] <= 127, "a preset threshold that no input can select");
+        Require(points.back() == 127, "the top step reaches the loudest input");
+    }
+    // The repair lifts only the dead bottom; the shapes are still theirs.
+    const auto exponential = velocity_presets::Build("Exponential", 32);
+    const auto logarithmic = velocity_presets::Build("Logarithmic", 32);
+    Require(exponential[16] < 40 && logarithmic[16] > 90, "the repaired presets keep their shapes");
+    Require(velocity_presets::Build("Linear", 1).size() == 1 && velocity_presets::Build("Linear", 1).front() == 127,
+            "a one-point preset is the top step");
+    std::cout << "PASS editor presets start at a playable threshold and rise to 127\n";
 }
 
 void VelocityCurveEditorModelTests() {
@@ -2652,7 +2674,7 @@ int wmain(int argc, wchar_t** argv) {
             else if (group == L"countdown") CountdownTests(directory);
             else if (group == L"library") LibraryParityTests(directory);
             else if (group == L"connect") ConnectAndWarningTests(directory);
-            else if (group == L"curve") { VelocityCurveDrawingTests(directory / L"config.json"); BuiltinCurveTests(directory); VelocityCurveEditorModelTests(); }
+            else if (group == L"curve") { VelocityCurveDrawingTests(directory / L"config.json"); BuiltinCurveTests(directory); VelocityCurveEditorModelTests(); VelocityPresetTests(); }
             else if (group == L"drums") DrumDetectionTests(directory);
             else if (group == L"sheet") { SheetExportTests(); SheetStyleTests(); }
             else if (group == L"audio") AudioToMidiTests(directory);
@@ -2678,6 +2700,7 @@ int wmain(int argc, wchar_t** argv) {
         VelocityCurveDrawingTests(directory / L"config.json");
         BuiltinCurveTests(directory);
         VelocityCurveEditorModelTests();
+        VelocityPresetTests();
         MidiOutputTests(directory / L"config.json");
         VelocityModifierTests(directory / L"config.json");
         DrumDetectionTests(directory);

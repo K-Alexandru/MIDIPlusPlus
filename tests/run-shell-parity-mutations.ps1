@@ -32,6 +32,9 @@ $cases = @(
     # A file saved before S-Curve existed names its first custom curve 5, which
     # is now S-Curve. Without the shift the user's own curve is silently swapped.
     @{Name='saved-custom-lands-on-s-curve'; File='ui\ShellEngine.cpp'; Group='curve'; Find='if (preset >= builtins) preset = preset - builtins + midi::kBuiltinVelocityCurves;'; Replace='/* index taken as saved */'; Failure='a custom curve saved before S-Curve existed reopened as a different curve'},
+    # Every editor preset used to start at 0, and Exponential at 0, 0, 0: a
+    # threshold no input reaches, so the quietest steps could never be played.
+    @{Name='preset-floor-at-zero'; File='MIDI++\VelocityPresets.hpp'; Group='curve'; Find='points[i] = std::clamp(std::max(points[i], floorValue), 1, kMaxVelocity);'; Replace='points[i] = std::clamp(points[i], 0, kMaxVelocity);'; Failure='a preset threshold that no input can select'},
     # midi-converter's window is chained. Measuring from the chord's first
     # note instead splits a roll the original keeps as one braced group.
     @{Name='quantize-not-chained'; File='MIDI++\SheetExport.hpp'; Group='sheet'; Find='{ current.push_back(placed); last = placed.ms; }'; Replace='{ current.push_back(placed); }'; Failure='a spread chord is one braced group in played order'},
