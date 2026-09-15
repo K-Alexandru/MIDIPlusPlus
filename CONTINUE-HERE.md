@@ -43,8 +43,7 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - `tools/mp3-to-midi/requirements.txt`: the pinned bundle; its header says
   how the list was derived and how to re-derive it after a bump.
 - `tests/RenderTests.cpp`: the `minimum` variant captures the 900 x 580 floor.
-- `ui/Panels.cpp`: `SettingRadio` and `SettingSwitch` are the hand-drawn
-  controls; `DrawSettings` holds the switch descriptions.
+- `ui/Panels.cpp`: `SettingRadio`, `SettingSwitch`, `DrawSettings`.
 
 ## Verified facts
 
@@ -60,8 +59,6 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - torch's DLLs import msvcp140, msvcp140_atomic_wait and vcruntime140_threads,
   which the embeddable Python lacks; the bundle ships the VC143 redist beside
   python.exe and the script proves they load from there.
-- ImGui's `RadioButton` is a disc the height of a text field whose edge reads
-  as a polygon at 125%; hand-drawn circles with auto segments do not.
 
 ## Work completed, 2026-09-15
 
@@ -82,10 +79,9 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
   closed headers. At 900 x 580 the Tracks panel shows half a row and the
   velocity combo overlaps its chevron (`skin-0-125-minimum.png`).
 - **Panel seat, not started:** `PROMPT-S-CURVE-AND-SWITCHES.md`.
-- **Needs the owner at the keyboard:** Convert with a file and a link in
-  `v0.2.1-test`, delivery into a game, Wooting feel, two devices, MIDI output
-  into a synth, live curve reconnection, a mixed-DPI move.
-- Links from sites that refuse yt-dlp's default client (Wikimedia, 403).
+- **Needs the owner at the keyboard:** Convert in `v0.2.1-test`, delivery
+  into a game, Wooting feel, two devices, MIDI output into a synth, live
+  curve reconnection, a mixed-DPI move. Wikimedia links still 403.
 
 ## Validation actually run
 
