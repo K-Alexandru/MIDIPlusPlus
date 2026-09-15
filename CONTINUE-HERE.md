@@ -54,8 +54,7 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
   is the safe way); an inline `python -c` loses its double quotes; and
   `Get-ChildItem -Include` with `-LiteralPath` matches every file.
 - Run MSBuild from PowerShell: Git Bash rewrites `/p:` switches as paths.
-- pydub reads wav itself and every other format through ffprobe, so a
-  converter check must use an mp3.
+- pydub needs ffprobe for every format but wav; a converter check must use an mp3.
 - torch's DLLs import msvcp140, msvcp140_atomic_wait and vcruntime140_threads,
   which the embeddable Python lacks; the bundle ships the VC143 redist beside
   python.exe and the script proves they load from there.
@@ -70,10 +69,8 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - `c5fcc7d`: F-key hints on the transport title row, velocity combo floored
   at its longest preset name, three restating descriptions cut, Keyboard
   timing under a closed header.
-- `f9f0687`: window floor raised to 900 x 610, the design height, so two
-  track rows always fit; `v0.2.2-test` published from it, zip 426 MB, SHA256
-  `7D5C6D8EABF8086E2B0BF44F3553DEC578B9D42B338F872EB6C2A66BCD31473A`.
-- `ShellTests` covers the shipped converter layout; `RenderTests` has `minimum`.
+- `f9f0687`: floor 900 x 610, two track rows always fit; `v0.2.2-test` from
+  it, zip 426 MB, SHA256 `7D5C6D8EABF8086E2B0BF44F3553DEC578B9D42B338F872EB6C2A66BCD31473A`.
 
 ## Unresolved
 
