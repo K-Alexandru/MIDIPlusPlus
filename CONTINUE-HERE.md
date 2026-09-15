@@ -113,8 +113,6 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 
 ## Next action
 
-Ask the owner whether to publish this as a test build. If yes: run
-`tools\make-release.ps1` from the branch head in the main checkout, then
-`gh release create v0.2.0-test <zip> --repo K-Alexandru/MIDIPlusPlus-testing`
-with notes naming the commit and SHA256 the script prints, and tell testers
-the download is 390 MB.
+`v0.2.0-test` is published on K-Alexandru/MIDIPlusPlus-testing from `d76483d`
+(zip 390 MB, SHA256 `6326834B…4E48A`). Wait for tester reports there; the
+next Claude work is whatever they raise, or the owner's items above.
