@@ -1,7 +1,7 @@
 # Start here
 
-Updated 2026-09-15 on `claude/continue-here-4d1c91`: `claude/curves-pro-drums`
-(`887336d`) plus MP3 to MIDI and an owner-requested UI pass. Then read
+Updated 2026-09-15 on `claude/continue-here-f0c3de`: `claude/continue-here-4d1c91`
+(`7fcd008`) plus the inner shadow and Tracks spacing fixes (`83fa9ed`). Then read
 `HANDOFF.md`, `SHELL-GAPS.md` (what the shell owes) and `SEATS.md` (who does what).
 
 ## Goal
@@ -56,6 +56,8 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
   to close it before rebuilding.
 - The display runs at 125%; read `tests/NativeShell.ps1` before scripting any
   click or screenshot.
+- Live captures need no cursor: pass a `.mid` as `argv[1]` to open it, and use
+  `PrintWindow` with flag 3, since `CopyFromScreen` grabs whatever covers it.
 
 ## Work completed
 
@@ -70,11 +72,9 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 
 ## Unresolved
 
-- **Inner shadow still clips at curved ends (owner, after e57e613).** Seen at
-  the top of the file list live; the 200% render crops looked right, so they
-  are not proof. Get a live 125% screenshot before changing `InnerShadow`.
-- **Tracks panel spacing is wrong (owner, 2026-09-15).** Specifics not yet
-  given; ask for a screenshot.
+- **Owner to confirm `83fa9ed`.** Shadow bands now fade down the sides past
+  each corner; Tracks gained outer padding and aligned MUTE/SOLO headings.
+  The owner never named the Tracks fault, so these were inferred.
 - **YouTube link inside the app after sign-in:** not yet confirmed to convert.
 - **Release bundle:** `converter\` beside the exe with an embeddable Python,
   the packages including pywebview, both scripts and `ffmpeg\`. Size not weighed.
@@ -85,8 +85,9 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 
 ## Validation actually run
 
-- At `e57e613`: `tests\run-shell-tests.ps1 -Render` passed, all shell tests and
-  192 render images; `ui\MIDIShell.vcxproj` built and linked.
+- At `83fa9ed`: `ui\MIDIShell.vcxproj` built; `tests\run-shell-tests.ps1
+  -Render` passed, 0 failures. Live 125% captures before and after, compared
+  by pixel dump of the file list corner.
 - At `ad05987`: `tests\run-shell-parity-mutations.ps1`, 19 of 19 killed. Not
   rerun after the two UI commits, which changed drawing code only.
 - Not run: `run-native-tests.ps1` and `run-latency-tests.ps1`, which take the
@@ -106,7 +107,8 @@ Shell tests capture injection in process, so always safe; never `*>&1` in PS 5.1
 
 - `origin` is K-Alexandru/MIDIPlusPlus; `upstream` is Zephkek/MIDIPlusPlus.
   `main` stays at `e37ba7e`. Pushing without asking is authorized.
-- This branch is pushed and clean; code last changed at `e57e613`.
+- This branch is pushed and clean; code last changed at `83fa9ed`.
+  `claude/continue-here-4d1c91` is its ancestor and now superseded.
 - Main checkout is on `output-panel`; `D:\Dev\mpp-panels` is on the old
   `astra/shell-parity` (`bdd7e85`).
 - Never commit `x64/Release/midi/`, `build/`, `tools/mp3-to-midi/cookies.txt`
@@ -114,6 +116,6 @@ Shell tests capture injection in process, so always safe; never `*>&1` in PS 5.1
 
 ## Next action
 
-Ask the owner for two live screenshots at 125%, the top of the file list and
-the whole Tracks panel, then fix the shadow in `ui/SkinDraw.cpp` and the Tracks
-spacing in `ui/Panels.cpp` against them.
+Ask the owner to open `build\shell\MIDIShell.exe` from this branch and confirm
+the file list shadow and the Tracks spacing; if Tracks still looks wrong, ask
+which gap they mean before changing `ui/Panels.cpp`.
