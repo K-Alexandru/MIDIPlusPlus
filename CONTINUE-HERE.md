@@ -15,8 +15,9 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 
 - Panel seat owns `ui/`, including `ShellEngine::Action` and `EngineSnapshot`.
 - Claude owns `MIDI++/`, `tests/`, `tools/`, specs, and engine seams in `ui/`.
-- Owner-approved exception, not a precedent: Claude's Convert popover in
-  `ui/Panels.cpp` (`DrawConvert`, 2026-09-15).
+- Owner-approved exceptions, not precedents: Claude's Convert popover
+  (`DrawConvert`) and the hand-drawn `SettingRadio`, both in `ui/Panels.cpp`,
+  2026-09-15.
 
 ## Decisions made, do not reopen
 
@@ -38,10 +39,12 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 ## Relevant files
 
 - `tools/make-release.ps1`: builds, stages `converter\` beside the exe, checks
-  it on a bare PATH, zips. Needs `py -3.12` (or `-Python`) to fetch wheels.
+  it on a bare PATH with an mp3, zips. Needs `py -3.12` (or `-Python`).
 - `tools/mp3-to-midi/requirements.txt`: the pinned bundle; its header says
   how the list was derived and how to re-derive it after a bump.
-- `MIDI++/AudioToMidi.hpp`: `FindInstall` prefers `converter\python\python.exe`.
+- `tests/RenderTests.cpp`: the `minimum` variant captures the 900 x 580 floor.
+- `ui/Panels.cpp`: `SettingRadio` and `SettingSwitch` are the hand-drawn
+  controls; `DrawSettings` holds the switch descriptions.
 
 ## Verified facts
 
@@ -52,45 +55,45 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
   is the safe way); an inline `python -c` loses its double quotes; and
   `Get-ChildItem -Include` with `-LiteralPath` matches every file.
 - Run MSBuild from PowerShell: Git Bash rewrites `/p:` switches as paths.
-- A real Transkun transcription loads torch, torchaudio, numpy, scipy, sympy,
-  mir_eval, pretty_midi, mido, pydub, soxr, moduleconf, tqdm and setuptools,
-  never pandas, matplotlib, seaborn, networkx, tensorboard, ncls or sox.
+- pydub reads wav itself and every other format through ffprobe, so a
+  converter check must use an mp3.
 - torch's DLLs import msvcp140, msvcp140_atomic_wait and vcruntime140_threads,
   which the embeddable Python lacks; the bundle ships the VC143 redist beside
   python.exe and the script proves they load from there.
+- ImGui's `RadioButton` is a disc the height of a text field whose edge reads
+  as a polygon at 125%; hand-drawn circles with auto segments do not.
 
 ## Work completed, 2026-09-15
 
-- Release bundle: `converter\` with embeddable Python 3.12.10, 40 pinned
-  packages, `convert.py`, `signin.py`, FFmpeg 9.0.1 essentials, Deno 2.9.6,
-  every licence under `converter\licenses\`; downloads pinned by SHA256 and
-  cached in `build\release\downloads`. `convert.py` finds `deno\` beside it.
-- `ShellTests` gained the shipped-layout case for `FindInstall`.
-- Tester README names Convert and Sign in to YouTube, and credits the converter.
-- `v0.2.0-test` published from `d76483d`, then found to convert only wav: it
-  shipped no ffprobe, which pydub needs for every other format.
-- `2a60a25` bundles ffprobe and checks with an mp3; repackaged zip 426 MB,
-  SHA256 `91AF0E66F21562936C4ECF312A78208815D72D51771D72DE643C95B070D2CF0E`.
+- Release bundle: embeddable Python 3.12.10, 40 pinned packages, FFmpeg and
+  ffprobe 9.0.1, Deno 2.9.6, licences under `converter\licenses\`.
+- `v0.2.0-test` shipped without ffprobe and converted only wav; superseded.
+- `v0.2.1-test` published on K-Alexandru/MIDIPlusPlus-testing from `6526cac`:
+  zip 426 MB, SHA256 `7903889551817ABDBEE57DD00DC52881CF7D7FCB66936210C1A808C27454759C`.
+- MIDI output and theme radios redrawn as 16px rings with a dot.
+- `ShellTests` covers the shipped converter layout; `RenderTests` captures
+  the smallest window.
 
 ## Unresolved
 
-- **Panel seat, not started:** the owner hands over
-  `PROMPT-S-CURVE-AND-SWITCHES.md`; its three pieces are listed there.
-- **Owner, 2026-09-15:** the Convert popover "can be simplified"; ask what
-  before redesigning it.
-- **Needs the owner at the keyboard:** Convert with a file and a link in the
-  fixed build, delivery into a game, Wooting feel, two devices, MIDI output
+- **Owner, 2026-09-15, not yet decided who does it:** Settings scrolls too
+  long; cut descriptions that restate their switch (Solo piano tracks on
+  load, Shuffle Play, Always on top) and fold Wooting, timing and About under
+  closed headers. At 900 x 580 the Tracks panel shows half a row and the
+  velocity combo overlaps its chevron (`skin-0-125-minimum.png`).
+- **Panel seat, not started:** `PROMPT-S-CURVE-AND-SWITCHES.md`.
+- **Needs the owner at the keyboard:** Convert with a file and a link in
+  `v0.2.1-test`, delivery into a game, Wooting feel, two devices, MIDI output
   into a synth, live curve reconnection, a mixed-DPI move.
 - Links from sites that refuse yt-dlp's default client (Wikimedia, 403).
 
 ## Validation actually run
 
-- `d76483d`: shell built; `ShellTests.exe` 35 PASS, 0 FAIL. `2a60a25`:
-  `make-release.ps1` swept 334 binaries for VC runtime imports, imported
-  torch, transkun, yt-dlp and pywebview with PATH cut to Windows, converted a
-  3 s mp3, zipped; the staged bundle then converted a YouTube link with no
-  sign-in on a bare PATH, 11 s end to end.
-- Not run: render, parity mutation, native and latency tests; `signin.py`; the shell live.
+- `6526cac`: shell built; `ShellTests.exe` 35 PASS, 0 FAIL; `RenderTests.exe`
+  260 PASS; `make-release.ps1` swept 334 binaries, imported the converter on
+  a bare PATH, converted an mp3, zipped; the staged bundle converted a
+  YouTube link with no sign-in in 11 s. `9141886`: `RenderTests.exe` 280 PASS.
+- Not run: parity mutations, native and latency tests, `signin.py`, the shell live.
 
 ## Build and test
 
@@ -113,7 +116,8 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 
 ## Next action
 
-With the owner's yes, publish the fixed zip in `build\release` as
-`v0.2.1-test` on K-Alexandru/MIDIPlusPlus-testing, notes as for `v0.2.0-test`
-plus one line saying mp3 and link conversion now work, naming `2a60a25` and
-the SHA256 above; then mark `v0.2.0-test` as superseded in its notes.
+With the owner's go-ahead for Claude to work `ui/`: in a worktree, make the
+transport panel one row shorter by putting the F-key hints on the title row,
+give the collapsed velocity combo a floor width from its longest preset name
+and let Sustain cutoff shrink first, cut the three restating descriptions,
+then compare the `minimum` and `settings` captures before and after.
