@@ -10,7 +10,6 @@ One Windows app that does everything the original MIDI++ window did and more.
 The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 (`MIDI++/`, `x64\Release\MIDI++.exe`); both share `PlaybackCore` through
 `ShellEngine`. Nothing the original had is optional (`SHELL-GAPS.md`).
-`v0.2.0-test` is out to testers; the current work is what they report.
 
 ## Seats
 
@@ -35,8 +34,6 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - UI copy follows `HANDOFF.md` section 15; attribution follows section 13.
 - One branch. New work goes in a worktree off it and merges back; a merged
   branch is deleted, locally and on `origin`.
-- Test builds go to K-Alexandru/MIDIPlusPlus-testing; publishing is a
-  separate, owner-confirmed step, never part of the script.
 
 ## Relevant files
 
@@ -45,7 +42,6 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - `tools/mp3-to-midi/requirements.txt`: the pinned bundle; its header says
   how the list was derived and how to re-derive it after a bump.
 - `tools/mp3-to-midi/README.md`: runtime needs, lookup order, bundle layout.
-- `tools/release-README.txt`: the tester README; release notes copy its lists.
 - `MIDI++/AudioToMidi.hpp`: `FindInstall` prefers `converter\python\python.exe`.
 
 ## Verified facts
@@ -84,8 +80,6 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
   game, Wooting feel, two devices, MIDI output into a synth, live curve
   reconnection, a mixed-DPI move, the Convert popover at 125%.
 - Links from sites that refuse yt-dlp's default client (Wikimedia, 403).
-- torch ships 63 MB of headers and `.lib` files; left in, since pruning a
-  wheel changes what pip installed.
 
 ## Validation actually run
 
@@ -114,7 +108,6 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - The main checkout `D:\Dev\MIDIPlusPlus-modded` is on this branch, pushed,
   clean apart from the rebuilt `x64\Release\MIDI++.exe` and the owner's
   `x64\Release\midi\`. `D:\Dev\mpp-panels` is the panel seat's; leave it.
-- `.claude\worktrees\midiplus-dev-planning-e05d69` is pruned; delete the folder by hand.
 - Never commit `x64/Release/midi/`, `build/`, `MIDI++/MIDI++/`, `.claude/`,
   `tools/mp3-to-midi/cookies.txt` or `tools/mp3-to-midi/browser/`.
 
