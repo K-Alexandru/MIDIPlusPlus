@@ -68,13 +68,10 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - `v0.2.1-test` published on K-Alexandru/MIDIPlusPlus-testing from `6526cac`:
   zip 426 MB, SHA256 `7903889551817ABDBEE57DD00DC52881CF7D7FCB66936210C1A808C27454759C`.
 - MIDI output and theme radios redrawn as 16px rings with a dot.
-- `c5fcc7d`, after `v0.2.1-test`: F-key hints moved onto the transport title
-  row, so Tracks shows a full row at 900 x 580 and two at the design size;
-  the collapsed velocity combo has a floor from its longest preset name and
-  Sustain cutoff shrinks first; three restating switch descriptions cut and
-  Keyboard timing folded under a closed header.
-- `ShellTests` covers the shipped converter layout; `RenderTests` captures
-  the smallest window (`minimum`).
+- `c5fcc7d`, after `v0.2.1-test`: F-key hints on the transport title row
+  (Tracks gains a row), velocity combo floored at its longest preset name,
+  three restating descriptions cut, Keyboard timing under a closed header.
+- `ShellTests` covers the shipped converter layout; `RenderTests` has `minimum`.
 
 ## Unresolved
 
