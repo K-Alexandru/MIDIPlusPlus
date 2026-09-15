@@ -107,8 +107,7 @@ Shell tests capture injection in process, so always safe; never `*>&1` in PS 5.1
 
 - `origin` is K-Alexandru/MIDIPlusPlus; `upstream` is Zephkek/MIDIPlusPlus.
   `main` stays at `e37ba7e`. Pushing without asking is authorized.
-- This branch is pushed and clean; code last changed at `83fa9ed`.
-  `claude/continue-here-4d1c91` is its ancestor and now superseded.
+- Pushed and clean; code last changed at `83fa9ed`; supersedes `-4d1c91`.
 - Main checkout is on `output-panel`; `D:\Dev\mpp-panels` is on the old
   `astra/shell-parity` (`bdd7e85`).
 - Never commit `x64/Release/midi/`, `build/`, `tools/mp3-to-midi/cookies.txt`
