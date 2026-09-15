@@ -71,13 +71,15 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - `c5fcc7d`, after `v0.2.1-test`: F-key hints on the transport title row
   (Tracks gains a row), velocity combo floored at its longest preset name,
   three restating descriptions cut, Keyboard timing under a closed header.
+- `f9f0687`: window floor raised to 900 x 610, the design height, so two
+  track rows always fit; `v0.2.2-test` published from it, zip 426 MB, SHA256
+  `7D5C6D8EABF8086E2B0BF44F3553DEC578B9D42B338F872EB6C2A66BCD31473A`.
 - `ShellTests` covers the shipped converter layout; `RenderTests` has `minimum`.
 
 ## Unresolved
 
-- **Owner to look at live:** the shorter Settings and the 900 x 580 layout in
-  `c5fcc7d`, not yet in any test build. Tracks still shows one row at the
-  floor; anything more means a shorter transport panel or a taller floor.
+- **Owner to look at live:** the shorter Settings and the smallest window in
+  `v0.2.2-test`.
 - **Panel seat, not started:** `PROMPT-S-CURVE-AND-SWITCHES.md`.
 - **Needs the owner at the keyboard:** Convert in `v0.2.1-test`, delivery
   into a game, Wooting feel, two devices, MIDI output into a synth, live
@@ -88,8 +90,9 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - `6526cac`: shell built; `ShellTests.exe` 35 PASS, 0 FAIL; `RenderTests.exe`
   260 PASS; `make-release.ps1` swept 334 binaries, imported the converter on
   a bare PATH, converted an mp3, zipped; the staged bundle converted a
-  YouTube link with no sign-in in 11 s. `c5fcc7d`: shell built;
-  `RenderTests.exe` 280 PASS; `ShellTests` not rerun, it compiles no `Panels.cpp`.
+  YouTube link with no sign-in in 11 s. `f9f0687`: shell built;
+  `RenderTests.exe` 280 PASS; `make-release.ps1` passed its checks;
+  `ShellTests` not rerun, it compiles neither `Panels.cpp` nor `Shell.cpp`.
 - Not run: parity mutations, native and latency tests, `signin.py`, the shell live.
 
 ## Build and test
@@ -113,7 +116,8 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 
 ## Next action
 
-With the owner's yes, run `tools\make-release.ps1` at the branch head and
-publish the zip as `v0.2.2-test` on K-Alexandru/MIDIPlusPlus-testing, notes
-as for `v0.2.1-test` with the layout and Settings changes listed, naming the
-commit and SHA256 the script prints.
+Run `gh issue list --repo K-Alexandru/MIDIPlusPlus-testing` and work the
+first tester report on `v0.2.2-test`. With no reports, run
+`tests\run-native-tests.ps1` with the owner's consent (it takes the cursor)
+to confirm the 900 x 610 clamp on the real window, then take the Wikimedia
+403: retry a refused link with yt-dlp's generic extractor.
