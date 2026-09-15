@@ -67,19 +67,17 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
   cached in `build\release\downloads`. `convert.py` finds `deno\` beside it.
 - `ShellTests` gained the shipped-layout case for `FindInstall`.
 - Tester README names Convert and Sign in to YouTube, and credits the converter.
-- `v0.2.0-test` published on K-Alexandru/MIDIPlusPlus-testing from `d76483d`,
-  and found broken: it shipped no ffprobe, and pydub reads everything but wav
-  through it, so mp3 and link conversions died with exit code 1.
-- `2a60a25` bundles ffprobe, checks the bundle with an mp3, and names a
-  missing ffprobe; repackaged zip 426 MB, SHA256
-  `91AF0E66F21562936C4ECF312A78208815D72D51771D72DE643C95B070D2CF0E`.
+- `v0.2.0-test` published from `d76483d`, then found to convert only wav: it
+  shipped no ffprobe, which pydub needs for every other format.
+- `2a60a25` bundles ffprobe and checks with an mp3; repackaged zip 426 MB,
+  SHA256 `91AF0E66F21562936C4ECF312A78208815D72D51771D72DE643C95B070D2CF0E`.
 
 ## Unresolved
 
 - **Panel seat, not started:** the owner hands over
   `PROMPT-S-CURVE-AND-SWITCHES.md`; its three pieces are listed there.
-- **Owner, 2026-09-15:** the Convert popover looks right at 125% but "can be
-  simplified"; what to simplify is not yet said. Ask before redesigning.
+- **Owner, 2026-09-15:** the Convert popover "can be simplified"; ask what
+  before redesigning it.
 - **Needs the owner at the keyboard:** Convert with a file and a link in the
   fixed build, delivery into a game, Wooting feel, two devices, MIDI output
   into a synth, live curve reconnection, a mixed-DPI move.
