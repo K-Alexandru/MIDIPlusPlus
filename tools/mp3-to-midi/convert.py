@@ -213,9 +213,10 @@ def main():
     if not os.path.isdir(args.out_dir):
         say("error", f"The output folder does not exist: {args.out_dir}")
         return 2
-    if shutil.which("ffmpeg") is None:
-        say("error", "FFmpeg is not installed, and Transkun needs it to read audio.")
-        return 2
+    for tool in ("ffmpeg", "ffprobe"):
+        if shutil.which(tool) is None:
+            say("error", f"{tool} is not installed, and Transkun needs it to read audio.")
+            return 2
 
     work = tempfile.mkdtemp(prefix="midipp-convert-")
     try:

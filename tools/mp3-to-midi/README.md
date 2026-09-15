@@ -14,7 +14,8 @@ no code from it. Transkun is by Yujia Yan, [MIT](https://github.com/Yujia-Yan/Tr
 
 - Python 3.12 with the packages in `requirements.txt`; `pywebview` is for the
   sign-in window.
-- FFmpeg and Deno on `PATH`, or in `ffmpeg\` and `deno\` beside the script.
+- FFmpeg with ffprobe, and Deno, on `PATH` or in `ffmpeg\` and `deno\` beside
+  the script. pydub reads every format but wav through ffprobe.
 
 ## Where the app looks for it
 
@@ -36,8 +37,8 @@ from `build\shell-tests`, which has no converter, so they stay unaffected.
 
 `tools\make-release.ps1` stages `converter\` beside `MIDIShell.exe`: an
 embeddable Python 3.12 in `python\` with the packages from `requirements.txt`
-installed with `--no-deps`, this folder's two scripts, `ffmpeg\ffmpeg.exe`,
-`deno\deno.exe`, and every licence under `licenses\`. Each download is
+installed with `--no-deps`, this folder's two scripts, `ffmpeg\ffmpeg.exe`
+with `ffprobe.exe`, `deno\deno.exe`, and every licence under `licenses\`. Each download is
 pinned by URL and SHA256 in the script.
 
 `requirements.txt` lists what a real conversion, a link download and the

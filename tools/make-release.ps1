@@ -192,10 +192,12 @@ foreach ($info in Get-ChildItem -LiteralPath $sitePackages -Directory -Filter '*
     }
 }
 
-# FFmpeg, one exe of the three in the archive, and Deno, both found by
-# convert.py in their folders beside it.
+# FFmpeg and ffprobe from the archive (pydub reads every format but wav
+# through ffprobe, so a bundle without it converts nothing but wav), and
+# Deno; convert.py finds them in their folders beside it.
 $ffmpegZip = Get-Pinned $ffmpegBuild
 Expand-Entry $ffmpegZip '*/bin/ffmpeg.exe' (Join-Path $converter 'ffmpeg\ffmpeg.exe')
+Expand-Entry $ffmpegZip '*/bin/ffprobe.exe' (Join-Path $converter 'ffmpeg\ffprobe.exe')
 Expand-Entry $ffmpegZip '*/LICENSE' (Join-Path $licences 'FFmpeg-9.0.1-LICENSE.txt')
 Expand-Entry (Get-Pinned $denoBuild) 'deno.exe' (Join-Path $converter 'deno\deno.exe')
 Copy-Item -LiteralPath (Get-Pinned $denoLicence) -Destination (Join-Path $licences 'Deno-2.9.6-LICENSE.md')
@@ -261,7 +263,9 @@ print("torch", torch.__version__, "runtime", path.value)
     if ("$summary" -notlike "*runtime $pythonHome\*") { throw "The staged converter loaded the VC++ runtime from outside the bundle:`n$($report -join "`n")" }
     Write-Host "  $summary"
 
-    $clip = Join-Path $probe 'clip.wav'
+    # An mp3, not a wav: pydub reads wav on its own and everything else
+    # through ffprobe, and a link always arrives as an mp3.
+    $clip = Join-Path $probe 'clip.mp3'
     & (Join-Path $converter 'ffmpeg\ffmpeg.exe') -v error -y -f lavfi -i 'sine=frequency=262:duration=1.5,volume=0.4' `
         -f lavfi -i 'sine=frequency=330:duration=1.5,volume=0.4' -filter_complex '[0][1]concat=n=2:v=0:a=1' -ar 16000 -ac 1 $clip
     if ($LASTEXITCODE -ne 0) { throw 'The bundled FFmpeg could not write a test clip.' }
