@@ -156,18 +156,28 @@ void RaisedRect(ImDrawList* dl, ImVec2 min, ImVec2 max, float rounding,
 // rounded shoulders down to the middle of each side, like RaisedRect's top
 // highlight, so the shading wraps the curve. Straight bands, however far they
 // reached, stopped where the curve began and read as clipped at the ends.
+// Past the shoulder each band runs on down the side and fades out: a band that
+// ended at full strength where the arc meets the side still read as a cut.
 static void InnerShadow(ImDrawList* dl, ImVec2 min, ImVec2 max, float rounding, const Skin& s) {
     constexpr float kHalf = 3.14159265f, kThreeQuarter = 4.71238898f, kFull = 6.28318531f;
     const ImU32 shade = ToImU32(s.inner.colour);
     const int segments = std::max(6, static_cast<int>(rounding));
+    const float tailEnd = std::min(max.y - rounding, min.y + 2.f * std::max(rounding, 4.f));
     for (int i = 0; i < 3; ++i) {
         const float radius = std::max(0.f, rounding - 1.f - i);
+        const ImU32 band = Fade(shade, 1.f - i * 0.3f);
         // Concentric with the border's corners, so band i sits i+1 pixels in
         // along the whole curve, not only along the straight top.
         const float centreY = min.y + std::max(rounding, 1.f + i);
         dl->PathArcTo(ImVec2(min.x + rounding, centreY), radius, kHalf, kThreeQuarter, segments);
         dl->PathArcTo(ImVec2(max.x - rounding, centreY), radius, kThreeQuarter, kFull, segments);
-        dl->PathStroke(Fade(shade, 1.f - i * 0.3f), 0, 1.f);
+        dl->PathStroke(band, 0, 1.f);
+        if (tailEnd > centreY) {
+            const ImU32 clear = band & ~IM_COL32_A_MASK;
+            const float left = min.x + rounding - radius, right = max.x - rounding + radius;
+            dl->AddRectFilledMultiColor(ImVec2(left - 0.5f, centreY), ImVec2(left + 0.5f, tailEnd), band, band, clear, clear);
+            dl->AddRectFilledMultiColor(ImVec2(right - 0.5f, centreY), ImVec2(right + 0.5f, tailEnd), band, band, clear, clear);
+        }
     }
 }
 

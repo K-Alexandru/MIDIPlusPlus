@@ -1968,8 +1968,9 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     // floating in it. The frame and its corners are drawn after the table.
     ImDrawList* tableDraw = nullptr;
     ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(s.spacing.s2, s.spacing.s1));
+    // PadOuterX, or the # column sits flush against the frame's left edge.
     if (ImGui::BeginTable("##tracks", 7, ImGuiTableFlags_ScrollY | ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH |
-        ImGuiTableFlags_SizingStretchProp, tableSize)) {
+        ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_PadOuterX, tableSize)) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 20 * dpi);
         ImGui::TableSetupColumn("TRACK", ImGuiTableColumnFlags_WidthStretch, 1.2f);
@@ -2043,11 +2044,12 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
               const char* label = action ? "SOLO" : "MUTE";
               const float textWidth = ImGui::CalcTextSize(label).x;
               headers->PushClipRect(actionHeaderMin[action], actionHeaderMax[action], false);
+              // Same top padding and ink as TableHeader, so all seven headings
+              // share one baseline and one colour.
               headers->AddText(ImVec2(actionHeaderMin[action].x +
                                           (actionHeaderMax[action].x - actionHeaderMin[action].x - textWidth) / 2,
-                                      actionHeaderMin[action].y +
-                                          (actionHeaderMax[action].y - actionHeaderMin[action].y - ImGui::GetTextLineHeight()) / 2),
-                               Colour(s.ink.secondary), label);
+                                      actionHeaderMin[action].y + ImGui::GetStyle().CellPadding.y),
+                               ImGui::GetColorU32(ImGuiCol_Text), label);
               headers->PopClipRect();
           } }
         // The scrolling table draws into its own inner window, which renders
