@@ -67,14 +67,13 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - Convert audio popup: choose a file or paste a link, status, cancel, Sign in
   to YouTube; the `.mid` lands in the MIDI folder and is rescanned.
 - UI pass: stable state pills, one + menu, `RoundCorners` on file list and table.
-- `83fa9ed`: inner shadow bands continue down the sides and fade out.
+- `83fa9ed`: inner shadow bands continue down the sides and fade out. Owner
+  confirmed it looks fine.
 - `83fa9ed`, `e85e62f`: Tracks outer padding, one heading baseline and ink,
   rules above rows only, exact header rule. Owner: "its good".
 
 ## Unresolved
 
-- **File list shadow:** fixed and verified by pixel dump at 125%, but the owner
-  has confirmed only the Tracks panel so far.
 - **YouTube link inside the app after sign-in:** not yet confirmed to convert.
 - **Release bundle:** `converter\` beside the exe with an embeddable Python,
   the packages including pywebview, both scripts and `ffmpeg\`. Size not weighed.
@@ -87,8 +86,8 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 
 - At `e85e62f`: `ui\MIDIShell.vcxproj` built; `tests\run-shell-tests.ps1 -Render`
   274 PASS, 0 FAIL; live 125% captures of empty, one-track and three-track tables.
-- At `ad05987`: `tests\run-shell-parity-mutations.ps1`, 19 of 19 killed. Not
-  rerun since; later commits changed drawing code only.
+- At `e85e62f`: `tests\run-shell-parity-mutations.ps1`, 19 of 19 killed,
+  sources restored.
 - Not run: `run-native-tests.ps1` and `run-latency-tests.ps1`, which take the
   cursor. Nothing was played into a game.
 
@@ -114,6 +113,5 @@ Shell tests capture injection in process, so always safe; never `*>&1` in PS 5.1
 
 ## Next action
 
-Ask the owner to confirm the file list shadow at the top corners in this
-worktree's `build\shell\MIDIShell.exe`, then run
-`tests\run-shell-parity-mutations.ps1` before any further UI work.
+Ask the owner to sign in to YouTube from the Convert audio popup, paste a link,
+and confirm the `.mid` lands in the MIDI folder.
