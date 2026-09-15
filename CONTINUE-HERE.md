@@ -68,16 +68,19 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - `v0.2.1-test` published on K-Alexandru/MIDIPlusPlus-testing from `6526cac`:
   zip 426 MB, SHA256 `7903889551817ABDBEE57DD00DC52881CF7D7FCB66936210C1A808C27454759C`.
 - MIDI output and theme radios redrawn as 16px rings with a dot.
+- `c5fcc7d`, after `v0.2.1-test`: F-key hints moved onto the transport title
+  row, so Tracks shows a full row at 900 x 580 and two at the design size;
+  the collapsed velocity combo has a floor from its longest preset name and
+  Sustain cutoff shrinks first; three restating switch descriptions cut and
+  Keyboard timing folded under a closed header.
 - `ShellTests` covers the shipped converter layout; `RenderTests` captures
-  the smallest window.
+  the smallest window (`minimum`).
 
 ## Unresolved
 
-- **Owner, 2026-09-15, not yet decided who does it:** Settings scrolls too
-  long; cut descriptions that restate their switch (Solo piano tracks on
-  load, Shuffle Play, Always on top) and fold Wooting, timing and About under
-  closed headers. At 900 x 580 the Tracks panel shows half a row and the
-  velocity combo overlaps its chevron (`skin-0-125-minimum.png`).
+- **Owner to look at live:** the shorter Settings and the 900 x 580 layout in
+  `c5fcc7d`, not yet in any test build. Tracks still shows one row at the
+  floor; anything more means a shorter transport panel or a taller floor.
 - **Panel seat, not started:** `PROMPT-S-CURVE-AND-SWITCHES.md`.
 - **Needs the owner at the keyboard:** Convert in `v0.2.1-test`, delivery
   into a game, Wooting feel, two devices, MIDI output into a synth, live
@@ -88,7 +91,8 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - `6526cac`: shell built; `ShellTests.exe` 35 PASS, 0 FAIL; `RenderTests.exe`
   260 PASS; `make-release.ps1` swept 334 binaries, imported the converter on
   a bare PATH, converted an mp3, zipped; the staged bundle converted a
-  YouTube link with no sign-in in 11 s. `9141886`: `RenderTests.exe` 280 PASS.
+  YouTube link with no sign-in in 11 s. `c5fcc7d`: shell built;
+  `RenderTests.exe` 280 PASS; `ShellTests` not rerun, it compiles no `Panels.cpp`.
 - Not run: parity mutations, native and latency tests, `signin.py`, the shell live.
 
 ## Build and test
@@ -112,8 +116,7 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 
 ## Next action
 
-With the owner's go-ahead for Claude to work `ui/`: in a worktree, make the
-transport panel one row shorter by putting the F-key hints on the title row,
-give the collapsed velocity combo a floor width from its longest preset name
-and let Sustain cutoff shrink first, cut the three restating descriptions,
-then compare the `minimum` and `settings` captures before and after.
+With the owner's yes, run `tools\make-release.ps1` at the branch head and
+publish the zip as `v0.2.2-test` on K-Alexandru/MIDIPlusPlus-testing, notes
+as for `v0.2.1-test` with the layout and Settings changes listed, naming the
+commit and SHA256 the script prints.
