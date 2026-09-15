@@ -1,8 +1,8 @@
 # Start here
 
-Updated 2026-09-15 on `claude/continue-here-f0c3de`: `claude/continue-here-4d1c91`
-(`7fcd008`) plus the inner shadow and Tracks spacing fixes (`83fa9ed`). Then read
-`HANDOFF.md`, `SHELL-GAPS.md` (what the shell owes) and `SEATS.md` (who does what).
+Updated 2026-09-15 on `claude/continue-here-f0c3de` (`e85e62f`), which supersedes
+`claude/continue-here-4d1c91`. Then read `HANDOFF.md`, `SHELL-GAPS.md` (what the
+shell owes) and `SEATS.md` (who does what).
 
 ## Goal
 
@@ -32,6 +32,8 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - YouTube links use a signed-in session from `signin.py`; no third-party
   download service. The app never reads a browser's cookies itself.
 - UI copy follows `HANDOFF.md` section 15; attribution follows section 13.
+- The Tracks table draws its own rules after the table, above each row, never
+  under the last; the owner approved the result on 2026-09-15.
 
 ## Relevant files
 
@@ -41,8 +43,10 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
   `AudioToMidiTests` in `tests/ShellTests.cpp` covers it.
 - `ui/ShellEngine.cpp`: `ConvertAudio`, `ConvertCancel`, `ConvertProgress`,
   `YouTubeSignIn`.
-- `ui/Panels.cpp`: the + menu and Convert audio popup, file list, Tracks panel.
+- `ui/Panels.cpp`: the + menu and Convert audio popup, file list, Tracks panel
+  (table, `headerHeight`, `rules`).
 - `ui/SkinDraw.cpp`: `InnerShadow`, `RecessedRect`, `RoundCorners`.
+- `tests/NativeShell.ps1`: DPI-aware launch, geometry and click helpers.
 
 ## Verified facts
 
@@ -53,11 +57,16 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - mp7.dev has no public API; the owner's viner.dev sites are GitHub Pages and
   cannot run a downloader.
 - A running `MIDIShell.exe` blocks the shell link step (LNK1168); ask the owner
-  to close it before rebuilding.
+  to close it before rebuilding. Check which worktree's exe they are running.
 - The display runs at 125%; read `tests/NativeShell.ps1` before scripting any
   click or screenshot.
 - Live captures need no cursor: pass a `.mid` as `argv[1]` to open it, and use
-  `PrintWindow` with flag 3, since `CopyFromScreen` grabs whatever covers it.
+  `PrintWindow` with flag 3 on the process you launched, filtered by path;
+  `CopyFromScreen` grabs whatever covers the window.
+- `TableGetHeaderRowHeight()` measures in the body font; the heading row uses
+  the meta font, so its height is set explicitly.
+- The owner's MIDI folder has no file with more than one note track; build a
+  small multi-track `.mid` to test row rules.
 
 ## Work completed
 
@@ -66,17 +75,17 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
   2026.8.19, pywebview 6.2.1); `build\shell\converter\.venv` is a junction to it.
 - Convert audio popup: choose a file or paste a link, status, cancel, Sign in
   to YouTube; the `.mid` lands in the MIDI folder and is rescanned.
-- UI pass: state pills sized in semibold so they no longer shift; Open, Choose
-  folder and Convert merged into one + menu; `RoundCorners` masks square rows
-  and headers in the file list and track table.
+- UI pass: stable state pills, one + menu, `RoundCorners` on file list and table.
+- `83fa9ed`: inner shadow bands continue down the sides and fade out, so they
+  no longer stop hard at the corner tangent.
+- `83fa9ed`, `e85e62f`: Tracks table has outer padding, one heading baseline
+  and ink, rules above rows only, an exact header rule, and an empty-state row
+  at track-row height. Owner: "its good".
 
 ## Unresolved
 
-- **Owner to confirm the shadow and Tracks fixes.** Shadow bands fade down the
-  sides; Tracks has outer padding, one heading baseline, and rules drawn above
-  rows so none sits under the last row. The owner's screenshot came from the
-  stale `continue-here-4d1c91` exe, so they have not seen any of it yet.
-- **Tracks fits about 1.5 rows at 1090 x 635.** Ask whether that is acceptable.
+- **File list shadow:** fixed and verified by pixel dump at 125%, but the owner
+  has confirmed only the Tracks panel so far.
 - **YouTube link inside the app after sign-in:** not yet confirmed to convert.
 - **Release bundle:** `converter\` beside the exe with an embeddable Python,
   the packages including pywebview, both scripts and `ffmpeg\`. Size not weighed.
@@ -87,10 +96,11 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 
 ## Validation actually run
 
-- On the Tracks rules commit: shell built; `run-shell-tests.ps1 -Render` 274 PASS, 0 FAIL;
-  live 125% captures (`PrintWindow`) of empty, one-track and three-track tables.
+- At `e85e62f`: `ui\MIDIShell.vcxproj` built; `tests\run-shell-tests.ps1 -Render`
+  274 PASS, 0 FAIL; live 125% captures of empty, one-track and three-track tables.
+- At `83fa9ed`: file list corner pixel dump shows a smooth fade, no step.
 - At `ad05987`: `tests\run-shell-parity-mutations.ps1`, 19 of 19 killed. Not
-  rerun after the two UI commits, which changed drawing code only.
+  rerun since; later commits changed drawing code only.
 - Not run: `run-native-tests.ps1` and `run-latency-tests.ps1`, which take the
   cursor. Nothing was played into a game.
 
@@ -108,7 +118,7 @@ Shell tests capture injection in process, so always safe; never `*>&1` in PS 5.1
 
 - `origin` is K-Alexandru/MIDIPlusPlus; `upstream` is Zephkek/MIDIPlusPlus.
   `main` stays at `e37ba7e`. Pushing without asking is authorized.
-- Pushed and clean; code last changed at `83fa9ed`; supersedes `-4d1c91`.
+- `claude/continue-here-f0c3de` is pushed; code last changed at `e85e62f`.
 - Main checkout is on `output-panel`; `D:\Dev\mpp-panels` is on the old
   `astra/shell-parity` (`bdd7e85`).
 - Never commit `x64/Release/midi/`, `build/`, `tools/mp3-to-midi/cookies.txt`
@@ -116,5 +126,6 @@ Shell tests capture injection in process, so always safe; never `*>&1` in PS 5.1
 
 ## Next action
 
-Ask the owner to close the old shell, open `build\shell\MIDIShell.exe` from
-this worktree, and confirm the file list shadow and the Tracks spacing.
+Ask the owner to confirm the file list shadow at the top corners in this
+worktree's `build\shell\MIDIShell.exe`, then run
+`tests\run-shell-parity-mutations.ps1` before any further UI work.
