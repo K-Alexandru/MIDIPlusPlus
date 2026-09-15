@@ -42,4 +42,10 @@ void RecessedRect(ImDrawList* dl, ImVec2 min, ImVec2 max, float rounding,
 void RaisedPanel(ImVec2 min, ImVec2 max, const Skin& s);
 void RecessedField(ImVec2 min, ImVec2 max, const Skin& s);
 
+// Draw after square content inside a rounded field (list rows, table headers,
+// a scrollbar): paints `outside`, the colour around the field, into the four
+// corners beyond the curve and redraws the hairline, so the content reads as
+// clipped to the field's rounded shape. Use the draw list the content went to.
+void RoundCorners(ImDrawList* dl, ImVec2 min, ImVec2 max, float rounding, ImU32 outside, const Skin& s);
+
 } // namespace skin

@@ -48,6 +48,10 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
   shell finds Python; `build/` is not committed.
 - `AudioToMidiTests` caught a Cancel after Done reporting a false second
   final status, fixed in `Job::Pump`.
+- Owner-requested UI pass, 2026-09-15: state pills sized in semibold so they
+  never shift; Open, Choose folder and Convert merged into one + menu;
+  recessed shading follows rounded ends; `skin::RoundCorners` masks square
+  rows and headers inside the file list and track table.
 - Sign in to YouTube in the Convert popup runs `signin.py` (WebView2 through
   pywebview) and saves the session as `cookies.txt`; action `YouTubeSignIn`,
   fields `signingIn` and `youtubeSignedIn`, under the same one-off exception.

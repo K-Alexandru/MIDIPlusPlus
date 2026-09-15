@@ -175,10 +175,16 @@ bool StatePill(const char* label, bool on, const Fonts& fonts, const skin::Skin&
                float dpi, float padding, bool enabled = true, const char* tip = nullptr,
                const char* stateText = nullptr) {
     auto s = skin::ScaleGeometry(design, dpi);
+    // Sized in the on weight whatever the state. Sized by its current weight,
+    // a pill switched on grew by the semibold difference and pushed every pill
+    // after it to the right.
+    float widest = 0;
+    { FontScope bold(fonts, design, design.type.body * SpecFontScale(design), Weight::Semibold);
+      widest = ImGui::CalcTextSize(label).x; }
     FontScope font(fonts, design, design.type.body * SpecFontScale(design), on ? Weight::Semibold : Weight::Regular);
     const auto min = ImGui::GetCursorScreenPos();
     const ImVec2 text = ImGui::CalcTextSize(label);
-    const ImVec2 size(text.x + 2 * padding + 2 * dpi, s.metric.controlHeight);
+    const ImVec2 size(std::max(widest, text.x) + 2 * padding + 2 * dpi, s.metric.controlHeight);
     if (on) s.border.hairline = s.accent.okBorder;
 
     // One drawing path for every pill, interactive or not. Splitting them
@@ -1707,20 +1713,27 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     ImGui::BeginDisabled(state->playing || state->busy || state->folder.empty());
     if (IconButton("##refresh-files", Icon::Refresh, "Refresh MIDI files", s, dpi)) engine.Send({ShellEngine::Action::Scan, state->folder});
     ImGui::EndDisabled(); ImGui::PopStyleVar();
-    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 3 * s.metric.controlHeight - 3 * s.spacing.s2);
+    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - s.metric.controlHeight - s.spacing.s2);
     ImGui::InputTextWithHint("##search", "Search MIDI files", search_, sizeof(search_));
     ImGui::SameLine();
-    if (IconButton("##open", Icon::Open, "Open MIDI file", s, dpi)) load(PickMidiFile(hwnd));
-    ImGui::SameLine();
-    ImGui::BeginDisabled(state->playing || state->busy);
-    if (IconButton("##folder", Icon::Folder, "Choose MIDI folder", s, dpi)) {
-        const auto path = PickFolder(hwnd);
-        if (!path.empty()) { preferences.folder = path; engine.Send({ShellEngine::Action::Scan, path}); }
+    // One button for the three ways a file arrives. Three separate icon
+    // buttons beside the search box, under two more in the header, was too
+    // many controls for one small panel.
+    if (IconButton("##add-files", Icon::Plus, state->converting ? "Add MIDI files (converting audio)" : "Add MIDI files", s, dpi))
+        ImGui::OpenPopup("Add MIDI files");
+    bool openConvert = false;
+    if (ImGui::BeginPopup("Add MIDI files")) {
+        if (ImGui::MenuItem("Open MIDI file...")) load(PickMidiFile(hwnd));
+        if (ImGui::MenuItem("Choose MIDI folder...", nullptr, false, !state->playing && !state->busy)) {
+            const auto path = PickFolder(hwnd);
+            if (!path.empty()) { preferences.folder = path; engine.Send({ShellEngine::Action::Scan, path}); }
+        }
+        if (ImGui::MenuItem("Convert audio to MIDI...")) openConvert = true;
+        ImGui::EndPopup();
     }
-    ImGui::EndDisabled();
-    ImGui::SameLine();
-    if (IconButton("##convert", Icon::Plus, state->converting ? "Converting audio to MIDI" : "Convert audio to MIDI", s, dpi))
-        ImGui::OpenPopup("Convert audio");
+    // Opened out here, where the menu was, rather than from inside the menu,
+    // so it is a sibling of the menu and not a child that closes with it.
+    if (openConvert) ImGui::OpenPopup("Convert audio");
     if (ImGui::BeginPopup("Convert audio")) {
         ImGui::TextUnformatted("Make a MIDI file from a recording. Solo piano works best.");
         ImGui::BeginDisabled(state->converting || state->folder.empty());
@@ -1804,7 +1817,12 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
         }
         if (fileFilter_.empty()) ImGui::TextDisabled("No matching files");
     }
+    // The list's own draw list, after EndChild has drawn its scrollbar, so the
+    // corners cover a square selected row and the scrollbar alike.
+    ImDrawList* fileListDraw = ImGui::GetWindowDrawList();
     ImGui::EndChild();
+    skin::RoundCorners(fileListDraw, listMin, ImVec2(listMin.x + listSize.x, listMin.y + listSize.y),
+                       s.radius.element, Colour(s.surface.card), s);
     ImGui::PopStyleVar(); ImGui::PopFont();
     ImGui::EndChild();
 
@@ -1944,7 +1962,10 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     ImGui::EndDisabled();
     const ImVec2 tableMin = ImGui::GetCursorScreenPos();
     const ImVec2 tableSize = ImGui::GetContentRegionAvail();
-    skin::RecessedField(tableMin, ImVec2(tableMin.x + tableSize.x, tableMin.y + tableSize.y), s);
+    // No recessed fill here. Rows are card-coloured, so the recessed grey only
+    // showed as a sliver under the last row, with its rounded bottom corners
+    // floating in it. The frame and its corners are drawn after the table.
+    ImDrawList* tableDraw = nullptr;
     ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(s.spacing.s2, s.spacing.s1));
     if (ImGui::BeginTable("##tracks", 7, ImGuiTableFlags_ScrollY | ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH |
         ImGuiTableFlags_SizingStretchProp, tableSize)) {
@@ -2028,8 +2049,14 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
                                Colour(s.ink.secondary), label);
               headers->PopClipRect();
           } }
+        // The scrolling table draws into its own inner window, which renders
+        // over this panel, so the frame has to go into that list, after it.
+        tableDraw = ImGui::GetCurrentTable()->InnerWindow->DrawList;
         ImGui::EndTable();
     }
+    if (tableDraw)
+        skin::RoundCorners(tableDraw, tableMin, ImVec2(tableMin.x + tableSize.x, tableMin.y + tableSize.y),
+                           s.radius.element, Colour(s.surface.card), s);
     ImGui::PopStyleVar();
     ImGui::PopStyleVar(); ImGui::PopFont();
     ImGui::EndChild();

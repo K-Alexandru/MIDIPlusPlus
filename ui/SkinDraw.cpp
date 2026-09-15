@@ -1,4 +1,6 @@
 #include "SkinDraw.hpp"
+#include <algorithm>
+#include <cmath>
 
 namespace skin {
 namespace {
@@ -156,9 +158,45 @@ void RecessedRect(ImDrawList* dl, ImVec2 min, ImVec2 max, float rounding,
     // a groove read as a groove rather than as nothing.
     const ImU32 shade = ToImU32(s.inner.colour);
     for (int i = 0; i < 3; ++i) {
-        dl->AddLine(ImVec2(min.x + rounding, min.y + 1.f + i),
-                    ImVec2(max.x - rounding, min.y + 1.f + i),
-                    Fade(shade, 1.f - i * 0.3f));
+        // Each band runs to where the rounded corner actually is at its height.
+        // Stopping every band at the start of the curve left the shading short
+        // of the ends, most visibly on the 6px seek and slider grooves.
+        const float y = min.y + 1.f + i;
+        const float rise = rounding - (1.f + i);
+        const float inset = rise > 0 ? rounding - std::sqrt(std::max(0.f, rounding * rounding - rise * rise)) : 0.f;
+        dl->AddLine(ImVec2(min.x + inset, y), ImVec2(max.x - inset, y), Fade(shade, 1.f - i * 0.3f));
+    }
+    dl->AddRect(min, max, ToImU32(s.border.hairline), rounding);
+}
+
+void RoundCorners(ImDrawList* dl, ImVec2 min, ImVec2 max, float rounding, ImU32 outside, const Skin& s) {
+    if (rounding > 0) {
+        constexpr float kQuarter = 1.57079633f;
+        const ImVec2 corners[4]{min, ImVec2(max.x, min.y), max, ImVec2(min.x, max.y)};
+        const ImVec2 centres[4]{ImVec2(min.x + rounding, min.y + rounding), ImVec2(max.x - rounding, min.y + rounding),
+                                ImVec2(max.x - rounding, max.y - rounding), ImVec2(min.x + rounding, max.y - rounding)};
+        // A fan of thin triangles from the square corner to each step of the
+        // arc. The sliver outside the curve is star-shaped from its corner, so
+        // the fan covers it exactly. PathFillConcave triangulated it as a
+        // single chord and left a straight chamfer across every corner.
+        // Anti-aliased fill is off for the fan, or each triangle's fringe
+        // shows as a faint seam; the hairline redrawn below smooths the edge.
+        const int segments = std::max(8, static_cast<int>(rounding));
+        const ImDrawListFlags flags = dl->Flags;
+        dl->Flags &= ~ImDrawListFlags_AntiAliasedFill;
+        dl->PushClipRect(min, max, false);
+        for (int c = 0; c < 4; ++c) {
+            const float start = kQuarter * (c + 2);
+            ImVec2 previous(centres[c].x + rounding * std::cos(start), centres[c].y + rounding * std::sin(start));
+            for (int i = 1; i <= segments; ++i) {
+                const float angle = start + kQuarter * i / segments;
+                const ImVec2 next(centres[c].x + rounding * std::cos(angle), centres[c].y + rounding * std::sin(angle));
+                dl->AddTriangleFilled(corners[c], previous, next, outside);
+                previous = next;
+            }
+        }
+        dl->PopClipRect();
+        dl->Flags = flags;
     }
     dl->AddRect(min, max, ToImU32(s.border.hairline), rounding);
 }
