@@ -1,10 +1,8 @@
 # Start here
 
-Entry point for the next session. Updated 2026-09-15 on
-`claude/continue-here-4d1c91` at `e57e613`, which is `claude/curves-pro-drums`
+Updated 2026-09-15 on `claude/continue-here-4d1c91`: `claude/curves-pro-drums`
 (`887336d`) plus MP3 to MIDI and an owner-requested UI pass. Then read
-`HANDOFF.md` for architecture and decisions, `SHELL-GAPS.md` for what the shell
-still owes, and `SEATS.md` for who does what.
+`HANDOFF.md`, `SHELL-GAPS.md` (what the shell owes) and `SEATS.md` (who does what).
 
 ## Goal
 
@@ -18,9 +16,8 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - The panel seat, a second assistant in another app, owns `ui/`, including
   `ShellEngine::Action` and `EngineSnapshot`.
 - Claude owns `MIDI++/`, `tests/`, specs, and engine-side seams in `ui/`.
-- Owner-approved exceptions, 2026-09-14 and 15: Claude added the Convert and
-  YouTube sign-in actions and fields, and is fixing the owner's UI reports in
-  `ui/Panels.cpp` and `ui/SkinDraw.cpp`. Not a precedent beyond these.
+- Owner-approved exception, not a precedent: Claude's Convert and sign-in
+  actions, and the owner's UI fixes in `ui/Panels.cpp` and `ui/SkinDraw.cpp`.
 
 ## Decisions made, do not reopen
 
@@ -40,26 +37,23 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 
 - `tools/mp3-to-midi/`: `convert.py` (file or link to `.mid`, one status per
   line), `signin.py` (WebView2 sign-in, writes `cookies.txt`), `README.md`.
-- `MIDI++/AudioToMidi.hpp`: finds the install, runs either script in a job.
+- `MIDI++/AudioToMidi.hpp`: finds the install, runs either script in a job;
+  `AudioToMidiTests` in `tests/ShellTests.cpp` covers it.
 - `ui/ShellEngine.cpp`: `ConvertAudio`, `ConvertCancel`, `ConvertProgress`,
   `YouTubeSignIn`.
 - `ui/Panels.cpp`: the + menu and Convert audio popup, file list, Tracks panel.
 - `ui/SkinDraw.cpp`: `InnerShadow`, `RecessedRect`, `RoundCorners`.
-- `tests/ShellTests.cpp`: `AudioToMidiTests`.
 
 ## Verified facts
 
 - Transkun and mp3converter are MIT; `convert.py` copies no code from either.
-- 93 s of solo piano transcribed in 24 s on the CPU: 1201 notes, C2 to A6.
-- The GPU is an AMD RX 7900 XTX, so PyTorch runs on the CPU.
+- 93 s of solo piano: 24 s on the CPU (AMD GPU, no CUDA), 1201 notes, C2 to A6.
 - YouTube refuses the owner's connection for every video and yt-dlp client
   unless signed in. The owner confirmed `signin.py` signs in.
 - mp7.dev has no public API; the owner's viner.dev sites are GitHub Pages and
   cannot run a downloader.
 - A running `MIDIShell.exe` blocks the shell link step (LNK1168); ask the owner
   to close it before rebuilding.
-- Render crops can look correct while the live app does not: e57e613 passed
-  the 200% crop check and the owner still sees the defect below.
 - The display runs at 125%; read `tests/NativeShell.ps1` before scripting any
   click or screenshot.
 
@@ -77,8 +71,8 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 ## Unresolved
 
 - **Inner shadow still clips at curved ends (owner, after e57e613).** Seen at
-  the top of the file list in the live app. Get a live screenshot at 125%
-  before changing `InnerShadow` again.
+  the top of the file list live; the 200% render crops looked right, so they
+  are not proof. Get a live 125% screenshot before changing `InnerShadow`.
 - **Tracks panel spacing is wrong (owner, 2026-09-15).** Specifics not yet
   given; ask for a screenshot.
 - **YouTube link inside the app after sign-in:** not yet confirmed to convert.
@@ -106,14 +100,13 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 & .\tests\run-shell-parity-mutations.ps1
 ```
 
-Shell tests capture injection in process and are always safe. In PowerShell
-5.1, do not call them with `*>&1`, because native stderr aborts the script.
+Shell tests capture injection in process, so always safe; never `*>&1` in PS 5.1.
 
 ## Repository state
 
 - `origin` is K-Alexandru/MIDIPlusPlus; `upstream` is Zephkek/MIDIPlusPlus.
   `main` stays at `e37ba7e`. Pushing without asking is authorized.
-- This branch is pushed and clean at `e57e613`.
+- This branch is pushed and clean; code last changed at `e57e613`.
 - Main checkout is on `output-panel`; `D:\Dev\mpp-panels` is on the old
   `astra/shell-parity` (`bdd7e85`).
 - Never commit `x64/Release/midi/`, `build/`, `tools/mp3-to-midi/cookies.txt`
