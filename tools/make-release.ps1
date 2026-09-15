@@ -218,7 +218,9 @@ if ($dumpbin -and (Test-Path -LiteralPath $dumpbin)) {
     $shipped = @{}
     foreach ($dll in Get-ChildItem -LiteralPath $pythonHome -File -Filter '*.dll') { $shipped[$dll.Name.ToLowerInvariant()] = $true }
     $missing = @{}
-    foreach ($binary in Get-ChildItem -LiteralPath $pythonHome -Recurse -File -Include '*.dll', '*.pyd') {
+    # Filtered by extension rather than -Include, which PowerShell 5.1 applies
+    # unreliably with -LiteralPath and then hands dumpbin every header too.
+    foreach ($binary in Get-ChildItem -LiteralPath $pythonHome -Recurse -File | Where-Object { $_.Extension -in '.dll', '.pyd' }) {
         $names = & $dumpbin /dependents $binary.FullName 2>&1 | Select-String -Pattern '^\s+((MSVCP|VCRUNTIME|VCOMP|CONCRT)\w*\.dll)' |
                  ForEach-Object { $_.Matches[0].Groups[1].Value.ToLowerInvariant() }
         foreach ($name in $names) { if (-not $shipped[$name]) { $missing[$name] = $binary.Name } }
