@@ -285,10 +285,14 @@ bool SettingSwitch(const char* label, bool& value, const char* description,
     draw->AddRect(rail, ImVec2(rail.x + 32 * dpi, rail.y + 16 * dpi), Colour(value ? s.accent.okBorder : s.border.strong), 8 * dpi, 0, dpi);
     draw->AddCircleFilled(ImVec2(rail.x + (value ? 24 : 8) * dpi, rail.y + 8 * dpi), 5 * dpi, Colour(value ? s.accent.okInk : s.ink.secondary));
     ImGui::PopID();
-    { FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
-      ImGui::PushStyleColor(ImGuiCol_Text, Colour(s.ink.secondary));
-      ImGui::TextWrapped("%s", description);
-      ImGui::PopStyleColor(); }
+    // A description says what the label cannot; a switch whose label is the
+    // whole story passes none, and takes one row.
+    if (description && *description) {
+        FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
+        ImGui::PushStyleColor(ImGuiCol_Text, Colour(s.ink.secondary));
+        ImGui::TextWrapped("%s", description);
+        ImGui::PopStyleColor();
+    }
     return clicked;
 }
 
@@ -776,17 +780,31 @@ void Panels::DrawVelocity(const Fonts& fonts, const skin::Skin& design, float dp
     const bool expanded = velocityExpanded;
     if (TransportButton("##curve-disclosure", expanded ? Icon::Down : Icon::Right, "Velocity Response", s, dpi))
         velocityExpanded = !velocityExpanded;
+    float comboEnd = start.x;
     if (!expanded) {
         ImGui::SameLine();
-        CurveCombo("##collapsed-curve", std::max(100 * dpi, width - 430 * dpi), *state, engine);
+        // Never narrower than its longest preset name and the chevron: at the
+        // smallest window the old floor put the chevron over "Linear Fine".
+        float longest = 0;
+        for (const auto& curve : state->curves) longest = std::max(longest, ImGui::CalcTextSize(curve.name.c_str()).x);
+        // ComboChevron draws within the last .78 of the control height.
+        const float floor = longest + 2 * ImGui::GetStyle().FramePadding.x + control * .8f;
+        CurveCombo("##collapsed-curve", std::max(floor, width - 430 * dpi), *state, engine);
+        comboEnd = ImGui::GetItemRectMax().x;
     }
-    const float cutoffX = start.x + width - 248 * dpi;
+    // Sustain cutoff takes what is left; its groove shrinks first, to 40px.
+    float cutoffLabelWidth = 0;
+    { FontScope meta(fonts, design, design.type.meta * SpecFontScale(design)); cutoffLabelWidth = ImGui::CalcTextSize("Sustain cutoff").x; }
+    const float cutoffValueWidth = ImGui::CalcTextSize("127").x;
+    const float cutoffX = std::max(comboEnd + s.spacing.s3, start.x + width - 248 * dpi);
+    const float grooveWidth = std::clamp(start.x + width - cutoffX - cutoffLabelWidth - cutoffValueWidth - 2 * ImGui::GetStyle().ItemSpacing.x,
+                                         40 * dpi, 120 * dpi);
     ImGui::SetCursorScreenPos(ImVec2(cutoffX, start.y));
     { FontScope meta(fonts, design, design.type.meta * SpecFontScale(design)); ImGui::AlignTextToFramePadding(); ImGui::TextUnformatted("Sustain cutoff"); }
     ImGui::SameLine();
     // Commit on release, just like the macro sliders.
     float cutoff = cutoffEditing_ ? cutoffPreview_ : static_cast<float>(state->sustainCutoff);
-    if (Groove("##sustain-cutoff", &cutoff, 0, 127, 120 * dpi, control, s, dpi, true)) {
+    if (Groove("##sustain-cutoff", &cutoff, 0, 127, grooveWidth, control, s, dpi, true)) {
         if (!ImGui::IsItemActive() || ImGui::IsItemDeactivatedAfterEdit())
             engine.Send({ShellEngine::Action::SustainCutoff, {}, 0, 0, false, std::round(cutoff)});
         cutoffPreview_ = cutoff; cutoffEditing_ = true;
@@ -1263,6 +1281,9 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
         ImGui::EndCombo();
     }
     ImGui::Separator();
+    // Closed by default: it is a diagnostic, and open it was a screen of the
+    // scroll. A measurement keeps running with the header closed.
+    if (ImGui::CollapsingHeader("Keyboard timing")) {
     bool measure = measuring_;
     if (ImGui::Checkbox("Measure keyboard timing", &measure)) {
         if (measure) { timing_ = input_latency::Collector{}; timingSummary_ = {}; measuring_ = input_latency::start(); }
@@ -1295,6 +1316,7 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
     }
     { FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
       ImGui::TextWrapped("Starts after the MIDI transport; ends at the keyboard hook, before the game. Autoplay starts at event dispatch."); }
+    }
     ImGui::Separator();
     section("Behaviour");
     ImGui::BeginDisabled(state->eightyEightKeys);
@@ -1322,15 +1344,13 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
         autoVolumeOpen = true;
         ImGui::CloseCurrentPopup();
     }
-    SettingSwitch("Solo piano tracks on load", preferences.autoSolo,
-        "Silences non-piano parts when a MIDI file opens.", fonts, design, dpi);
+    SettingSwitch("Solo piano tracks on load", preferences.autoSolo, nullptr, fonts, design, dpi);
     bool legit = state->legitMode;
     if (SettingSwitch("Legit Mode", legit,
         "Humanises autoplay timing and intentionally drops some notes.", fonts, design, dpi))
         engine.Send({ShellEngine::Action::LegitMode, {}, 0, 0, legit});
     bool shuffle = state->shuffle;
-    if (SettingSwitch("Shuffle Play", shuffle,
-        "At the end of a song, plays another file from the MIDI folder.", fonts, design, dpi))
+    if (SettingSwitch("Shuffle Play", shuffle, nullptr, fonts, design, dpi))
         engine.Send({ShellEngine::Action::Shuffle, {}, 0, 0, shuffle});
     bool velocity = state->velocity;
     const std::string modifierName = state->velocityModifier == "ctrl" ? "Ctrl" :
@@ -1376,8 +1396,7 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
             engine.Send({ShellEngine::Action::CurveCompare});
     }
     ImGui::EndDisabled();
-    SettingSwitch("Always on top", preferences.alwaysOnTop,
-        "Keeps the main window above other windows.", fonts, design, dpi);
+    SettingSwitch("Always on top", preferences.alwaysOnTop, nullptr, fonts, design, dpi);
     ImGui::Separator();
     section("Appearance");
     ImGui::TextUnformatted("Window opacity");
@@ -1955,8 +1974,10 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     const float edge = origin.x + size.x - s.spacing.windowPad;
     // Keep the file name, sheet action and result status together above the
     // seek groove. The two transport rows retain the mockup's measured geometry.
+    // The F-key hints sit on the title row, right of the name: a line of their
+    // own cost the Tracks panel a row at the smallest window.
     const float titleHeight = s.metric.controlHeight;
-    const float sheetLineHeight = 40 * dpi;
+    const float sheetLineHeight = 20 * dpi;
     const float playbackHeight = 2 * s.spacing.panelPad + titleHeight + sheetLineHeight + 46 * dpi + 2 * s.metric.controlHeight;
     BeginPanel("Playback", ImVec2(right, top), ImVec2(edge, top + playbackHeight), s,
                ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
@@ -1965,9 +1986,16 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     const float contentWidth = ImGui::GetContentRegionAvail().x;
     const char* sheetLabel = "Export";
     const float sheetButtonWidth = 2 * 12 * dpi + 16 * dpi + s.spacing.s2 + ImGui::CalcTextSize(sheetLabel).x;
+    float hintsWidth = 0;
+    { FontScope font(fonts, design, design.type.meta * SpecFontScale(design));
+      const std::string hints = TransportHints(state->seekStep);
+      hintsWidth = ImGui::CalcTextSize(hints.c_str()).x + s.spacing.s3;
+      ImGui::GetWindowDrawList()->AddText(ImVec2(content.x + contentWidth - sheetButtonWidth - hintsWidth + s.spacing.s3 - s.spacing.s2,
+                                                 content.y + (titleHeight - ImGui::GetTextLineHeight()) / 2),
+                                          Colour(s.ink.secondary), hints.c_str()); }
     { FontScope font(fonts, design, 20 * SpecFontScale(design), Weight::Medium);
       DrawEllipsis(state->loaded.empty() ? "Playback" : Utf8(state->loaded.stem()),
-                   contentWidth - sheetButtonWidth - s.spacing.s2, ImVec2(content.x, content.y + (titleHeight - ImGui::GetTextLineHeight()) / 2)); }
+                   contentWidth - sheetButtonWidth - hintsWidth - s.spacing.s2, ImVec2(content.x, content.y + (titleHeight - ImGui::GetTextLineHeight()) / 2)); }
     ImGui::SetCursorScreenPos(ImVec2(content.x + contentWidth - sheetButtonWidth, content.y));
     ImGui::BeginDisabled(state->loaded.empty() || state->rows.empty() || state->busy);
     if (TransportButton("##export", Icon::Down, sheetLabel, s, dpi)) ImGui::OpenPopup("Export MIDI");
@@ -1990,8 +2018,6 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
         FontScope font(fonts, design, design.type.meta * SpecFontScale(design));
         DrawEllipsis(sheetNote, contentWidth, ImVec2(content.x, content.y + titleHeight + 2 * dpi));
     }
-    { FontScope font(fonts, design, design.type.meta * SpecFontScale(design));
-      DrawEllipsis(TransportHints(state->seekStep), contentWidth, ImVec2(content.x, content.y + titleHeight + 20 * dpi)); }
     const auto number = [&](ShellEngine::Action action, double amount) {
         engine.Send({action, {}, state->generation, 0, false, amount});
     };
