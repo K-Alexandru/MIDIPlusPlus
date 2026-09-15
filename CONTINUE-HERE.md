@@ -58,6 +58,8 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
   `PrintWindow` with flag 3 on the process you launched, filtered by path;
   `CopyFromScreen` grabs whatever covers the window.
 - The owner's MIDI files each have one note track; build a multi-track `.mid`.
+- Each worktree's `build\shell` needs its own `converter\.venv` junction to
+  `D:\Dev\mp3converter\.venv`, and its own sign-in (`tools/mp3-to-midi/cookies.txt`).
 
 ## Work completed
 
