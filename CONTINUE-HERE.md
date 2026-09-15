@@ -15,8 +15,8 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 
 - Panel seat owns `ui/`, including `ShellEngine::Action` and `EngineSnapshot`.
 - Claude owns `MIDI++/`, `tests/`, `tools/`, specs, and engine seams in `ui/`.
-- Owner-approved exceptions, not precedents: Convert, sign-in, and the Convert
-  popover rework (`DrawConvert`, 2026-09-15) in `ui/Panels.cpp`.
+- Owner-approved exception, not a precedent: Claude's Convert popover in
+  `ui/Panels.cpp` (`DrawConvert`, 2026-09-15).
 
 ## Decisions made, do not reopen
 
