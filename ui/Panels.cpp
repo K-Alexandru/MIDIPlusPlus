@@ -1968,8 +1968,14 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     // floating in it. The frame and its corners are drawn after the table.
     ImDrawList* tableDraw = nullptr;
     ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(s.spacing.s2, s.spacing.s1));
+    // Rules go above each row, drawn after the table. BordersInnerH put one
+    // under the last row too, which left the space below it looking like a
+    // clipped row.
+    std::vector<float> rules;
+    float headerBottom = tableMin.y, headerHeight = 0.f;
+    const float rowHeight = s.metric.controlHeight + 2 * s.spacing.s1;
     // PadOuterX, or the # column sits flush against the frame's left edge.
-    if (ImGui::BeginTable("##tracks", 7, ImGuiTableFlags_ScrollY | ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH |
+    if (ImGui::BeginTable("##tracks", 7, ImGuiTableFlags_ScrollY | ImGuiTableFlags_RowBg |
         ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_PadOuterX, tableSize)) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 20 * dpi);
@@ -1981,7 +1987,10 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
         ImGui::TableSetupColumn("##solo-heading", ImGuiTableColumnFlags_WidthFixed, s.metric.controlHeight + s.spacing.s2);
         std::array<ImVec2, 2> actionHeaderMin, actionHeaderMax;
         { FontScope font(fonts, design, design.type.meta * SpecFontScale(design), Weight::Semibold);
-          ImGui::TableNextRow(ImGuiTableRowFlags_Headers);
+          // An explicit height in the heading font, so the header's bottom is
+          // known exactly; TableGetHeaderRowHeight() measures in the body font.
+          headerHeight = ImGui::GetTextLineHeight() + 2 * ImGui::GetStyle().CellPadding.y;
+          ImGui::TableNextRow(ImGuiTableRowFlags_Headers, headerHeight);
           for (int column = 0; column < 7; ++column) {
               ImGui::TableSetColumnIndex(column);
               // Always the column's own name, never "". An empty label takes
@@ -1997,16 +2006,18 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
         for (int action = 0; action < 2; ++action) {
             actionHeaderMin[action] = ImVec2(table->Columns[5 + action].WorkMinX, table->RowPosY1);
             actionHeaderMax[action] = ImVec2(table->Columns[5 + action].WorkMinX + s.metric.controlHeight,
-                table->RowPosY1 + ImGui::TableGetHeaderRowHeight());
+                table->RowPosY1 + headerHeight);
         }
+        headerBottom = table->RowPosY1 + headerHeight;
         const bool anySolo = AnySolo(state->rows);
         ImGuiListClipper tracks;
-        tracks.Begin(static_cast<int>(state->rows.size()), s.metric.controlHeight + 2 * s.spacing.s1);
+        tracks.Begin(static_cast<int>(state->rows.size()), rowHeight);
         while (tracks.Step()) for (int rowIndex = tracks.DisplayStart; rowIndex < tracks.DisplayEnd; ++rowIndex) {
             const auto& row = state->rows[rowIndex];
             const bool audible = TrackAudible(row, anySolo);
             ImGui::PushID(static_cast<int>(row.index));
-            ImGui::TableNextRow(0, s.metric.controlHeight + 2 * s.spacing.s1);
+            ImGui::TableNextRow(0, rowHeight);
+            rules.push_back(table->RowPosY1);
             ImGui::PushStyleColor(ImGuiCol_Text, Colour(audible ? s.ink.primary : s.ink.tertiary));
             if (!audible) ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, Colour(s.surface.recessed));
             ImGui::TableNextColumn(); ImGui::AlignTextToFramePadding(); ImGui::Text("%zu", row.index + 1);
@@ -2035,7 +2046,9 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
             ImGui::PopID();
         }
         if (state->rows.empty()) {
-            ImGui::TableNextRow(); ImGui::TableSetColumnIndex(1);
+            ImGui::TableNextRow(0, rowHeight);
+            rules.push_back(table->RowPosY1);
+            ImGui::TableSetColumnIndex(1); ImGui::AlignTextToFramePadding();
             ImGui::TextUnformatted(state->loaded.empty() ? "Open a MIDI file" : "No note tracks");
         }
         { FontScope font(fonts, design, design.type.meta * SpecFontScale(design), Weight::Semibold);
@@ -2057,9 +2070,19 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
         tableDraw = ImGui::GetCurrentTable()->InnerWindow->DrawList;
         ImGui::EndTable();
     }
-    if (tableDraw)
+    if (tableDraw) {
+        const float left = tableMin.x, right = tableMin.x + tableSize.x;
+        tableDraw->AddLine(ImVec2(left, headerBottom), ImVec2(right, headerBottom), ImGui::GetColorU32(ImGuiCol_TableBorderStrong));
+        // Clipped below the header, so a row scrolled under it cannot draw its
+        // rule across the headings; the first row's rule is the header's own.
+        tableDraw->PushClipRect(ImVec2(left, headerBottom + 1), ImVec2(right, tableMin.y + tableSize.y), false);
+        for (const float y : rules)
+            if (y > headerBottom + 0.5f)
+                tableDraw->AddLine(ImVec2(left, y), ImVec2(right, y), ImGui::GetColorU32(ImGuiCol_TableBorderLight));
+        tableDraw->PopClipRect();
         skin::RoundCorners(tableDraw, tableMin, ImVec2(tableMin.x + tableSize.x, tableMin.y + tableSize.y),
                            s.radius.element, Colour(s.surface.card), s, true);
+    }
     ImGui::PopStyleVar();
     ImGui::PopStyleVar(); ImGui::PopFont();
     ImGui::EndChild();

@@ -72,9 +72,11 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 
 ## Unresolved
 
-- **Owner to confirm `83fa9ed`.** Shadow bands now fade down the sides past
-  each corner; Tracks gained outer padding and aligned MUTE/SOLO headings.
-  The owner never named the Tracks fault, so these were inferred.
+- **Owner to confirm the shadow and Tracks fixes.** Shadow bands fade down the
+  sides; Tracks has outer padding, one heading baseline, and rules drawn above
+  rows so none sits under the last row. The owner's screenshot came from the
+  stale `continue-here-4d1c91` exe, so they have not seen any of it yet.
+- **Tracks fits about 1.5 rows at 1090 x 635.** Ask whether that is acceptable.
 - **YouTube link inside the app after sign-in:** not yet confirmed to convert.
 - **Release bundle:** `converter\` beside the exe with an embeddable Python,
   the packages including pywebview, both scripts and `ffmpeg\`. Size not weighed.
@@ -85,9 +87,8 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 
 ## Validation actually run
 
-- At `83fa9ed`: `ui\MIDIShell.vcxproj` built; `tests\run-shell-tests.ps1
-  -Render` passed, 0 failures. Live 125% captures before and after, compared
-  by pixel dump of the file list corner.
+- On the Tracks rules commit: shell built; `run-shell-tests.ps1 -Render` 274 PASS, 0 FAIL;
+  live 125% captures (`PrintWindow`) of empty, one-track and three-track tables.
 - At `ad05987`: `tests\run-shell-parity-mutations.ps1`, 19 of 19 killed. Not
   rerun after the two UI commits, which changed drawing code only.
 - Not run: `run-native-tests.ps1` and `run-latency-tests.ps1`, which take the
@@ -115,6 +116,5 @@ Shell tests capture injection in process, so always safe; never `*>&1` in PS 5.1
 
 ## Next action
 
-Ask the owner to open `build\shell\MIDIShell.exe` from this branch and confirm
-the file list shadow and the Tracks spacing; if Tracks still looks wrong, ask
-which gap they mean before changing `ui/Panels.cpp`.
+Ask the owner to close the old shell, open `build\shell\MIDIShell.exe` from
+this worktree, and confirm the file list shadow and the Tracks spacing.
