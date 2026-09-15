@@ -28,6 +28,8 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - A skin chooses colour only; every skin is 1090 x 635 collapsed.
 - Six built-in velocity curves, the sixth being S-Curve (`VELOCITY-CURVES.md`).
 - MP3 to MIDI is a Python sidecar, never in process, bundled with a release.
+- The bundle pins what a real conversion loads (`requirements.txt`), never
+  Transkun's declared training dependencies; CPU PyTorch only.
 - YouTube links use a signed-in session from `signin.py`; no third-party
   download service. The app never reads a browser's cookies itself.
 - UI copy follows `HANDOFF.md` section 15; attribution follows section 13.
@@ -36,58 +38,66 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 
 ## Relevant files
 
-- `tools/make-release.ps1`: builds and packages the shell; stages no converter.
-- `tools/release-README.txt`: the tester README that ships in the zip.
-- `MIDI++/AudioToMidi.hpp`: `FindInstall` says where a bundle must put
-  `python.exe`, `convert.py`, `signin.py` and `ffmpeg\`.
-- `tools/mp3-to-midi/README.md`: what the converter needs at runtime.
-- `ui/Panels.cpp`: `DrawConvert` is the Convert audio popover; the `+` menu
-  above the file list opens it; `Panels::openConvert` is the render test's way in.
+- `tools/make-release.ps1`: builds, stages `converter\` beside the exe, checks
+  it on a bare PATH, zips. Needs `py -3.12` (or `-Python`) to fetch wheels.
+- `tools/mp3-to-midi/requirements.txt`: the pinned bundle; the header says
+  how the list was derived and how to re-derive it after a bump.
+- `tools/mp3-to-midi/README.md`: runtime needs, lookup order, bundle layout.
+- `MIDI++/AudioToMidi.hpp`: `FindInstall` prefers `converter\python\python.exe`.
+- `ui/Panels.cpp`: `DrawConvert` is the Convert audio popover.
 
 ## Verified facts
 
 - A running `MIDIShell.exe` blocks the shell link step (LNK1168).
 - The display runs at 125%; read `tests/NativeShell.ps1` before scripting a click.
-- Never redirect a test exe with `*>` in PowerShell 5.1: a stderr line becomes
-  a terminating error and the run stops with no failure printed. Run
-  `RenderTests.exe` from its folder in cmd or bash if a script dies that way.
-- Build `MIDI++.vcxproj` from the repo root; elsewhere it writes into
-  `MIDI++\MIDI++\`, which is ignored.
-- Each checkout's `build\shell` needs its own `converter\.venv` junction to
-  `D:\Dev\mp3converter\.venv` and its own sign-in (`cookies.txt`, `browser\`).
-- The converter venv is 1.2 GB, 536 MB of it PyTorch; the winget FFmpeg full
-  build is 638 MB, Deno 93 MB. A bundle needs `ffmpeg.exe` alone and a pinned
-  package list, not the venv; whether Transkun imports `pandas`, `matplotlib`,
-  `sympy` or `networkx` at runtime is unchecked.
+- Never redirect a native exe with `2>&1` or `*>` under `$ErrorActionPreference
+  = 'Stop'` in PowerShell 5.1; `Invoke-Capture` in `make-release.ps1` shows
+  the safe way. An inline `python -c` loses its double quotes; use a file.
+- MSBuild's `/p:` switches must be run from PowerShell, not Git Bash, which
+  rewrites them as paths.
+- The Bash tool halves backslashes in heredocs; write files with Write or Edit.
+- A real Transkun transcription loads torch, torchaudio, numpy, scipy, sympy,
+  mir_eval, pretty_midi, mido, pydub, soxr, moduleconf, tqdm and setuptools.
+  It never loads pandas, matplotlib, seaborn, networkx, tensorboard, ncls or
+  sox. `ncls` has no Python 3.12 wheel; `proxy_tools` has no wheel at all.
+- torch's DLLs import msvcp140, msvcp140_atomic_wait and vcruntime140_threads,
+  which the embeddable Python lacks; the bundle ships the VC143 redist beside
+  python.exe and the script proves they load from there.
+- Each checkout's `build\shell` still needs its `converter\.venv` junction for
+  a development run; a staged release needs nothing.
 
 ## Work completed, 2026-09-15
 
-- Repository consolidated onto this branch; stale worktrees and nine merged
-  branches deleted locally and on `origin`; the main checkout moved here.
-- Salvaged: the `VELOCITY-CURVES.md` correction from `bc7d0df`, and
-  `VelocityPresets.hpp` from a 2026-09-09 worktree, now fixing the editor
-  presets that started at 0 (`VelocityPresetTests`, `preset-floor-at-zero`).
-- Convert popover reworked: one primary action that becomes Cancel, quieter
-  file picker, sign-in footnote, progress bar, status bar shows a running
-  conversion, `+` marked while it runs. `convert` render scenario added.
-- `SHELL-GAPS.md` and `MIDI-OUTPUT.md` corrected: `08aa1ab` built the MIDI
-  output panel and the velocity modifier control. The panel prompt starts here.
+- Release bundle: `converter\` with embeddable Python 3.12.10, 40 pinned
+  packages, `convert.py`, `signin.py`, FFmpeg 9.0.1 essentials, Deno 2.9.6,
+  every licence under `converter\licenses\`; downloads pinned by SHA256 and
+  cached in `build\release\downloads`. `convert.py` finds `deno\` beside it.
+- Staged folder 1,098 MB (converter 1,093 MB); zip 390 MB.
+- `ShellTests` gained the shipped-layout case for `FindInstall`.
+- Tester README names Convert and Sign in to YouTube, and credits the converter.
 
 ## Unresolved
 
 - **Panel seat, not started:** the owner hands over
   `PROMPT-S-CURVE-AND-SWITCHES.md`; its three pieces are listed there.
-- **Needs the owner at the keyboard:** delivery into a game from the shell,
-  Wooting feel, two devices at once, MIDI output into a real synth, live curve
-  reconnection, a mixed-DPI move, and a look at the Convert popover live.
+- **Needs the owner at the keyboard:** the zip on a machine or profile with no
+  Python, Convert with a file and with a YouTube link after Sign in, delivery
+  into a game, Wooting feel, two devices, MIDI output into a synth, live curve
+  reconnection, a mixed-DPI move, the Convert popover at 125%.
+- torch ships 63 MB of headers and 12 `.lib` files nobody runs; pruning a
+  wheel's contents was not done because it changes what pip installed.
 
 ## Validation actually run
 
-- At `358588d`: shell built; `ShellTests.exe` 35 PASS, 0 FAIL; `RenderTests.exe`
-  260 PASS, 208 captures including 16 `convert`; `MIDI++.vcxproj` built;
-  `run-shell-parity-mutations.ps1`, 20 of 20 killed.
-- Not run: native and latency tests, which take the cursor; nothing played into
-  a game or a synth; the popover not yet seen live at 125%.
+- Worktree at the branch head: shell built; `ShellTests.exe` 35 PASS, 0 FAIL;
+  `make-release.ps1 -SkipBuild` staged, swept 334 binaries for VC runtime
+  imports, imported torch, transkun, yt-dlp and pywebview with PATH cut to
+  Windows, converted a 3 s clip, zipped.
+- The zip extracted to another folder converted a clip the same way, and
+  `deno` and `ffmpeg` resolved beside the script.
+- Not run: render tests and parity mutations (no `ui/` or engine change),
+  native and latency tests, a YouTube link (needs a sign-in), `signin.py`
+  itself (opens a window), the shell against the staged converter live.
 
 ## Build and test
 
@@ -95,26 +105,25 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 & 'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe' 'ui\MIDIShell.vcxproj' /p:Configuration=Release /p:Platform=x64 /m
 & .\tests\run-shell-tests.ps1 -Render
 & .\tests\run-shell-parity-mutations.ps1
+& .\tools\make-release.ps1
 ```
 
 ## Repository state
 
 - `origin` is K-Alexandru/MIDIPlusPlus; `upstream` is Zephkek/MIDIPlusPlus.
   `main` stays at `e37ba7e`. Pushing without asking is authorized.
-- The main checkout `D:\Dev\MIDIPlusPlus-modded` is on this branch, pushed and
-  clean apart from the rebuilt `x64\Release\MIDI++.exe` and the owner's
-  `x64\Release\midi\`; its converter junction and sign-in are in place.
-- `.claude\worktrees\midiplus-dev-planning-e05d69` is a detached leftover;
-  `git worktree remove` it. `D:\Dev\mpp-panels` on `astra/shell-parity` is the
-  panel seat's and is left alone.
+- The main checkout `D:\Dev\MIDIPlusPlus-modded` is on this branch, clean
+  apart from the rebuilt `x64\Release\MIDI++.exe` and the owner's
+  `x64\Release\midi\`. `D:\Dev\mpp-panels` is the panel seat's; leave it.
+- `.claude\worktrees\midiplus-dev-planning-e05d69` is pruned from git but a
+  process holds the folder; delete it by hand once nothing is inside it.
 - Never commit `x64/Release/midi/`, `build/`, `MIDI++/MIDI++/`, `.claude/`,
   `tools/mp3-to-midi/cookies.txt` or `tools/mp3-to-midi/browser/`.
 
 ## Next action
 
-In a worktree off this branch, extend `tools/make-release.ps1` to stage
-`converter\` beside the exe: an embeddable Python 3.12 with the packages from a
-pinned `tools/mp3-to-midi/requirements.txt` (torch CPU, transkun, yt-dlp,
-pywebview), `convert.py`, `signin.py`, `ffmpeg\ffmpeg.exe` and Deno, with each
-licence copied in; then package, record the zip size here, and test the folder
-on a profile with no Python on `PATH`.
+Ask the owner whether to publish this as a test build. If yes: run
+`tools\make-release.ps1` from the branch head in the main checkout, then
+`gh release create v0.2.0-test <zip> --repo K-Alexandru/MIDIPlusPlus-testing`
+with notes naming the commit and SHA256 the script prints, and tell testers
+the download is 390 MB.
