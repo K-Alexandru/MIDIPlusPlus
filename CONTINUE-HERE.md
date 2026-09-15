@@ -1,8 +1,7 @@
 # Start here
 
-Updated 2026-09-15 on `claude/continue-here-f0c3de` (`e85e62f`), which supersedes
-`claude/continue-here-4d1c91`. Then read `HANDOFF.md`, `SHELL-GAPS.md` (what the
-shell owes) and `SEATS.md` (who does what).
+Updated 2026-09-15 on `claude/continue-here-f0c3de`. Then read `HANDOFF.md`,
+`SHELL-GAPS.md` (what the shell owes) and `SEATS.md` (who does what).
 
 ## Goal
 
@@ -13,11 +12,9 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 
 ## Seats
 
-- The panel seat, a second assistant in another app, owns `ui/`, including
-  `ShellEngine::Action` and `EngineSnapshot`.
-- Claude owns `MIDI++/`, `tests/`, specs, and engine-side seams in `ui/`.
-- Owner-approved exception, not a precedent: Claude's Convert and sign-in
-  actions, and the owner's UI fixes in `ui/Panels.cpp` and `ui/SkinDraw.cpp`.
+- Panel seat owns `ui/`; Claude owns `MIDI++/`, `tests/`, specs, engine seams.
+- Owner-approved exception, not a precedent: Convert, sign-in, and the owner's
+  UI fixes in `ui/Panels.cpp` and `ui/SkinDraw.cpp`.
 
 ## Decisions made, do not reopen
 
@@ -41,12 +38,9 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
   line), `signin.py` (WebView2 sign-in, writes `cookies.txt`), `README.md`.
 - `MIDI++/AudioToMidi.hpp`: finds the install, runs either script in a job;
   `AudioToMidiTests` in `tests/ShellTests.cpp` covers it.
-- `ui/ShellEngine.cpp`: `ConvertAudio`, `ConvertCancel`, `ConvertProgress`,
-  `YouTubeSignIn`.
-- `ui/Panels.cpp`: the + menu and Convert audio popup, file list, Tracks panel
-  (table, `headerHeight`, `rules`).
+- `ui/ShellEngine.cpp`: `ConvertAudio`, `ConvertCancel`, `ConvertProgress`, `YouTubeSignIn`.
+- `ui/Panels.cpp`: + menu, Convert popup, file list, Tracks table (`rules`).
 - `ui/SkinDraw.cpp`: `InnerShadow`, `RecessedRect`, `RoundCorners`.
-- `tests/NativeShell.ps1`: DPI-aware launch, geometry and click helpers.
 
 ## Verified facts
 
@@ -63,10 +57,7 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - Live captures need no cursor: pass a `.mid` as `argv[1]` to open it, and use
   `PrintWindow` with flag 3 on the process you launched, filtered by path;
   `CopyFromScreen` grabs whatever covers the window.
-- `TableGetHeaderRowHeight()` measures in the body font; the heading row uses
-  the meta font, so its height is set explicitly.
-- The owner's MIDI folder has no file with more than one note track; build a
-  small multi-track `.mid` to test row rules.
+- The owner's MIDI files each have one note track; build a multi-track `.mid`.
 
 ## Work completed
 
@@ -76,11 +67,9 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - Convert audio popup: choose a file or paste a link, status, cancel, Sign in
   to YouTube; the `.mid` lands in the MIDI folder and is rescanned.
 - UI pass: stable state pills, one + menu, `RoundCorners` on file list and table.
-- `83fa9ed`: inner shadow bands continue down the sides and fade out, so they
-  no longer stop hard at the corner tangent.
-- `83fa9ed`, `e85e62f`: Tracks table has outer padding, one heading baseline
-  and ink, rules above rows only, an exact header rule, and an empty-state row
-  at track-row height. Owner: "its good".
+- `83fa9ed`: inner shadow bands continue down the sides and fade out.
+- `83fa9ed`, `e85e62f`: Tracks outer padding, one heading baseline and ink,
+  rules above rows only, exact header rule. Owner: "its good".
 
 ## Unresolved
 
@@ -98,7 +87,6 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 
 - At `e85e62f`: `ui\MIDIShell.vcxproj` built; `tests\run-shell-tests.ps1 -Render`
   274 PASS, 0 FAIL; live 125% captures of empty, one-track and three-track tables.
-- At `83fa9ed`: file list corner pixel dump shows a smooth fade, no step.
 - At `ad05987`: `tests\run-shell-parity-mutations.ps1`, 19 of 19 killed. Not
   rerun since; later commits changed drawing code only.
 - Not run: `run-native-tests.ps1` and `run-latency-tests.ps1`, which take the
