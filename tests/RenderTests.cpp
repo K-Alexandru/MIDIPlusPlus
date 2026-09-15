@@ -100,8 +100,9 @@ int wmain() {
             panels.miniAutoplay = mode == 2 || mode == 8 || mode == 10;
             panels.logOpen = mode == 3 || mode == 9;
             panels.velocityExpanded = mode == 11;
-            // "minimum" is the smallest window WM_GETMINMAXINFO allows, 900 x 580,
-            // where the right column has 30 fewer rows of height than the design.
+            // "minimum" is the smallest window WM_GETMINMAXINFO allows, 900 x 610:
+            // the design height at 190 less width, where the right column is
+            // at its narrowest.
             const char* variants[]{"full", "mini-live", "mini-autoplay", "log", "settings", "sort", "export",
                                    "countdown", "mini-countdown", "mini-log", "mini-open", "velocity-editor", "convert", "minimum"};
             const int picksBefore = pickerCalls;
@@ -117,7 +118,7 @@ int wmain() {
             if (panels.logOpen) shell::ShellLog::Instance().Append("[error] Kernel Streaming read failed, live input has stopped.\n");
             skin::ApplyStyle(skins[i], dpi);
             ImGui::GetIO().FontDefault = fonts.Get(skins[i]);
-            const auto desired = mode == 13 ? ImVec2(900, 580) : panels.DesiredSize();
+            const auto desired = mode == 13 ? ImVec2(900, 610) : panels.DesiredSize();
             const UINT width = static_cast<UINT>(desired.x * dpi);
             const UINT height = static_cast<UINT>(desired.y * dpi);
             D3D11_TEXTURE2D_DESC desc{};

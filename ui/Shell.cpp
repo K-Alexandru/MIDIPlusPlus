@@ -210,7 +210,9 @@ static LRESULT WINAPI WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_GETMINMAXINFO: {
         auto* info = reinterpret_cast<MINMAXINFO*>(lp);
         const bool mini = g_panels && g_panels->miniMode;
-        const ImVec2 minimum = mini ? g_panels->DesiredSize() : ImVec2(900, 580);
+        // 610 is the design height: below it the Tracks panel is down to one
+        // row, and nothing in the layout has a shorter form to fall back to.
+        const ImVec2 minimum = mini ? g_panels->DesiredSize() : ImVec2(900, 610);
         RECT rect{0, 0, static_cast<LONG>(minimum.x * g_dpi), static_cast<LONG>(minimum.y * g_dpi)};
         AdjustWindowRectExForDpi(&rect, WS_OVERLAPPEDWINDOW, FALSE, 0,
                                 static_cast<UINT>(96.f * g_dpi));
