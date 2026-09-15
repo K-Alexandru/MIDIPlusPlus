@@ -48,6 +48,9 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
   shell finds Python; `build/` is not committed.
 - `AudioToMidiTests` caught a Cancel after Done reporting a false second
   final status, fixed in `Job::Pump`.
+- Sign in to YouTube in the Convert popup runs `signin.py` (WebView2 through
+  pywebview) and saves the session as `cookies.txt`; action `YouTubeSignIn`,
+  fields `signingIn` and `youtubeSignedIn`, under the same one-off exception.
 
 ## Verified facts
 
@@ -57,8 +60,11 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - The GPU is an AMD RX 7900 XTX, so CUDA PyTorch does not apply here.
 - Wikimedia refuses yt-dlp's default client with a 403.
 - YouTube refuses the owner's connection as a bot for every video and every
-  yt-dlp client, even with Deno 2.9.6 installed. Only a user-exported
-  `tools/mp3-to-midi/cookies.txt` or a file downloaded elsewhere gets past it.
+  yt-dlp client, even with Deno 2.9.6 installed. A signed-in session in
+  `tools/mp3-to-midi/cookies.txt` gets past it; the owner confirmed
+  `signin.py` works on 2026-09-14.
+- mp7.dev has no public API or source; the owner's viner.dev sites are GitHub
+  Pages, so they cannot host a downloader.
 - The display runs at 125%; read `tests/NativeShell.ps1` before scripting any
   click or screenshot.
 

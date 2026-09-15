@@ -1735,6 +1735,15 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
         if (ImGui::Button("Convert link")) engine.Send({ShellEngine::Action::ConvertAudio, {}, 0, 0, false, 0, convertLink_});
         ImGui::EndDisabled();
         ImGui::EndDisabled();
+        // YouTube refuses some connections unless signed in; the window keeps
+        // its own profile, so this is needed once.
+        ImGui::BeginDisabled(state->converting);
+        if (ImGui::Button(state->youtubeSignedIn ? "Sign in again" : "Sign in to YouTube"))
+            engine.Send({ShellEngine::Action::YouTubeSignIn});
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::TextDisabled(state->youtubeSignedIn ? "Signed in. Links use this session."
+                                                   : "Needed when YouTube refuses links.");
         if (state->folder.empty()) ImGui::TextDisabled("Choose a MIDI folder first. The new file is saved there.");
         if (!state->conversionStatus.empty()) {
             // Worded as a failure, not only coloured as one.
@@ -1744,7 +1753,8 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
             else ImGui::TextUnformatted(line.c_str());
             ImGui::PopTextWrapPos();
         }
-        if (state->converting && ImGui::Button("Cancel conversion")) engine.Send({ShellEngine::Action::ConvertCancel});
+        if (state->converting && ImGui::Button(state->signingIn ? "Close sign-in window" : "Cancel conversion"))
+            engine.Send({ShellEngine::Action::ConvertCancel});
         ImGui::EndPopup();
     }
     const ImVec2 listMin = ImGui::GetCursorScreenPos();

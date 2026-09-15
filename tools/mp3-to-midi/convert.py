@@ -143,9 +143,8 @@ def main():
         if "confirm you" in reason and "not a bot" in reason:
             # YouTube blocks the whole connection, not one video, so no setting
             # here fixes it. Say what the user can do instead of yt-dlp's advice.
-            cookies = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cookies.txt")
-            reason = ("YouTube refused this connection as a bot. Download the audio another way and use "
-                      f"Choose audio file, or export your YouTube cookies to {cookies} and try again.")
+            reason = ("YouTube refused this connection as a bot. Use Sign in to YouTube below, then try "
+                      "the link again, or download the audio another way and use Choose audio file.")
         say("error", reason)
         return 1
     finally:

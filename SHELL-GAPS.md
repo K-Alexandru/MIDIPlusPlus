@@ -345,6 +345,9 @@ Still open:
   about 24 s for 93 s of solo piano.
 - Links from sites that refuse yt-dlp's default client, as Wikimedia does
   with a 403.
+- YouTube refuses the owner's connection unless signed in. Sign in to YouTube
+  in the popup (`signin.py`, 2026-09-14) fixes it; the owner confirmed the
+  window works. A release must bundle `pywebview` for it.
 
 ### The sheet port, engine side: done 2026-09-11
 

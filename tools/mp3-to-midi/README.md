@@ -39,12 +39,19 @@ session. When it does, every video fails, whatever the settings. Checked
 installed. Hosted converters such as mp7.dev download from their own servers,
 which is why they still work.
 
-Two ways around it:
+Ways around it:
 
-1. Export your YouTube cookies in Netscape format, for example with a
+1. Sign in to YouTube in the Convert audio popup. It runs `signin.py`, a
+   small WebView2 window (pywebview) with its own profile in `browser\`. You
+   sign in yourself; once YouTube shows the account, the session is saved as
+   `cookies.txt` here. Confirmed working by the owner on 2026-09-14.
+2. Export your YouTube cookies in Netscape format, for example with a
    "Get cookies.txt LOCALLY" browser extension, and save the file as
    `cookies.txt` in this folder. The app never reads a browser itself.
-2. Download the audio another way and use Choose audio file.
+3. Download the audio another way and use Choose audio file.
+
+yt-dlp warns that downloading while signed in can get an account flagged, so
+a spare Google account is the safer choice. `signin.py` needs `pywebview`.
 
 A JavaScript runtime (Deno or Node) on `PATH` is also needed for YouTube.
 `convert.py` finds one on its own.

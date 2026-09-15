@@ -102,6 +102,10 @@ struct EngineSnapshot {
     bool converting = false;
     bool conversionFailed = false;
     std::string conversionStatus;
+    // The sign-in window shares the converter's job, so converting is also
+    // true while it is open; signingIn says which of the two it is.
+    bool signingIn = false;
+    bool youtubeSignedIn = false;
     std::string ActiveVelocityName() const {
         return comparingCurve ? previousPreset.name + (VelocityEdited(previousCurve) ? " (edited)" : "") : VelocityName(curves, curve);
     }
@@ -122,7 +126,9 @@ public:
                         // path is an audio file, or key is a link. ConvertProgress is
                         // the converter's own thread reporting back: key is the
                         // text and track an audio_to_midi::Status::Kind.
-                        ConvertAudio, ConvertCancel, ConvertProgress };
+                        ConvertAudio, ConvertCancel, ConvertProgress,
+                        // Opens tools/mp3-to-midi/signin.py; ConvertCancel closes it.
+                        YouTubeSignIn };
     struct Command {
         Action action;
         std::filesystem::path path;

@@ -352,6 +352,16 @@ void ShellEngine::Run(std::stop_token stop) {
     }
     VelocityHistory curveHistory;
     curveHistory.Reset(state.curve);
+    const auto converterInstall = [] {
+        wchar_t executable[MAX_PATH]{};
+        GetModuleFileNameW(nullptr, executable, MAX_PATH);
+        return audio_to_midi::FindInstall(std::filesystem::path(executable).parent_path());
+    };
+    // The converter's thread reports back as a command, never touching state.
+    const auto reportConversion = [this](const audio_to_midi::Status& status) {
+        Send({Action::ConvertProgress, {}, 0, static_cast<size_t>(status.kind), false, 0, status.text});
+    };
+    state.youtubeSignedIn = converterInstall().SignedIn();
     Publish(state);
     // A curve is committed on a slider release, not per keystroke, and the
     // documented behaviour is that a failed save reports and leaves the applied
@@ -898,22 +908,32 @@ void ShellEngine::Run(std::stop_token stop) {
                     const std::wstring source = command.key.empty() ? command.path.native()
                         : std::filesystem::path(std::u8string(command.key.begin(), command.key.end())).native();
                     if (source.empty()) break;
-                    wchar_t executable[MAX_PATH]{};
-                    GetModuleFileNameW(nullptr, executable, MAX_PATH);
-                    const auto install = audio_to_midi::FindInstall(std::filesystem::path(executable).parent_path());
+                    const auto install = converterInstall();
                     if (!install.Found()) {
                         state.conversionFailed = true;
                         state.conversionStatus = "The converter is not installed. tools/mp3-to-midi/README.md says what it needs.";
                         break;
                     }
                     const bool started = converter.Start(
-                        audio_to_midi::CommandLine(install.python, install.script, source, state.folder),
-                        [this](const audio_to_midi::Status& status) {
-                            Send({Action::ConvertProgress, {}, 0, static_cast<size_t>(status.kind), false, 0, status.text});
-                        });
+                        audio_to_midi::CommandLine(install.python, install.script, source, state.folder), reportConversion);
+                    state.signingIn = false;
                     state.converting = started;
                     state.conversionFailed = !started;
                     state.conversionStatus = started ? "Starting the converter..." : "The converter could not start.";
+                    break;
+                }
+                case Action::YouTubeSignIn: {
+                    if (state.converting) { state.error = "Wait for the conversion to finish before signing in."; break; }
+                    const auto install = converterInstall();
+                    if (!install.Found() || install.signin.empty()) {
+                        state.conversionFailed = true;
+                        state.conversionStatus = "The converter is not installed. tools/mp3-to-midi/README.md says what it needs.";
+                        break;
+                    }
+                    const bool started = converter.Start(audio_to_midi::SignInCommandLine(install.python, install.signin), reportConversion);
+                    state.signingIn = state.converting = started;
+                    state.conversionFailed = !started;
+                    state.conversionStatus = started ? "Sign in to YouTube in the window that opened." : "The sign-in window could not start.";
                     break;
                 }
                 case Action::ConvertCancel: converter.Cancel(); break;
@@ -928,6 +948,13 @@ void ShellEngine::Run(std::stop_token stop) {
                     if (kind == Kind::Step) { state.conversionStatus = command.key; break; }
                     state.converting = false;
                     state.conversionFailed = kind == Kind::Error;
+                    if (state.signingIn) {
+                        state.signingIn = false;
+                        state.youtubeSignedIn = converterInstall().SignedIn();
+                        state.conversionStatus = kind == Kind::Done ? "Signed in to YouTube. Links can be converted now."
+                            : command.key == "Conversion cancelled." ? "Sign-in cancelled." : command.key;
+                        break;
+                    }
                     if (kind == Kind::Error) {
                         state.conversionStatus = command.key;
                         ShellLog::Instance().Append("[error] Conversion failed: " + command.key + "\n");

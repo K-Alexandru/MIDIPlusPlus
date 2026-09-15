@@ -2581,6 +2581,15 @@ void AudioToMidiTests(const std::filesystem::path& directory) {
         engine.Send({A::ConvertProgress, {}, 0, static_cast<size_t>(Status::Kind::Step), false, 0, "Transcribing"});
         Await([&] { return engine.Snapshot()->conversionStatus == "Transcribing"; }, "a converter step did not reach the snapshot");
         Require(engine.Snapshot()->error == error, "a converter status cleared an unrelated error");
+
+        // The sign-in window is found beside convert.py and, with no Python,
+        // refused the same way a conversion is rather than left open.
+        Require(audio_to_midi::FindInstall(directory).signin.filename() == L"signin.py",
+                "signin.py is found beside convert.py");
+        engine.Send({A::YouTubeSignIn});
+        Await([&] { return engine.Snapshot()->conversionStatus.find("not installed") != std::string::npos; },
+              "a sign-in with no Python gave no status");
+        Require(!engine.Snapshot()->signingIn && !engine.Snapshot()->converting, "a sign-in that cannot start is not left open");
     }
 
     std::cout << "PASS audio to MIDI: status lines, argument quoting, process tree, silent exit, cancel and engine refusals\n";

@@ -86,15 +86,29 @@ inline std::wstring CommandLine(const std::filesystem::path& python, const std::
 struct Install {
     std::filesystem::path python;
     std::filesystem::path script;
+    std::filesystem::path signin;  // signin.py beside convert.py, when present
     bool Found() const { return !python.empty() && !script.empty(); }
+    // signin.py leaves a YouTube session here, and convert.py reads it.
+    bool SignedIn() const {
+        std::error_code ec;
+        return !script.empty() && std::filesystem::is_regular_file(script.parent_path() / L"cookies.txt", ec);
+    }
 };
+
+inline std::wstring SignInCommandLine(const std::filesystem::path& python, const std::filesystem::path& script) {
+    return QuoteArgument(python.native()) + L" -u " + QuoteArgument(script.native());
+}
 
 inline Install FindInstall(const std::filesystem::path& exeFolder) {
     namespace fs = std::filesystem;
     std::error_code ec;
     Install found;
     for (const auto& folder : {exeFolder / L"converter", exeFolder.parent_path().parent_path() / L"tools" / L"mp3-to-midi"})
-        if (fs::is_regular_file(folder / L"convert.py", ec)) { found.script = folder / L"convert.py"; break; }
+        if (fs::is_regular_file(folder / L"convert.py", ec)) {
+            found.script = folder / L"convert.py";
+            if (fs::is_regular_file(folder / L"signin.py", ec)) found.signin = folder / L"signin.py";
+            break;
+        }
     if (const DWORD size = GetEnvironmentVariableW(L"MIDIPP_CONVERTER_PYTHON", nullptr, 0)) {
         std::wstring value(size, L'\0');
         value.resize(GetEnvironmentVariableW(L"MIDIPP_CONVERTER_PYTHON", value.data(), size));
