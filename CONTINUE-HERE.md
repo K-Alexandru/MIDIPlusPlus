@@ -13,8 +13,7 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 ## Seats
 
 - Panel seat owns `ui/`; Claude owns `MIDI++/`, `tests/`, specs, engine seams.
-- Owner-approved exception, not a precedent: Convert, sign-in, and the owner's
-  UI fixes in `ui/Panels.cpp` and `ui/SkinDraw.cpp`.
+- Approved exception, not a precedent: Convert, sign-in, owner's UI fixes in `ui/`.
 
 ## Decisions made, do not reopen
 
@@ -34,8 +33,8 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 
 ## Relevant files
 
-- `tools/mp3-to-midi/`: `convert.py` (file or link to `.mid`, one status per
-  line), `signin.py` (WebView2 sign-in, writes `cookies.txt`), `README.md`.
+- `tools/mp3-to-midi/`: `convert.py` (file, link or `--playlist` to `.mid`, one
+  status per line), `signin.py` (WebView2 sign-in, writes `cookies.txt`), `README.md`.
 - `MIDI++/AudioToMidi.hpp`: finds the install, runs either script in a job;
   `AudioToMidiTests` in `tests/ShellTests.cpp` covers it.
 - `ui/ShellEngine.cpp`: `ConvertAudio`, `ConvertCancel`, `ConvertProgress`, `YouTubeSignIn`.
@@ -48,8 +47,7 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - 93 s of solo piano: 24 s on the CPU (AMD GPU, no CUDA), 1201 notes, C2 to A6.
 - YouTube refuses the owner's connection for every video and yt-dlp client
   unless signed in. The owner confirmed `signin.py` signs in.
-- mp7.dev has no public API; the owner's viner.dev sites are GitHub Pages and
-  cannot run a downloader.
+- mp7.dev has no public API; viner.dev sites are GitHub Pages, so no downloader.
 - A running `MIDIShell.exe` blocks the shell link step (LNK1168); ask the owner
   to close it before rebuilding. Check which worktree's exe they are running.
 - The display runs at 125%; read `tests/NativeShell.ps1` before scripting any
@@ -73,8 +71,10 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
   confirmed it looks fine.
 - `83fa9ed`, `e85e62f`: Tracks outer padding, one heading baseline and ink,
   rules above rows only, exact header rule. Owner: "its good".
-- A YouTube link converts in the app after sign-in (owner, 2026-09-15). Whole
-  playlist: `convert.py --playlist`, `saved:`/`finished:` lines, skip on failure.
+- `92d22ff`: Whole playlist checkbox for a `list=` link; `saved:` per file,
+  one `finished:` summary, failed videos skipped, Cancel keeps saved files.
+- `f9b1b56`: empty file list message centred. Owner confirmed links, playlists,
+  Cancel and the centred message all work (2026-09-15).
 
 ## Unresolved
 
@@ -87,10 +87,10 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 
 ## Validation actually run
 
-- With playlists: shell built; `run-shell-tests.ps1 -Render` 274 PASS, 0 FAIL;
-  playlist loop checked with stubs. No real playlist run yet.
-- At `e85e62f`: `tests\run-shell-parity-mutations.ps1`, 19 of 19 killed,
-  sources restored.
+- At `f9b1b56`: shell built; `run-shell-tests.ps1 -Render` 274 PASS, 0 FAIL.
+  Playlist loop checked with stubs, then by the owner on a real playlist.
+- At `e85e62f`: `run-shell-parity-mutations.ps1`, 19 of 19 killed. Not rerun
+  since the playlist change, which touched `ShellEngine.cpp`.
 - Not run: native and latency tests, which take the cursor; nothing played into a game.
 
 ## Build and test
@@ -107,7 +107,7 @@ Shell tests capture injection in process, so always safe; never `*>&1` in PS 5.1
 
 - `origin` is K-Alexandru/MIDIPlusPlus; `upstream` is Zephkek/MIDIPlusPlus.
   `main` stays at `e37ba7e`. Pushing without asking is authorized.
-- `claude/continue-here-f0c3de` is pushed; code last changed at `e85e62f`.
+- `claude/continue-here-f0c3de` is pushed and clean; code last changed at `f9b1b56`.
 - Main checkout is on `output-panel`; `D:\Dev\mpp-panels` is on the old
   `astra/shell-parity` (`bdd7e85`).
 - Never commit `x64/Release/midi/`, `build/`, `tools/mp3-to-midi/cookies.txt`
@@ -115,5 +115,5 @@ Shell tests capture injection in process, so always safe; never `*>&1` in PS 5.1
 
 ## Next action
 
-Ask the owner to paste a short YouTube playlist link, tick Whole playlist, and
-confirm each `.mid` appears as it lands and Cancel mid-run keeps those files.
+Run `tests\run-shell-parity-mutations.ps1` on `f9b1b56`, since `ShellEngine.cpp`
+changed after the last run, and record the result here.
