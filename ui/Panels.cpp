@@ -1786,7 +1786,17 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     skin::RecessedField(listMin, ImVec2(listMin.x + listSize.x, listMin.y + listSize.y), s, false);
     ImGui::BeginChild("##file-list", listSize, ImGuiChildFlags_None, ImGuiWindowFlags_NoBackground);
     if (state->files->empty()) {
-        ImGui::TextWrapped("Open a MIDI file or choose its folder.");
+        // Centred both ways in the well, wrapped inside a side margin so it
+        // never runs into the edges.
+        static constexpr const char* kEmpty = "Open a MIDI file or choose its folder.";
+        const ImVec2 area = ImGui::GetContentRegionAvail();
+        const float wrap = std::max(1.f, area.x - 2 * s.spacing.s3);
+        const ImVec2 size = ImGui::CalcTextSize(kEmpty, nullptr, false, wrap);
+        ImGui::SetCursorPos(ImVec2(ImGui::GetCursorPosX() + std::max(0.f, (area.x - size.x) / 2),
+                                   ImGui::GetCursorPosY() + std::max(0.f, (area.y - size.y) / 2)));
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + size.x + 1);
+        ImGui::TextUnformatted(kEmpty);
+        ImGui::PopTextWrapPos();
     } else {
         std::string query(search_);
         const auto lowercase = [](std::string text) {
