@@ -2637,6 +2637,25 @@ void AudioToMidiTests(const std::filesystem::path& directory) {
         // refused the same way a conversion is rather than left open.
         Require(audio_to_midi::FindInstall(directory).signin.filename() == L"signin.py",
                 "signin.py is found beside convert.py");
+
+        // The shipped layout, as tools/make-release.ps1 stages it: converter\
+        // beside the exe with the scripts and an embeddable python\python.exe.
+        // It wins over the repository's tools folder and over any .venv.
+        {
+            const auto app = std::filesystem::temp_directory_path() / L"midiplusplus-bundle-test";
+            std::filesystem::remove_all(app);
+            std::filesystem::create_directories(app / L"converter" / L"python");
+            std::filesystem::create_directories(app / L"converter" / L".venv" / L"Scripts");
+            for (const auto* file : {L"converter/convert.py", L"converter/signin.py", L"converter/python/python.exe",
+                                     L"converter/.venv/Scripts/python.exe"})
+                std::ofstream(app / file).put('\n');
+            const auto bundled = audio_to_midi::FindInstall(app);
+            Require(bundled.Found() && bundled.python == app / L"converter" / L"python" / L"python.exe" &&
+                    bundled.script == app / L"converter" / L"convert.py" && bundled.signin == app / L"converter" / L"signin.py",
+                    "a release bundle is found beside the exe, its embedded Python before any .venv");
+            Require(!bundled.SignedIn(), "and with no cookies.txt shipped, nobody is signed in");
+            std::filesystem::remove_all(app);
+        }
         engine.Send({A::YouTubeSignIn});
         Await([&] { return engine.Snapshot()->conversionStatus.find("not installed") != std::string::npos; },
               "a sign-in with no Python gave no status");

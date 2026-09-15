@@ -203,10 +203,13 @@ def main():
 
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    # A release ships FFmpeg beside this script rather than asking for PATH.
-    bundled = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ffmpeg")
-    if os.path.isdir(bundled):
-        os.environ["PATH"] = bundled + os.pathsep + os.environ.get("PATH", "")
+    # A release ships FFmpeg and Deno beside this script rather than asking
+    # for either on PATH; yt-dlp needs Deno for YouTube's JavaScript challenge.
+    here = os.path.dirname(os.path.abspath(__file__))
+    for tool in ("ffmpeg", "deno"):
+        bundled = os.path.join(here, tool)
+        if os.path.isdir(bundled):
+            os.environ["PATH"] = bundled + os.pathsep + os.environ.get("PATH", "")
     if not os.path.isdir(args.out_dir):
         say("error", f"The output folder does not exist: {args.out_dir}")
         return 2

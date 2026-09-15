@@ -12,8 +12,9 @@ no code from it. Transkun is by Yujia Yan, [MIT](https://github.com/Yujia-Yan/Tr
 
 ## What it needs
 
-- Python 3.10 or newer, with `torch`, `transkun` and `yt-dlp[default]`.
-- FFmpeg on `PATH`.
+- Python 3.12 with the packages in `requirements.txt`; `pywebview` is for the
+  sign-in window.
+- FFmpeg and Deno on `PATH`, or in `ffmpeg\` and `deno\` beside the script.
 
 ## Where the app looks for it
 
@@ -24,12 +25,33 @@ no code from it. Transkun is by Yujia Yan, [MIT](https://github.com/Yujia-Yan/Tr
 3. `.venv\Scripts\python.exe` in this folder.
 
 The script itself is `converter\convert.py` beside the exe, or this folder for a
-development build. FFmpeg is found on `PATH`, or in an `ffmpeg` folder beside
-the script.
+development build. FFmpeg and Deno are found on `PATH`, or in `ffmpeg\` and
+`deno\` beside the script.
 
 For a development build, the quickest setup is a junction from
 `build\shell\converter\.venv` to an existing environment. The shell tests run
 from `build\shell-tests`, which has no converter, so they stay unaffected.
+
+## The release bundle
+
+`tools\make-release.ps1` stages `converter\` beside `MIDIShell.exe`: an
+embeddable Python 3.12 in `python\` with the packages from `requirements.txt`
+installed with `--no-deps`, this folder's two scripts, `ffmpeg\ffmpeg.exe`,
+`deno\deno.exe`, and every licence under `licenses\`. Each download is
+pinned by URL and SHA256 in the script.
+
+`requirements.txt` lists what a real conversion, a link download and the
+sign-in window load, recorded from `sys.modules` on 2026-09-15, not what
+Transkun declares. Transkun's training and evaluation dependencies
+(`matplotlib`, `seaborn`, `pandas`, `tensorboard`, `ncls`, `sox`,
+`torch-optimizer`) are never imported by a transcription and are left out;
+`ncls` has no wheel for Python 3.12 in any case. When a package is bumped,
+check the list the same way: run `python -m transkun.transcribe` with a
+`sitecustomize.py` on `PYTHONPATH` that dumps `sys.modules` at exit.
+
+The script then runs the staged bundle with `PATH` cut to Windows alone and
+converts a clip the bundled FFmpeg makes, so a tester with no Python gets the
+same check.
 
 ## When YouTube says "confirm you're not a bot"
 
@@ -53,8 +75,8 @@ Ways around it:
 yt-dlp warns that downloading while signed in can get an account flagged, so
 a spare Google account is the safer choice. `signin.py` needs `pywebview`.
 
-A JavaScript runtime (Deno or Node) on `PATH` is also needed for YouTube.
-`convert.py` finds one on its own.
+A JavaScript runtime (Deno or Node) is also needed for YouTube. `convert.py`
+finds one on `PATH`, or Deno in `deno\` beside it.
 
 ## Playlists
 
