@@ -107,8 +107,7 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - The main checkout `D:\Dev\MIDIPlusPlus-modded` is on this branch, clean
   apart from the rebuilt `x64\Release\MIDI++.exe` and the owner's
   `x64\Release\midi\`. `D:\Dev\mpp-panels` is the panel seat's; leave it.
-- `.claude\worktrees\midiplus-dev-planning-e05d69` is pruned from git but a
-  process holds the folder; delete it by hand once nothing is inside it.
+- `.claude\worktrees\midiplus-dev-planning-e05d69` is pruned; delete the folder by hand.
 - Never commit `x64/Release/midi/`, `build/`, `MIDI++/MIDI++/`, `.claude/`,
   `tools/mp3-to-midi/cookies.txt` or `tools/mp3-to-midi/browser/`.
 
