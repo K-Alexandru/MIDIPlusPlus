@@ -26,10 +26,16 @@
 namespace audio_to_midi {
 
 struct Status {
-    enum class Kind { Step, Done, Error, Text };
+    // Saved is one file of a playlist, with more to come; Finished ends a
+    // playlist run. New kinds go last: the engine passes a kind as a number.
+    enum class Kind { Step, Done, Error, Text, Saved, Finished };
     Kind kind = Kind::Text;
-    std::string text;  // for Done, the path of the .mid, UTF-8
+    std::string text;  // for Done and Saved, the path of the .mid, UTF-8
 };
+
+inline bool IsFinal(Status::Kind kind) {
+    return kind == Status::Kind::Done || kind == Status::Kind::Error || kind == Status::Kind::Finished;
+}
 
 inline Status ParseLine(std::string_view line) {
     while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.remove_suffix(1);
@@ -40,7 +46,8 @@ inline Status ParseLine(std::string_view line) {
     };
     Status status;
     if (take("step: ", Status::Kind::Step, status) || take("done: ", Status::Kind::Done, status) ||
-        take("error: ", Status::Kind::Error, status))
+        take("error: ", Status::Kind::Error, status) || take("saved: ", Status::Kind::Saved, status) ||
+        take("finished: ", Status::Kind::Finished, status))
         return status;
     return {Status::Kind::Text, std::string(line)};
 }
@@ -53,6 +60,14 @@ inline bool IsLink(std::wstring_view source) {
         return true;
     };
     return starts(L"http://") || starts(L"https://");
+}
+
+// A link naming a playlist, as YouTube writes one: list= as a query parameter,
+// on a playlist page or on a video watched inside a playlist.
+inline bool IsPlaylistLink(std::string_view link) {
+    for (size_t at = link.find("list="); at != std::string_view::npos; at = link.find("list=", at + 1))
+        if (at > 0 && (link[at - 1] == '?' || link[at - 1] == '&')) return true;
+    return false;
 }
 
 // One argument, quoted so CommandLineToArgvW and the C runtime read it back
@@ -74,9 +89,11 @@ inline std::wstring QuoteArgument(std::wstring_view argument) {
 }
 
 inline std::wstring CommandLine(const std::filesystem::path& python, const std::filesystem::path& script,
-                                std::wstring_view source, const std::filesystem::path& outputFolder) {
+                                std::wstring_view source, const std::filesystem::path& outputFolder,
+                                bool playlist = false) {
     return QuoteArgument(python.native()) + L" -u " + QuoteArgument(script.native()) + L" " +
-           QuoteArgument(source) + L" --out-dir " + QuoteArgument(outputFolder.native());
+           QuoteArgument(source) + L" --out-dir " + QuoteArgument(outputFolder.native()) +
+           (playlist ? L" --playlist" : L"");
 }
 
 // Where the converter is, looked for in this order: MIDIPP_CONVERTER_PYTHON, a
@@ -133,7 +150,7 @@ public:
 
     // False when the process could not start; the sink is not called then.
     // Otherwise every status reaches the sink from the job's thread, and the
-    // last one is always Done or Error.
+    // last one is always Done, Finished or Error.
     bool Start(const std::wstring& commandLine, Sink sink) {
         if (worker_.joinable()) worker_.join();
         SECURITY_ATTRIBUTES inherit{sizeof(inherit), nullptr, TRUE};
@@ -194,7 +211,7 @@ private:
         const auto emit = [&](std::string_view line) {
             auto status = ParseLine(line);
             if (status.kind == Status::Kind::Text && status.text.empty()) return;
-            if (status.kind == Status::Kind::Done || status.kind == Status::Kind::Error) finished = true;
+            if (IsFinal(status.kind)) finished = true;
             sink(status);
         };
         char buffer[4096];

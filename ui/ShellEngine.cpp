@@ -361,6 +361,8 @@ void ShellEngine::Run(std::stop_token stop) {
     const auto reportConversion = [this](const audio_to_midi::Status& status) {
         Send({Action::ConvertProgress, {}, 0, static_cast<size_t>(status.kind), false, 0, status.text});
     };
+    // Files a playlist run has saved so far, so a cancel can say they are kept.
+    size_t convertedCount = 0;
     state.youtubeSignedIn = converterInstall().SignedIn();
     Publish(state);
     // A curve is committed on a slider release, not per keystroke, and the
@@ -914,12 +916,17 @@ void ShellEngine::Run(std::stop_token stop) {
                         state.conversionStatus = "The converter is not installed. tools/mp3-to-midi/README.md says what it needs.";
                         break;
                     }
+                    // value asks for the whole playlist; a link without one is
+                    // converted alone whatever it says.
+                    const bool playlist = command.value && audio_to_midi::IsPlaylistLink(command.key);
+                    convertedCount = 0;
                     const bool started = converter.Start(
-                        audio_to_midi::CommandLine(install.python, install.script, source, state.folder), reportConversion);
+                        audio_to_midi::CommandLine(install.python, install.script, source, state.folder, playlist), reportConversion);
                     state.signingIn = false;
                     state.converting = started;
                     state.conversionFailed = !started;
-                    state.conversionStatus = started ? "Starting the converter..." : "The converter could not start.";
+                    state.conversionStatus = !started ? "The converter could not start."
+                        : playlist ? "Reading the playlist..." : "Starting the converter...";
                     break;
                 }
                 case Action::YouTubeSignIn: {
@@ -946,6 +953,14 @@ void ShellEngine::Run(std::stop_token stop) {
                         break;
                     }
                     if (kind == Kind::Step) { state.conversionStatus = command.key; break; }
+                    if (kind == Kind::Saved) {
+                        // One video of a playlist: it joins the list now, and the
+                        // run carries on to the next.
+                        ++convertedCount;
+                        ShellLog::Instance().Append("[convert] Saved " + command.key + "\n");
+                        if (!state.playing) Send({Action::Scan, state.folder});
+                        break;
+                    }
                     state.converting = false;
                     state.conversionFailed = kind == Kind::Error;
                     if (state.signingIn) {
@@ -957,7 +972,16 @@ void ShellEngine::Run(std::stop_token stop) {
                     }
                     if (kind == Kind::Error) {
                         state.conversionStatus = command.key;
+                        if (convertedCount)
+                            state.conversionStatus += " " + std::to_string(convertedCount) +
+                                (convertedCount == 1 ? " file was" : " files were") + " saved before it stopped.";
                         ShellLog::Instance().Append("[error] Conversion failed: " + command.key + "\n");
+                        break;
+                    }
+                    if (kind == Kind::Finished) {
+                        state.conversionStatus = command.key;
+                        if (state.playing) state.conversionStatus += " Refresh the list after playback to see them.";
+                        else Send({Action::Scan, state.folder});
                         break;
                     }
                     const auto name = Utf8(std::filesystem::path(std::u8string(command.key.begin(), command.key.end())).filename());

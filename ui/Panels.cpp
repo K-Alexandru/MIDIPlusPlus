@@ -9,6 +9,7 @@
 #include "MidiInput.hpp"
 #include "MidiOutput.hpp"
 #include "config.hpp"
+#include "../MIDI++/AudioToMidi.hpp"
 
 namespace shell {
 namespace {
@@ -1744,9 +1745,18 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
         ImGui::SetNextItemWidth(300 * dpi);
         ImGui::InputTextWithHint("##convert-link", "Or paste a YouTube link", convertLink_, sizeof(convertLink_));
         ImGui::SameLine();
+        const bool playlistLink = audio_to_midi::IsPlaylistLink(convertLink_);
         ImGui::BeginDisabled(!convertLink_[0]);
-        if (ImGui::Button("Convert link")) engine.Send({ShellEngine::Action::ConvertAudio, {}, 0, 0, false, 0, convertLink_});
+        if (ImGui::Button("Convert link"))
+            engine.Send({ShellEngine::Action::ConvertAudio, {}, 0, 0, playlistLink && convertPlaylist_, 0, convertLink_});
         ImGui::EndDisabled();
+        // Only for a link that names a playlist. Unticked, a video watched
+        // inside a playlist still converts on its own.
+        if (playlistLink) {
+            ImGui::Checkbox("Whole playlist", &convertPlaylist_);
+            ImGui::SameLine();
+            ImGui::TextDisabled("Every video in turn. Cancel stops it and keeps the files made so far.");
+        }
         ImGui::EndDisabled();
         // YouTube refuses some connections unless signed in; the window keeps
         // its own profile, so this is needed once.

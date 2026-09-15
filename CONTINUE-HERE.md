@@ -73,10 +73,11 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
   confirmed it looks fine.
 - `83fa9ed`, `e85e62f`: Tracks outer padding, one heading baseline and ink,
   rules above rows only, exact header rule. Owner: "its good".
+- A YouTube link converts in the app after sign-in (owner, 2026-09-15). Whole
+  playlist: `convert.py --playlist`, `saved:`/`finished:` lines, skip on failure.
 
 ## Unresolved
 
-- **YouTube link inside the app after sign-in:** not yet confirmed to convert.
 - **Release bundle:** `converter\` beside the exe with an embeddable Python,
   the packages including pywebview, both scripts and `ffmpeg\`. Size not weighed.
 - **Panel seat, not started:** `PROMPT-S-CURVE-AND-SWITCHES.md`, a styling pass
@@ -86,12 +87,11 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 
 ## Validation actually run
 
-- At `e85e62f`: `ui\MIDIShell.vcxproj` built; `tests\run-shell-tests.ps1 -Render`
-  274 PASS, 0 FAIL; live 125% captures of empty, one-track and three-track tables.
+- With playlists: shell built; `run-shell-tests.ps1 -Render` 274 PASS, 0 FAIL;
+  playlist loop checked with stubs. No real playlist run yet.
 - At `e85e62f`: `tests\run-shell-parity-mutations.ps1`, 19 of 19 killed,
   sources restored.
-- Not run: `run-native-tests.ps1` and `run-latency-tests.ps1`, which take the
-  cursor. Nothing was played into a game.
+- Not run: native and latency tests, which take the cursor; nothing played into a game.
 
 ## Build and test
 
@@ -115,5 +115,5 @@ Shell tests capture injection in process, so always safe; never `*>&1` in PS 5.1
 
 ## Next action
 
-Ask the owner to sign in to YouTube from the Convert audio popup, paste a link,
-and confirm the `.mid` lands in the MIDI folder.
+Ask the owner to paste a short YouTube playlist link, tick Whole playlist, and
+confirm each `.mid` appears as it lands and Cancel mid-run keeps those files.

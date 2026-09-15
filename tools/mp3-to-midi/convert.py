@@ -1,4 +1,4 @@
-"""Audio to MIDI for MIDI++: one file or link in, one .mid out.
+"""Audio to MIDI for MIDI++: a file, a link or a playlist in, .mid files out.
 
 The app runs this beside itself, never in process (HANDOFF.md, the YouTube to
 MIDI pipeline). Transcription is the Transkun model, the same one LioK251's
@@ -8,10 +8,13 @@ yt-dlp and FFmpeg first.
 Every line on stdout is one status the app reads:
 
     step: <what is happening now>
-    done: <path of the .mid written>
+    saved: <path of one .mid written; a playlist goes on to the next video>
+    done: <path of the .mid written, for a single file or link>
+    finished: <summary of a playlist run>
     error: <why it stopped>
 
-Anything else, such as Transkun's own progress, is passed through as text.
+Anything else, such as Transkun's own progress or a skipped video, is passed
+through as text.
 """
 
 import argparse
@@ -44,18 +47,12 @@ def clean_stem(name):
     return stem[:120] or "conversion"
 
 
-def download(link, folder):
-    import yt_dlp
-
-    say("step", "Downloading the audio")
+def ydl_options():
     options = {
-        "format": "bestaudio/best",
-        "outtmpl": os.path.join(folder, "%(title)s.%(ext)s"),
         "noplaylist": True,
         "quiet": True,
         "no_warnings": True,
         "noprogress": True,
-        "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3"}],
         # YouTube hands audio only to a client that solves its JavaScript
         # challenge. yt-dlp needs a runtime for that and the solver scripts,
         # fetched from yt-dlp's own GitHub. Without them it gets "Sign in to
@@ -73,6 +70,19 @@ def download(link, folder):
     cookies = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cookies.txt")
     if os.path.isfile(cookies):
         options["cookiefile"] = cookies
+    return options
+
+
+def download(link, folder, prefix=""):
+    import yt_dlp
+
+    say("step", f"{prefix}Downloading the audio")
+    options = ydl_options()
+    options.update({
+        "format": "bestaudio/best",
+        "outtmpl": os.path.join(folder, "%(title)s.%(ext)s"),
+        "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3"}],
+    })
     with yt_dlp.YoutubeDL(options) as ydl:
         info = ydl.extract_info(link, download=True)
         if info is None:
@@ -83,6 +93,28 @@ def download(link, folder):
     return audio, info.get("title") or "conversion"
 
 
+def playlist_entries(link):
+    """The playlist's name and its videos as (link, title), without downloading."""
+    import yt_dlp
+
+    options = ydl_options()
+    options.update({"noplaylist": False, "extract_flat": "in_playlist"})
+    with yt_dlp.YoutubeDL(options) as ydl:
+        info = ydl.extract_info(link, download=False)
+    if info is None:
+        raise RuntimeError("The playlist could not be read.")
+    entries = []
+    for entry in info.get("entries") or []:
+        if not entry:
+            continue
+        url = entry.get("url") or entry.get("webpage_url")
+        if not url and entry.get("id"):
+            url = "https://www.youtube.com/watch?v=" + entry["id"]
+        if url:
+            entries.append((url, entry.get("title") or url))
+    return info.get("title") or "the playlist", entries
+
+
 def device(choice):
     if choice != "auto":
         return choice
@@ -91,11 +123,82 @@ def device(choice):
     return "cuda" if torch.cuda.is_available() else "cpu"
 
 
+def reason_for(failure):
+    # yt-dlp has already printed its own "ERROR: " line; keep only the reason.
+    reason = str(failure).removeprefix("ERROR: ") or type(failure).__name__
+    if "confirm you" in reason and "not a bot" in reason:
+        # YouTube blocks the whole connection, not one video, so no setting
+        # here fixes it. Say what the user can do instead of yt-dlp's advice.
+        reason = ("YouTube refused this connection as a bot. Use Sign in to YouTube below, then try "
+                  "the link again, or download the audio another way and use Choose audio file.")
+    return reason
+
+
+def convert_one(source, out_dir, choice, work, prefix=""):
+    """Converts one file or link and returns the path of the .mid written."""
+    if is_link(source):
+        audio, title = download(source, work, prefix)
+    else:
+        if not os.path.isfile(source):
+            raise RuntimeError(f"The file does not exist: {source}")
+        audio, title = source, os.path.splitext(os.path.basename(source))[0]
+
+    target = unique_path(out_dir, clean_stem(title))
+    partial = os.path.join(work, "transcribed.mid")
+    chosen = device(choice)
+    say("step", f"{prefix}Transcribing on the {chosen.upper()}; a song takes a few minutes")
+    # Transkun's progress goes to stderr, which the app shows as plain text.
+    result = subprocess.run(
+        [sys.executable, "-m", "transkun.transcribe", audio, partial, "--device", chosen],
+        stdout=sys.stdout,
+        stderr=subprocess.STDOUT,
+    )
+    if result.returncode != 0 or not os.path.exists(partial):
+        raise RuntimeError(f"Transkun stopped with exit code {result.returncode}.")
+    shutil.move(partial, target)
+    return target
+
+
+def convert_playlist(link, out_dir, choice, work):
+    """Every video in turn. One that fails is skipped; the run goes on."""
+    say("step", "Reading the playlist")
+    name, entries = playlist_entries(link)
+    if not entries:
+        say("error", "The playlist has no videos that can be read.")
+        return 1
+    saved = failed = 0
+    for number, (url, title) in enumerate(entries, 1):
+        folder = tempfile.mkdtemp(dir=work)
+        try:
+            say("saved", convert_one(url, out_dir, choice, folder, f"{number} of {len(entries)}, {title}: "))
+            saved += 1
+        except Exception as failure:
+            reason = reason_for(failure)
+            if reason.startswith("YouTube refused this connection"):
+                # Every other video would be refused the same way.
+                say("error", reason)
+                return 1
+            failed += 1
+            print(f"Skipped {title}: {reason}", flush=True)
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)
+    if not saved:
+        say("error", f"None of the {len(entries)} videos in {name} converted. The log says why.")
+        return 1
+    summary = f"Converted {saved} of {len(entries)} videos from {name}."
+    if failed:
+        summary += f" {failed} failed; the log says why."
+    say("finished", summary)
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("source", help="an audio file, or an http(s) link")
-    parser.add_argument("--out-dir", required=True, help="the folder the .mid is written to")
+    parser.add_argument("--out-dir", required=True, help="the folder the .mid files are written to")
     parser.add_argument("--device", default="auto", help="auto, cpu or cuda")
+    parser.add_argument("--playlist", action="store_true",
+                        help="for a link inside a playlist, convert every video in it")
     args = parser.parse_args()
 
     if hasattr(sys.stdout, "reconfigure"):
@@ -113,39 +216,12 @@ def main():
 
     work = tempfile.mkdtemp(prefix="midipp-convert-")
     try:
-        if is_link(args.source):
-            audio, title = download(args.source, work)
-        else:
-            if not os.path.isfile(args.source):
-                say("error", f"The file does not exist: {args.source}")
-                return 2
-            audio, title = args.source, os.path.splitext(os.path.basename(args.source))[0]
-
-        target = unique_path(args.out_dir, clean_stem(title))
-        partial = os.path.join(work, "transcribed.mid")
-        chosen = device(args.device)
-        say("step", f"Transcribing on the {chosen.upper()}; a song takes a few minutes")
-        # Transkun's progress goes to stderr, which the app shows as plain text.
-        result = subprocess.run(
-            [sys.executable, "-m", "transkun.transcribe", audio, partial, "--device", chosen],
-            stdout=sys.stdout,
-            stderr=subprocess.STDOUT,
-        )
-        if result.returncode != 0 or not os.path.exists(partial):
-            say("error", f"Transkun stopped with exit code {result.returncode}.")
-            return 1
-        shutil.move(partial, target)
-        say("done", target)
+        if args.playlist and is_link(args.source):
+            return convert_playlist(args.source, args.out_dir, args.device, work)
+        say("done", convert_one(args.source, args.out_dir, args.device, work))
         return 0
     except Exception as failure:  # the app needs one line, not a traceback
-        # yt-dlp has already printed its own "ERROR: " line; keep only the reason.
-        reason = str(failure).removeprefix("ERROR: ") or type(failure).__name__
-        if "confirm you" in reason and "not a bot" in reason:
-            # YouTube blocks the whole connection, not one video, so no setting
-            # here fixes it. Say what the user can do instead of yt-dlp's advice.
-            reason = ("YouTube refused this connection as a bot. Use Sign in to YouTube below, then try "
-                      "the link again, or download the audio another way and use Choose audio file.")
-        say("error", reason)
+        say("error", reason_for(failure))
         return 1
     finally:
         shutil.rmtree(work, ignore_errors=True)

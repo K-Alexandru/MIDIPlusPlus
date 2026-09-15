@@ -56,6 +56,14 @@ a spare Google account is the safer choice. `signin.py` needs `pywebview`.
 A JavaScript runtime (Deno or Node) on `PATH` is also needed for YouTube.
 `convert.py` finds one on its own.
 
+## Playlists
+
+With `--playlist`, a link inside a playlist converts every video in it, one
+at a time, into the same folder. Each file is reported with a `saved:` line as
+it lands; a video that fails is skipped and named in the log; one `finished:`
+line ends the run. The app passes `--playlist` when Whole playlist is ticked.
+Cancel stops the run and keeps the files already saved.
+
 ## Test it by hand
 
 ```powershell

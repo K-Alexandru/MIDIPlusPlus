@@ -2483,9 +2483,19 @@ void AudioToMidiTests(const std::filesystem::path& directory) {
     Require(done.kind == Status::Kind::Done && done.text == "C:\\midi\\song.mid", "a done line carries the path");
     Require(audio_to_midi::ParseLine("error: no audio").kind == Status::Kind::Error, "an error line is an error");
     Require(audio_to_midi::ParseLine(" 42%|####").kind == Status::Kind::Text, "anything else is plain text");
+    const auto saved = audio_to_midi::ParseLine("saved: C:\\midi\\one.mid");
+    Require(saved.kind == Status::Kind::Saved && saved.text == "C:\\midi\\one.mid" && !audio_to_midi::IsFinal(saved.kind),
+            "a saved line carries one playlist file and is not the end");
+    Require(audio_to_midi::ParseLine("finished: Converted 2 of 3").kind == Status::Kind::Finished &&
+            audio_to_midi::IsFinal(Status::Kind::Finished), "a finished line ends a playlist run");
 
     Require(audio_to_midi::IsLink(L"HTTPS://youtu.be/x") && !audio_to_midi::IsLink(L"C:\\song.mp3"),
             "a link is told from a file");
+    Require(audio_to_midi::IsPlaylistLink("https://www.youtube.com/watch?v=x&list=PL1") &&
+            audio_to_midi::IsPlaylistLink("https://www.youtube.com/playlist?list=PL1") &&
+            !audio_to_midi::IsPlaylistLink("https://youtu.be/x") &&
+            !audio_to_midi::IsPlaylistLink("https://example.com/?playlist=1"),
+            "a playlist is list= as a query parameter, not any text containing it");
 
     // Round-trip through the parser Windows itself uses, including the cases
     // naive quoting gets wrong: a trailing backslash and an embedded quote.
@@ -2506,6 +2516,11 @@ void AudioToMidiTests(const std::filesystem::path& directory) {
             std::wstring(parsed[4]) == L"--out-dir" && std::wstring(parsed[5]) == L"D:\\my midi",
             "the converter gets its source and output folder as separate arguments");
     LocalFree(parsed);
+    const auto whole = audio_to_midi::CommandLine(L"C:\\py\\python.exe", L"C:\\app\\converter\\convert.py",
+                                                  L"https://youtube.com/playlist?list=PL1", L"D:\\my midi", true);
+    parsed = CommandLineToArgvW(whole.c_str(), &count);
+    Require(parsed && count == 7 && std::wstring(parsed[6]) == L"--playlist", "a playlist run adds --playlist");
+    LocalFree(parsed);
 
     // A real process: statuses arrive in order, the last is Done, and noise
     // between them is passed through as text.
@@ -2524,7 +2539,7 @@ void AudioToMidiTests(const std::filesystem::path& directory) {
                                            [&](const Status& status) {
                 std::lock_guard lock(mutex);
                 seen.push_back(status);
-                if (status.kind == Status::Kind::Done || status.kind == Status::Kind::Error) { ++finals; ended.notify_all(); }
+                if (audio_to_midi::IsFinal(status.kind)) { ++finals; ended.notify_all(); }
             });
             Require(started, "cmd.exe starts as a converter stand-in");
             if (cancel) {
@@ -2541,6 +2556,13 @@ void AudioToMidiTests(const std::filesystem::path& directory) {
     auto seen = run(L"echo step: one&echo  50%%&echo done: C:\\x.mid");
     Require(seen.size() == 3 && seen[0].kind == Status::Kind::Step && seen[1].kind == Status::Kind::Text &&
             seen[2].kind == Status::Kind::Done && seen[2].text == "C:\\x.mid", "statuses arrive in order");
+
+    // A playlist: files saved one by one, then one Finished, with a skipped
+    // video passed through as text.
+    seen = run(L"echo saved: C:\\a.mid&echo Skipped two: gone&echo saved: C:\\c.mid&echo finished: Converted 2 of 3");
+    Require(seen.size() == 4 && seen[0].kind == Status::Kind::Saved && seen[1].kind == Status::Kind::Text &&
+            seen[2].kind == Status::Kind::Saved && seen[3].kind == Status::Kind::Finished,
+            "a playlist run saves each file, then finishes once");
 
     seen = run(L"echo step: one&exit 3");
     Require(seen.back().kind == Status::Kind::Error && seen.back().text.find("exit code 3") != std::string::npos,
@@ -2581,6 +2603,13 @@ void AudioToMidiTests(const std::filesystem::path& directory) {
         engine.Send({A::ConvertProgress, {}, 0, static_cast<size_t>(Status::Kind::Step), false, 0, "Transcribing"});
         Await([&] { return engine.Snapshot()->conversionStatus == "Transcribing"; }, "a converter step did not reach the snapshot");
         Require(engine.Snapshot()->error == error, "a converter status cleared an unrelated error");
+
+        // A playlist run ends on its summary, not on a file name.
+        engine.Send({A::ConvertProgress, {}, 0, static_cast<size_t>(Status::Kind::Saved), false, 0, (directory / L"one.mid").string()});
+        engine.Send({A::ConvertProgress, {}, 0, static_cast<size_t>(Status::Kind::Finished), false, 0, "Converted 1 of 2 videos from Mix."});
+        Await([&] { return engine.Snapshot()->conversionStatus == "Converted 1 of 2 videos from Mix."; },
+              "a finished playlist run did not show its summary");
+        Require(!engine.Snapshot()->converting && !engine.Snapshot()->conversionFailed, "and it is over, not failed");
 
         // The sign-in window is found beside convert.py and, with no Python,
         // refused the same way a conversion is rather than left open.
