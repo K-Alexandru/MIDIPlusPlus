@@ -292,6 +292,36 @@ bool SettingSwitch(const char* label, bool& value, const char* description,
     return clicked;
 }
 
+// A radio drawn like the switch's rail. ImGui's own is a disc the height of
+// a text field with a flat fill, and its edge reads as a polygon at 125%.
+// This is a 16px ring with a dot, anti-aliased whatever the draw list's
+// flags are at the time, and green the way the switch is green when on.
+// Returns true on a click that changes the choice.
+bool SettingRadio(const char* label, bool selected, const skin::Skin& design, float dpi) {
+    const auto s = skin::ScaleGeometry(design, dpi);
+    const float diameter = 16 * dpi;
+    const ImVec2 labelSize = ImGui::CalcTextSize(label);
+    const auto min = ImGui::GetCursorScreenPos();
+    const float height = s.metric.controlHeight;
+    ImGui::PushID(label);
+    ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_Border, IM_COL32(0, 0, 0, 0));
+    const bool clicked = ImGui::Button("##radio", ImVec2(diameter + 8 * dpi + labelSize.x, height));
+    const bool hovered = ImGui::IsItemHovered();
+    ImGui::PopStyleColor(2);
+    ImGui::PopID();
+    auto* draw = ImGui::GetWindowDrawList();
+    const ImDrawListFlags flags = draw->Flags;
+    draw->Flags |= ImDrawListFlags_AntiAliasedFill | ImDrawListFlags_AntiAliasedLines;
+    const ImVec2 centre(min.x + diameter / 2, min.y + height / 2);
+    draw->AddCircleFilled(centre, diameter / 2, Colour(selected ? s.accent.okSoft : hovered ? s.surface.elevatedHot : s.surface.recessed));
+    draw->AddCircle(centre, diameter / 2, Colour(selected ? s.accent.okBorder : s.border.strong), 0, dpi);
+    if (selected) draw->AddCircleFilled(centre, 4 * dpi, Colour(s.accent.okInk));
+    draw->Flags = flags;
+    draw->AddText(ImVec2(min.x + diameter + 8 * dpi, min.y + (height - labelSize.y) / 2), Colour(s.ink.primary), label);
+    return clicked && !selected;
+}
+
 void BeginPanel(const char* id, ImVec2 min, ImVec2 max, const skin::Skin& s, ImGuiWindowFlags flags = 0) {
     skin::RaisedPanel(min, max, s);
     ImGui::SetCursorScreenPos(ImVec2(min.x + s.spacing.panelPad, min.y + s.spacing.panelPad));
@@ -1107,10 +1137,10 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
     }
     ImGui::Separator();
     section("MIDI output");
-    if (ImGui::RadioButton("Keystrokes", !state->outputMidi))
+    if (SettingRadio("Keystrokes", !state->outputMidi, design, dpi))
         engine.Send({ShellEngine::Action::OutputTarget, {}, 0, 0, false});
-    ImGui::SameLine();
-    if (ImGui::RadioButton("MIDI", state->outputMidi))
+    ImGui::SameLine(0, 16 * dpi);
+    if (SettingRadio("MIDI", state->outputMidi, design, dpi))
         engine.Send({ShellEngine::Action::OutputTarget, {}, 0, 0, true});
 
     const auto outputGroups = GroupDevices(state->outputDevices);
@@ -1360,9 +1390,9 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
     // view is not required to be null-terminated, and ImGui wants a C string.
     const auto skins = skin::All();
     const std::string firstColour(skins[0].name), secondColour(skins[2].name);
-    if (ImGui::RadioButton(firstColour.c_str(), preferences.skin < 2)) preferences.skin %= 2;
-    ImGui::SameLine();
-    if (ImGui::RadioButton(secondColour.c_str(), preferences.skin >= 2)) preferences.skin = 2 + preferences.skin % 2;
+    if (SettingRadio(firstColour.c_str(), preferences.skin < 2, design, dpi)) preferences.skin %= 2;
+    ImGui::SameLine(0, 16 * dpi);
+    if (SettingRadio(secondColour.c_str(), preferences.skin >= 2, design, dpi)) preferences.skin = 2 + preferences.skin % 2;
     if (ImGui::CollapsingHeader("About")) {
         ImGui::TextWrapped("Based on Zephkek/MIDIPlusPlus (GPLv3)");
         ImGui::TextWrapped("Dear ImGui and RtMidi (MIT)");
