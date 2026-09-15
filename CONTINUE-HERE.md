@@ -31,7 +31,6 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - YouTube links use a signed-in session from `signin.py`; no third-party
   download service. The app never reads a browser's cookies itself.
 - UI copy follows `HANDOFF.md` section 15; attribution follows section 13.
-- Accent is for selection and fills; failures use `accent.bad`.
 - One branch. New work goes in a worktree off it and merges back; a merged
   branch is deleted, locally and on `origin`.
 
