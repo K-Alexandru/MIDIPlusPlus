@@ -44,8 +44,6 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - `tools/mp3-to-midi/README.md`: what the converter needs at runtime.
 - `ui/Panels.cpp`: `DrawConvert` is the Convert audio popover; the `+` menu
   above the file list opens it; `Panels::openConvert` is the render test's way in.
-- `MIDI++/VelocityPresets.hpp`: the original editor's preset shapes, testable.
-- `tests/run-shell-parity-mutations.ps1`: 20 deliberate regressions.
 
 ## Verified facts
 
@@ -54,16 +52,14 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - Never redirect a test exe with `*>` in PowerShell 5.1: a stderr line becomes
   a terminating error and the run stops with no failure printed. Run
   `RenderTests.exe` from its folder in cmd or bash if a script dies that way.
-- Building `MIDI++.vcxproj` from another directory writes intermediates to
-  `MIDI++\MIDI++\`, now ignored. Build from the repo root.
+- Build `MIDI++.vcxproj` from the repo root; elsewhere it writes into
+  `MIDI++\MIDI++\`, which is ignored.
 - Each checkout's `build\shell` needs its own `converter\.venv` junction to
   `D:\Dev\mp3converter\.venv` and its own sign-in (`cookies.txt`, `browser\`).
 - The converter venv is 1.2 GB, 536 MB of it PyTorch; the winget FFmpeg full
   build is 638 MB, Deno 93 MB. A bundle needs `ffmpeg.exe` alone and a pinned
-  package list, not a copy of the venv. Whether Transkun imports `pandas`,
-  `matplotlib`, `sympy` or `networkx` at runtime is unchecked.
-- `signin.py` needs `pywebview`, and YouTube links need Deno on `PATH` or
-  beside the script.
+  package list, not the venv; whether Transkun imports `pandas`, `matplotlib`,
+  `sympy` or `networkx` at runtime is unchecked.
 
 ## Work completed, 2026-09-15
 
@@ -80,15 +76,11 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 
 ## Unresolved
 
-- **Release bundle**, not started: see Next action.
 - **Panel seat, not started:** the owner hands over
-  `PROMPT-S-CURVE-AND-SWITCHES.md` (mockup rename, drum and auto-transpose
-  switches, export menu with styled and coloured sheets).
+  `PROMPT-S-CURVE-AND-SWITCHES.md`; its three pieces are listed there.
 - **Needs the owner at the keyboard:** delivery into a game from the shell,
   Wooting feel, two devices at once, MIDI output into a real synth, live curve
   reconnection, a mixed-DPI move, and a look at the Convert popover live.
-- **Standing question for the owner:** whether a typing warning comes back
-  (`SHELL-GAPS.md`, "Reported by testers").
 
 ## Validation actually run
 
