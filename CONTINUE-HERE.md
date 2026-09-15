@@ -90,8 +90,7 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
   torch, transkun, yt-dlp and pywebview with PATH cut to Windows, converted a
   3 s mp3, zipped; the staged bundle then converted a YouTube link with no
   sign-in on a bare PATH, 11 s end to end.
-- Not run: render tests and parity mutations (no `ui/` or engine change),
-  native and latency tests, `signin.py`, the shell live.
+- Not run: render, parity mutation, native and latency tests; `signin.py`; the shell live.
 
 ## Build and test
 
