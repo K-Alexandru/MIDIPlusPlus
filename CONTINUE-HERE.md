@@ -41,7 +41,6 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
   it on a bare PATH, zips. Needs `py -3.12` (or `-Python`) to fetch wheels.
 - `tools/mp3-to-midi/requirements.txt`: the pinned bundle; its header says
   how the list was derived and how to re-derive it after a bump.
-- `tools/mp3-to-midi/README.md`: runtime needs, lookup order, bundle layout.
 - `MIDI++/AudioToMidi.hpp`: `FindInstall` prefers `converter\python\python.exe`.
 
 ## Verified facts
