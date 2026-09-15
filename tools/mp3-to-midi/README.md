@@ -31,6 +31,24 @@ For a development build, the quickest setup is a junction from
 `build\shell\converter\.venv` to an existing environment. The shell tests run
 from `build\shell-tests`, which has no converter, so they stay unaffected.
 
+## When YouTube says "confirm you're not a bot"
+
+YouTube blocks some connections from downloading without a signed-in
+session. When it does, every video fails, whatever the settings. Checked
+2026-09-14 on the owner's connection with every yt-dlp client and Deno
+installed. Hosted converters such as mp7.dev download from their own servers,
+which is why they still work.
+
+Two ways around it:
+
+1. Export your YouTube cookies in Netscape format, for example with a
+   "Get cookies.txt LOCALLY" browser extension, and save the file as
+   `cookies.txt` in this folder. The app never reads a browser itself.
+2. Download the audio another way and use Choose audio file.
+
+A JavaScript runtime (Deno or Node) on `PATH` is also needed for YouTube.
+`convert.py` finds one on its own.
+
 ## Test it by hand
 
 ```powershell

@@ -55,7 +55,10 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - 93 s of solo piano transcribed in 24 s on the CPU: 1201 notes, C2 to A6.
 - Pure sine tones transcribe to zero notes, because Transkun is a piano model.
 - The GPU is an AMD RX 7900 XTX, so CUDA PyTorch does not apply here.
-- Wikimedia refuses yt-dlp's default client with a 403; YouTube is untried.
+- Wikimedia refuses yt-dlp's default client with a 403.
+- YouTube refuses the owner's connection as a bot for every video and every
+  yt-dlp client, even with Deno 2.9.6 installed. Only a user-exported
+  `tools/mp3-to-midi/cookies.txt` or a file downloaded elsewhere gets past it.
 - The display runs at 125%; read `tests/NativeShell.ps1` before scripting any
   click or screenshot.
 

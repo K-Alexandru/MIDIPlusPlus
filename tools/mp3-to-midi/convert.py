@@ -56,7 +56,23 @@ def download(link, folder):
         "no_warnings": True,
         "noprogress": True,
         "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3"}],
+        # YouTube hands audio only to a client that solves its JavaScript
+        # challenge. yt-dlp needs a runtime for that and the solver scripts,
+        # fetched from yt-dlp's own GitHub. Without them it gets "Sign in to
+        # confirm you're not a bot". Same settings as LioK's mp3converter.
+        "remote_components": ["ejs:github"],
     }
+    for runtime in ("deno", "node", "bun"):
+        found = shutil.which(runtime)
+        if found:
+            options["js_runtimes"] = {runtime: {"path": found}}
+            break
+    # The fallback when YouTube still asks for sign-in: a Netscape cookies.txt
+    # exported by the user and placed beside this script. Never read from a
+    # browser automatically.
+    cookies = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cookies.txt")
+    if os.path.isfile(cookies):
+        options["cookiefile"] = cookies
     with yt_dlp.YoutubeDL(options) as ydl:
         info = ydl.extract_info(link, download=True)
         if info is None:
@@ -123,7 +139,14 @@ def main():
         return 0
     except Exception as failure:  # the app needs one line, not a traceback
         # yt-dlp has already printed its own "ERROR: " line; keep only the reason.
-        say("error", str(failure).removeprefix("ERROR: ") or type(failure).__name__)
+        reason = str(failure).removeprefix("ERROR: ") or type(failure).__name__
+        if "confirm you" in reason and "not a bot" in reason:
+            # YouTube blocks the whole connection, not one video, so no setting
+            # here fixes it. Say what the user can do instead of yt-dlp's advice.
+            cookies = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cookies.txt")
+            reason = ("YouTube refused this connection as a bot. Download the audio another way and use "
+                      f"Choose audio file, or export your YouTube cookies to {cookies} and try again.")
+        say("error", reason)
         return 1
     finally:
         shutil.rmtree(work, ignore_errors=True)
