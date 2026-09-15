@@ -67,29 +67,33 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
   cached in `build\release\downloads`. `convert.py` finds `deno\` beside it.
 - `ShellTests` gained the shipped-layout case for `FindInstall`.
 - Tester README names Convert and Sign in to YouTube, and credits the converter.
-- `v0.2.0-test` published on K-Alexandru/MIDIPlusPlus-testing from `d76483d`:
-  zip 390 MB, SHA256 `6326834BE8A6969F48C565FAD959E030972BC2FF19E1490408810656A484E48A`.
+- `v0.2.0-test` published on K-Alexandru/MIDIPlusPlus-testing from `d76483d`,
+  and found broken: it shipped no ffprobe, and pydub reads everything but wav
+  through it, so mp3 and link conversions died with exit code 1.
+- `2a60a25` bundles ffprobe, checks the bundle with an mp3, and names a
+  missing ffprobe; repackaged zip 426 MB, SHA256
+  `91AF0E66F21562936C4ECF312A78208815D72D51771D72DE643C95B070D2CF0E`.
 
 ## Unresolved
 
 - **Panel seat, not started:** the owner hands over
   `PROMPT-S-CURVE-AND-SWITCHES.md`; its three pieces are listed there.
-- **Needs the owner at the keyboard:** the zip on a machine with no Python,
-  Convert with a file and with a YouTube link after Sign in, delivery into a
-  game, Wooting feel, two devices, MIDI output into a synth, live curve
-  reconnection, a mixed-DPI move, the Convert popover at 125%.
+- **Owner, 2026-09-15:** the Convert popover looks right at 125% but "can be
+  simplified"; what to simplify is not yet said. Ask before redesigning.
+- **Needs the owner at the keyboard:** Convert with a file and a link in the
+  fixed build, delivery into a game, Wooting feel, two devices, MIDI output
+  into a synth, live curve reconnection, a mixed-DPI move.
 - Links from sites that refuse yt-dlp's default client (Wikimedia, 403).
 
 ## Validation actually run
 
-- At `d76483d`: shell built; `ShellTests.exe` 35 PASS, 0 FAIL;
-  `make-release.ps1` swept 334 binaries for VC runtime imports, imported
-  torch, transkun, yt-dlp and pywebview with PATH cut to Windows, converted a
-  3 s clip, zipped; the uploaded asset matches the zip's size and hash.
-- The zip extracted to another folder converted a clip the same way, and
-  `deno` and `ffmpeg` resolved beside the script.
+- At `d76483d`: shell built; `ShellTests.exe` 35 PASS, 0 FAIL.
+- At `2a60a25`: `make-release.ps1` swept 334 binaries for VC runtime imports,
+  imported torch, transkun, yt-dlp and pywebview with PATH cut to Windows,
+  converted a 3 s mp3, zipped; the staged bundle then converted a YouTube
+  link with no sign-in on a bare PATH, 11 s end to end.
 - Not run: render tests and parity mutations (no `ui/` or engine change),
-  native and latency tests, a YouTube link, `signin.py`, the shell live.
+  native and latency tests, `signin.py`, the shell live.
 
 ## Build and test
 
@@ -112,8 +116,7 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 
 ## Next action
 
-Run `gh issue list --repo K-Alexandru/MIDIPlusPlus-testing` and work the
-first tester report in a worktree off this branch. With no reports, take the
-Wikimedia 403: make `convert.py` retry a refused link with yt-dlp's generic
-extractor and a browser user agent, with a `ShellTests` case for the status
-line it prints.
+With the owner's yes, publish the fixed zip in `build\release` as
+`v0.2.1-test` on K-Alexandru/MIDIPlusPlus-testing, notes as for `v0.2.0-test`
+plus one line saying mp3 and link conversion now work, naming `2a60a25` and
+the SHA256 above; then mark `v0.2.0-test` as superseded in its notes.
