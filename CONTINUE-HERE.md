@@ -28,8 +28,6 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - A skin chooses colour only; every skin is 1090 x 635 collapsed.
 - Six built-in velocity curves, the sixth being S-Curve (`VELOCITY-CURVES.md`).
 - MP3 to MIDI is a Python sidecar, never in process, bundled with a release.
-- The bundle pins what a real conversion loads (`requirements.txt`), never
-  Transkun's declared training dependencies; CPU PyTorch only.
 - YouTube links use a signed-in session from `signin.py`; no third-party
   download service. The app never reads a browser's cookies itself.
 - UI copy follows `HANDOFF.md` section 15; attribution follows section 13.
@@ -44,7 +42,6 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
   how the list was derived and how to re-derive it after a bump.
 - `tools/mp3-to-midi/README.md`: runtime needs, lookup order, bundle layout.
 - `MIDI++/AudioToMidi.hpp`: `FindInstall` prefers `converter\python\python.exe`.
-- `ui/Panels.cpp`: `DrawConvert` is the Convert audio popover.
 
 ## Verified facts
 
@@ -53,18 +50,14 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - Never redirect a native exe with `2>&1` or `*>` under `$ErrorActionPreference
   = 'Stop'` in PowerShell 5.1; `Invoke-Capture` in `make-release.ps1` shows
   the safe way. An inline `python -c` loses its double quotes; use a file.
-- MSBuild's `/p:` switches must be run from PowerShell, not Git Bash, which
-  rewrites them as paths.
-- The Bash tool halves backslashes in heredocs; write files with Write or Edit.
+- Run MSBuild from PowerShell: Git Bash rewrites `/p:` switches as paths. The
+  Bash tool halves backslashes in heredocs; write files with Write or Edit.
 - A real Transkun transcription loads torch, torchaudio, numpy, scipy, sympy,
-  mir_eval, pretty_midi, mido, pydub, soxr, moduleconf, tqdm and setuptools.
-  It never loads pandas, matplotlib, seaborn, networkx, tensorboard, ncls or
-  sox. `ncls` has no Python 3.12 wheel; `proxy_tools` has no wheel at all.
+  mir_eval, pretty_midi, mido, pydub, soxr, moduleconf, tqdm and setuptools,
+  never pandas, matplotlib, seaborn, networkx, tensorboard, ncls or sox.
 - torch's DLLs import msvcp140, msvcp140_atomic_wait and vcruntime140_threads,
   which the embeddable Python lacks; the bundle ships the VC143 redist beside
   python.exe and the script proves they load from there.
-- Each checkout's `build\shell` still needs its `converter\.venv` junction for
-  a development run; a staged release needs nothing.
 
 ## Work completed, 2026-09-15
 
@@ -84,8 +77,8 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
   Python, Convert with a file and with a YouTube link after Sign in, delivery
   into a game, Wooting feel, two devices, MIDI output into a synth, live curve
   reconnection, a mixed-DPI move, the Convert popover at 125%.
-- torch ships 63 MB of headers and 12 `.lib` files nobody runs; pruning a
-  wheel's contents was not done because it changes what pip installed.
+- torch ships 63 MB of headers and `.lib` files; left in, since pruning a
+  wheel changes what pip installed.
 
 ## Validation actually run
 
@@ -96,8 +89,7 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - The zip extracted to another folder converted a clip the same way, and
   `deno` and `ffmpeg` resolved beside the script.
 - Not run: render tests and parity mutations (no `ui/` or engine change),
-  native and latency tests, a YouTube link (needs a sign-in), `signin.py`
-  itself (opens a window), the shell against the staged converter live.
+  native and latency tests, a YouTube link, `signin.py`, the shell live.
 
 ## Build and test
 
