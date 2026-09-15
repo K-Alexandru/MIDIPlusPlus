@@ -10,7 +10,6 @@ One Windows app that does everything the original MIDI++ window did and more.
 The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 (`MIDI++/`, `x64\Release\MIDI++.exe`); both share `PlaybackCore` through
 `ShellEngine`. Nothing the original had is optional (`SHELL-GAPS.md`).
-`v0.2.2-test` is with testers; the current work is what they report.
 
 ## Seats
 
@@ -35,11 +34,9 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
   the bundle pins what a real conversion loads, CPU PyTorch only.
 - YouTube links use a signed-in session from `signin.py`; no third-party
   download service. The app never reads a browser's cookies itself.
-- Settings text says only what a label cannot; a switch may have no description.
 - UI copy follows `HANDOFF.md` section 15; attribution follows section 13.
 - One branch. New work goes in a worktree off it and merges back; a merged
-  branch is deleted, locally and on `origin`. Publishing a test build is a
-  separate step the owner confirms.
+  branch is deleted, locally and on `origin`. The owner confirms each publish.
 
 ## Relevant files
 
@@ -58,14 +55,11 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
   `$ErrorActionPreference = 'Stop'` (`Invoke-Capture` in `make-release.ps1`
   is the safe way); an inline `python -c` loses its double quotes; and
   `Get-ChildItem -Include` with `-LiteralPath` matches every file.
-- Run MSBuild from PowerShell: Git Bash rewrites `/p:` switches as paths. Run
-  `RenderTests.exe` from its folder in bash; a stderr line kills a script.
+- Run MSBuild from PowerShell: Git Bash rewrites `/p:` switches as paths.
 - pydub needs ffprobe for every format but wav; a converter check must use an mp3.
 - torch's DLLs import msvcp140, msvcp140_atomic_wait and vcruntime140_threads,
   which the embeddable Python lacks; the bundle ships the VC143 redist beside
   python.exe and the script proves they load from there.
-- YouTube downloaded without a sign-in from the owner's connection on
-  2026-09-15 evening; the 2026-09-14 bot check is not constant.
 
 ## Work completed, 2026-09-15
 
@@ -75,9 +69,8 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
   no ffprobe and converted wav only).
 - `v0.2.2-test` published on K-Alexandru/MIDIPlusPlus-testing from `f9f0687`:
   zip 426 MB, SHA256 `7D5C6D8EABF8086E2B0BF44F3553DEC578B9D42B338F872EB6C2A66BCD31473A`.
-  It carries the redrawn radios, the F-key hints on the transport title row,
-  the velocity combo floored at its longest preset name, three restating
-  Settings descriptions cut, Keyboard timing folded, and the 900 x 610 floor.
+  It carries the redrawn radios, F-key hints on the transport title row, the
+  velocity combo floored, three Settings descriptions cut, and the 610 floor.
 
 ## Unresolved
 
@@ -87,8 +80,6 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - **Needs the owner at the keyboard:** delivery into a game, Wooting feel,
   two devices, MIDI output into a synth, live curve reconnection, a mixed-DPI
   move. Wikimedia links still 403.
-- Tester README and release notes list "Some panels from the old version
-  aren't back yet"; `SHELL-GAPS.md` says which.
 
 ## Validation actually run
 
