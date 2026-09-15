@@ -10,6 +10,7 @@ One Windows app that does everything the original MIDI++ window did and more.
 The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 (`MIDI++/`, `x64\Release\MIDI++.exe`); both share `PlaybackCore` through
 `ShellEngine`. Nothing the original had is optional (`SHELL-GAPS.md`).
+`v0.2.0-test` is out to testers; the current work is what they report.
 
 ## Seats
 
@@ -27,31 +28,35 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - Timing numbers stop at the keyboard hook; never call them end-to-end latency.
 - A skin chooses colour only; every skin is 1090 x 635 collapsed.
 - Six built-in velocity curves, the sixth being S-Curve (`VELOCITY-CURVES.md`).
-- MP3 to MIDI is a Python sidecar, never in process, bundled with a release.
+- MP3 to MIDI is a Python sidecar, never in process, bundled with a release;
+  the bundle pins what a real conversion loads, CPU PyTorch only.
 - YouTube links use a signed-in session from `signin.py`; no third-party
   download service. The app never reads a browser's cookies itself.
 - UI copy follows `HANDOFF.md` section 15; attribution follows section 13.
 - One branch. New work goes in a worktree off it and merges back; a merged
   branch is deleted, locally and on `origin`.
+- Test builds go to K-Alexandru/MIDIPlusPlus-testing; publishing is a
+  separate, owner-confirmed step, never part of the script.
 
 ## Relevant files
 
 - `tools/make-release.ps1`: builds, stages `converter\` beside the exe, checks
   it on a bare PATH, zips. Needs `py -3.12` (or `-Python`) to fetch wheels.
-- `tools/mp3-to-midi/requirements.txt`: the pinned bundle; the header says
+- `tools/mp3-to-midi/requirements.txt`: the pinned bundle; its header says
   how the list was derived and how to re-derive it after a bump.
 - `tools/mp3-to-midi/README.md`: runtime needs, lookup order, bundle layout.
+- `tools/release-README.txt`: the tester README; release notes copy its lists.
 - `MIDI++/AudioToMidi.hpp`: `FindInstall` prefers `converter\python\python.exe`.
 
 ## Verified facts
 
 - A running `MIDIShell.exe` blocks the shell link step (LNK1168).
 - The display runs at 125%; read `tests/NativeShell.ps1` before scripting a click.
-- Never redirect a native exe with `2>&1` or `*>` under `$ErrorActionPreference
-  = 'Stop'` in PowerShell 5.1; `Invoke-Capture` in `make-release.ps1` shows
-  the safe way. An inline `python -c` loses its double quotes; use a file.
-- Run MSBuild from PowerShell: Git Bash rewrites `/p:` switches as paths. The
-  Bash tool halves backslashes in heredocs; write files with Write or Edit.
+- PowerShell 5.1: never redirect a native exe with `2>&1` or `*>` under
+  `$ErrorActionPreference = 'Stop'` (`Invoke-Capture` in `make-release.ps1`
+  is the safe way); an inline `python -c` loses its double quotes; and
+  `Get-ChildItem -Include` with `-LiteralPath` matches every file.
+- Run MSBuild from PowerShell: Git Bash rewrites `/p:` switches as paths.
 - A real Transkun transcription loads torch, torchaudio, numpy, scipy, sympy,
   mir_eval, pretty_midi, mido, pydub, soxr, moduleconf, tqdm and setuptools,
   never pandas, matplotlib, seaborn, networkx, tensorboard, ncls or sox.
@@ -65,27 +70,29 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
   packages, `convert.py`, `signin.py`, FFmpeg 9.0.1 essentials, Deno 2.9.6,
   every licence under `converter\licenses\`; downloads pinned by SHA256 and
   cached in `build\release\downloads`. `convert.py` finds `deno\` beside it.
-- Staged folder 1,098 MB (converter 1,093 MB); zip 390 MB.
 - `ShellTests` gained the shipped-layout case for `FindInstall`.
 - Tester README names Convert and Sign in to YouTube, and credits the converter.
+- `v0.2.0-test` published on K-Alexandru/MIDIPlusPlus-testing from `d76483d`:
+  zip 390 MB, SHA256 `6326834BE8A6969F48C565FAD959E030972BC2FF19E1490408810656A484E48A`.
 
 ## Unresolved
 
 - **Panel seat, not started:** the owner hands over
   `PROMPT-S-CURVE-AND-SWITCHES.md`; its three pieces are listed there.
-- **Needs the owner at the keyboard:** the zip on a machine or profile with no
-  Python, Convert with a file and with a YouTube link after Sign in, delivery
-  into a game, Wooting feel, two devices, MIDI output into a synth, live curve
+- **Needs the owner at the keyboard:** the zip on a machine with no Python,
+  Convert with a file and with a YouTube link after Sign in, delivery into a
+  game, Wooting feel, two devices, MIDI output into a synth, live curve
   reconnection, a mixed-DPI move, the Convert popover at 125%.
+- Links from sites that refuse yt-dlp's default client (Wikimedia, 403).
 - torch ships 63 MB of headers and `.lib` files; left in, since pruning a
   wheel changes what pip installed.
 
 ## Validation actually run
 
-- Worktree at the branch head: shell built; `ShellTests.exe` 35 PASS, 0 FAIL;
-  `make-release.ps1 -SkipBuild` staged, swept 334 binaries for VC runtime
-  imports, imported torch, transkun, yt-dlp and pywebview with PATH cut to
-  Windows, converted a 3 s clip, zipped.
+- At `d76483d`: shell built; `ShellTests.exe` 35 PASS, 0 FAIL;
+  `make-release.ps1` swept 334 binaries for VC runtime imports, imported
+  torch, transkun, yt-dlp and pywebview with PATH cut to Windows, converted a
+  3 s clip, zipped; the uploaded asset matches the zip's size and hash.
 - The zip extracted to another folder converted a clip the same way, and
   `deno` and `ffmpeg` resolved beside the script.
 - Not run: render tests and parity mutations (no `ui/` or engine change),
@@ -104,8 +111,8 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 
 - `origin` is K-Alexandru/MIDIPlusPlus; `upstream` is Zephkek/MIDIPlusPlus.
   `main` stays at `e37ba7e`. Pushing without asking is authorized.
-- The main checkout `D:\Dev\MIDIPlusPlus-modded` is on this branch, clean
-  apart from the rebuilt `x64\Release\MIDI++.exe` and the owner's
+- The main checkout `D:\Dev\MIDIPlusPlus-modded` is on this branch, pushed,
+  clean apart from the rebuilt `x64\Release\MIDI++.exe` and the owner's
   `x64\Release\midi\`. `D:\Dev\mpp-panels` is the panel seat's; leave it.
 - `.claude\worktrees\midiplus-dev-planning-e05d69` is pruned; delete the folder by hand.
 - Never commit `x64/Release/midi/`, `build/`, `MIDI++/MIDI++/`, `.claude/`,
@@ -113,6 +120,8 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 
 ## Next action
 
-`v0.2.0-test` is published on K-Alexandru/MIDIPlusPlus-testing from `d76483d`
-(zip 390 MB, SHA256 `6326834B…4E48A`). Wait for tester reports there; the
-next Claude work is whatever they raise, or the owner's items above.
+Run `gh issue list --repo K-Alexandru/MIDIPlusPlus-testing` and work the
+first tester report in a worktree off this branch. With no reports, take the
+Wikimedia 403: make `convert.py` retry a refused link with yt-dlp's generic
+extractor and a browser user agent, with a `ShellTests` case for the status
+line it prints.
