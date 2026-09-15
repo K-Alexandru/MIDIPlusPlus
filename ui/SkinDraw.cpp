@@ -151,25 +151,34 @@ void RaisedRect(ImDrawList* dl, ImVec2 min, ImVec2 max, float rounding,
     }
 }
 
-void RecessedRect(ImDrawList* dl, ImVec2 min, ImVec2 max, float rounding,
-                  const Skin& s) {
-    dl->AddRectFilled(min, max, ToImU32(s.surface.recessed), rounding);
-    // Inner shadow: a soft darker band inside the top edge, which is what makes
-    // a groove read as a groove rather than as nothing.
+// Inner shadow: soft darker bands inside the top edge, which is what makes a
+// groove read as a groove rather than as nothing. Each band follows the
+// rounded shoulders down to the middle of each side, like RaisedRect's top
+// highlight, so the shading wraps the curve. Straight bands, however far they
+// reached, stopped where the curve began and read as clipped at the ends.
+static void InnerShadow(ImDrawList* dl, ImVec2 min, ImVec2 max, float rounding, const Skin& s) {
+    constexpr float kHalf = 3.14159265f, kThreeQuarter = 4.71238898f, kFull = 6.28318531f;
     const ImU32 shade = ToImU32(s.inner.colour);
+    const int segments = std::max(6, static_cast<int>(rounding));
     for (int i = 0; i < 3; ++i) {
-        // Each band runs to where the rounded corner actually is at its height.
-        // Stopping every band at the start of the curve left the shading short
-        // of the ends, most visibly on the 6px seek and slider grooves.
-        const float y = min.y + 1.f + i;
-        const float rise = rounding - (1.f + i);
-        const float inset = rise > 0 ? rounding - std::sqrt(std::max(0.f, rounding * rounding - rise * rise)) : 0.f;
-        dl->AddLine(ImVec2(min.x + inset, y), ImVec2(max.x - inset, y), Fade(shade, 1.f - i * 0.3f));
+        const float radius = std::max(0.f, rounding - 1.f - i);
+        // Concentric with the border's corners, so band i sits i+1 pixels in
+        // along the whole curve, not only along the straight top.
+        const float centreY = min.y + std::max(rounding, 1.f + i);
+        dl->PathArcTo(ImVec2(min.x + rounding, centreY), radius, kHalf, kThreeQuarter, segments);
+        dl->PathArcTo(ImVec2(max.x - rounding, centreY), radius, kThreeQuarter, kFull, segments);
+        dl->PathStroke(Fade(shade, 1.f - i * 0.3f), 0, 1.f);
     }
+}
+
+void RecessedRect(ImDrawList* dl, ImVec2 min, ImVec2 max, float rounding,
+                  const Skin& s, bool shadow) {
+    dl->AddRectFilled(min, max, ToImU32(s.surface.recessed), rounding);
+    if (shadow) InnerShadow(dl, min, max, rounding, s);
     dl->AddRect(min, max, ToImU32(s.border.hairline), rounding);
 }
 
-void RoundCorners(ImDrawList* dl, ImVec2 min, ImVec2 max, float rounding, ImU32 outside, const Skin& s) {
+void RoundCorners(ImDrawList* dl, ImVec2 min, ImVec2 max, float rounding, ImU32 outside, const Skin& s, bool shadow) {
     if (rounding > 0) {
         constexpr float kQuarter = 1.57079633f;
         const ImVec2 corners[4]{min, ImVec2(max.x, min.y), max, ImVec2(min.x, max.y)};
@@ -198,6 +207,8 @@ void RoundCorners(ImDrawList* dl, ImVec2 min, ImVec2 max, float rounding, ImU32 
         dl->PopClipRect();
         dl->Flags = flags;
     }
+    // Over the content, so a hovered or selected first row cannot cover it.
+    if (shadow) InnerShadow(dl, min, max, rounding, s);
     dl->AddRect(min, max, ToImU32(s.border.hairline), rounding);
 }
 
@@ -206,8 +217,8 @@ void RaisedPanel(ImVec2 min, ImVec2 max, const Skin& s) {
                ToImU32(s.surface.card));
 }
 
-void RecessedField(ImVec2 min, ImVec2 max, const Skin& s) {
-    RecessedRect(ImGui::GetWindowDrawList(), min, max, s.radius.element, s);
+void RecessedField(ImVec2 min, ImVec2 max, const Skin& s, bool shadow) {
+    RecessedRect(ImGui::GetWindowDrawList(), min, max, s.radius.element, s, shadow);
 }
 
 } // namespace skin

@@ -34,18 +34,22 @@ void RaisedRect(ImDrawList* dl, ImVec2 min, ImVec2 max, float rounding,
 // A recessed surface: fill, inner shadow along the top edge, hairline border.
 // Anything you type into, read from or fill up, so fields, lists, the track
 // table, the curve graph and slider grooves.
+// Pass shadow = false when content will cover the top edge; RoundCorners then
+// draws the shadow over that content instead.
 void RecessedRect(ImDrawList* dl, ImVec2 min, ImVec2 max, float rounding,
-                  const Skin& s);
+                  const Skin& s, bool shadow = true);
 
 // Convenience wrappers that take the current window's draw list and the given
 // rect in screen space.
 void RaisedPanel(ImVec2 min, ImVec2 max, const Skin& s);
-void RecessedField(ImVec2 min, ImVec2 max, const Skin& s);
+void RecessedField(ImVec2 min, ImVec2 max, const Skin& s, bool shadow = true);
 
 // Draw after square content inside a rounded field (list rows, table headers,
 // a scrollbar): paints `outside`, the colour around the field, into the four
-// corners beyond the curve and redraws the hairline, so the content reads as
-// clipped to the field's rounded shape. Use the draw list the content went to.
-void RoundCorners(ImDrawList* dl, ImVec2 min, ImVec2 max, float rounding, ImU32 outside, const Skin& s);
+// corners beyond the curve, optionally the inner shadow on top of the content,
+// and the hairline, so the content reads as sitting inside the rounded field.
+// Use the draw list the content went to.
+void RoundCorners(ImDrawList* dl, ImVec2 min, ImVec2 max, float rounding, ImU32 outside, const Skin& s,
+                  bool shadow = false);
 
 } // namespace skin

@@ -1772,7 +1772,8 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     }
     const ImVec2 listMin = ImGui::GetCursorScreenPos();
     const ImVec2 listSize = ImGui::GetContentRegionAvail();
-    skin::RecessedField(listMin, ImVec2(listMin.x + listSize.x, listMin.y + listSize.y), s);
+    // The shadow is drawn after the rows, by RoundCorners below.
+    skin::RecessedField(listMin, ImVec2(listMin.x + listSize.x, listMin.y + listSize.y), s, false);
     ImGui::BeginChild("##file-list", listSize, ImGuiChildFlags_None, ImGuiWindowFlags_NoBackground);
     if (state->files->empty()) {
         ImGui::TextWrapped("Open a MIDI file or choose its folder.");
@@ -1822,7 +1823,7 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     ImDrawList* fileListDraw = ImGui::GetWindowDrawList();
     ImGui::EndChild();
     skin::RoundCorners(fileListDraw, listMin, ImVec2(listMin.x + listSize.x, listMin.y + listSize.y),
-                       s.radius.element, Colour(s.surface.card), s);
+                       s.radius.element, Colour(s.surface.card), s, true);
     ImGui::PopStyleVar(); ImGui::PopFont();
     ImGui::EndChild();
 
@@ -2056,7 +2057,7 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     }
     if (tableDraw)
         skin::RoundCorners(tableDraw, tableMin, ImVec2(tableMin.x + tableSize.x, tableMin.y + tableSize.y),
-                           s.radius.element, Colour(s.surface.card), s);
+                           s.radius.element, Colour(s.surface.card), s, true);
     ImGui::PopStyleVar();
     ImGui::PopStyleVar(); ImGui::PopFont();
     ImGui::EndChild();
