@@ -1,7 +1,8 @@
 # Start here
 
-Updated 2026-09-15 on `claude/continue-here-f0c3de`. Then read `HANDOFF.md`,
-`SHELL-GAPS.md` (what the shell owes) and `SEATS.md` (who does what).
+Updated 2026-09-15 on `claude/consolidate-2026-09-15`, the one branch every
+earlier branch was folded into. Then read `HANDOFF.md` only where this file
+points, `SHELL-GAPS.md` (what the shell owes) and `SEATS.md` (who does what).
 
 ## Goal
 
@@ -12,8 +13,10 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 
 ## Seats
 
-- Panel seat owns `ui/`; Claude owns `MIDI++/`, `tests/`, specs, engine seams.
-- Approved exception, not a precedent: Convert, sign-in, owner's UI fixes in `ui/`.
+- Panel seat owns `ui/`, including `ShellEngine::Action` and `EngineSnapshot`.
+- Claude owns `MIDI++/`, `tests/`, specs, and engine seams in `ui/`.
+- Owner-approved exceptions, not precedents: Convert, sign-in, and the Convert
+  popover rework (`DrawConvert`, 2026-09-15) in `ui/Panels.cpp`.
 
 ## Decisions made, do not reopen
 
@@ -28,70 +31,67 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - YouTube links use a signed-in session from `signin.py`; no third-party
   download service. The app never reads a browser's cookies itself.
 - UI copy follows `HANDOFF.md` section 15; attribution follows section 13.
-- The Tracks table draws its own rules after the table, above each row, never
-  under the last; the owner approved the result on 2026-09-15.
+- Accent is for selection and fills; failures use `accent.bad`.
 
 ## Relevant files
 
-- `tools/mp3-to-midi/`: `convert.py` (file, link or `--playlist` to `.mid`, one
-  status per line), `signin.py` (WebView2 sign-in, writes `cookies.txt`), `README.md`.
-- `MIDI++/AudioToMidi.hpp`: finds the install, runs either script in a job;
-  `AudioToMidiTests` in `tests/ShellTests.cpp` covers it.
-- `ui/ShellEngine.cpp`: `ConvertAudio`, `ConvertCancel`, `ConvertProgress`, `YouTubeSignIn`.
-- `ui/Panels.cpp`: + menu, Convert popup, file list, Tracks table (`rules`).
-- `ui/SkinDraw.cpp`: `InnerShadow`, `RecessedRect`, `RoundCorners`.
+- `ui/Panels.cpp`: `DrawConvert` is the Convert audio popover; the `+` menu
+  above the file list opens it; `Panels::openConvert` is the render test's way in.
+- `MIDI++/AudioToMidi.hpp`, `tools/mp3-to-midi/convert.py`, `signin.py`.
+- `MIDI++/VelocityPresets.hpp`: the original editor's preset shapes, testable.
+- `tests/run-shell-parity-mutations.ps1`: 20 deliberate regressions.
+- `tools/make-release.ps1`: packages the shell; does not bundle the converter yet.
 
 ## Verified facts
 
-- Transkun and mp3converter are MIT; `convert.py` copies no code from either.
-- 93 s of solo piano: 24 s on the CPU (AMD GPU, no CUDA), 1201 notes, C2 to A6.
-- YouTube refuses the owner's connection for every video and yt-dlp client
-  unless signed in. The owner confirmed `signin.py` signs in.
-- mp7.dev has no public API; viner.dev sites are GitHub Pages, so no downloader.
-- A running `MIDIShell.exe` blocks the shell link step (LNK1168); ask the owner
-  to close it before rebuilding. Check which worktree's exe they are running.
-- The display runs at 125%; read `tests/NativeShell.ps1` before scripting any
-  click or screenshot.
-- Live captures need no cursor: pass a `.mid` as `argv[1]` to open it, and use
-  `PrintWindow` with flag 3 on the process you launched, filtered by path;
-  `CopyFromScreen` grabs whatever covers the window.
-- The owner's MIDI files each have one note track; build a multi-track `.mid`.
+- A running `MIDIShell.exe` blocks the shell link step (LNK1168).
+- The display runs at 125%; read `tests/NativeShell.ps1` before scripting a click.
+- Never redirect a test exe with `*>` in PowerShell 5.1: a stderr line becomes
+  a terminating error and the run stops with no failure printed. Run
+  `RenderTests.exe` from its folder in cmd or bash if a script dies that way.
+- Building `MIDI++.vcxproj` from another directory writes intermediates to
+  `MIDI++\MIDI++\`, now ignored. Build from the repo root.
 - Each worktree's `build\shell` needs its own `converter\.venv` junction to
-  `D:\Dev\mp3converter\.venv`, and its own sign-in (`tools/mp3-to-midi/cookies.txt`).
+  `D:\Dev\mp3converter\.venv` and its own sign-in (`cookies.txt`).
+- The converter venv is 1.2 GB, 536 MB of it PyTorch; the winget FFmpeg full
+  build is 638 MB, Deno 93 MB. A bundle needs `ffmpeg.exe` alone and a pinned
+  package list, not a copy of the venv.
 
-## Work completed
+## Work completed, 2026-09-15
 
-- Local converter: Python 3.12.10, FFmpeg 9.0.1 and Deno 2.9.6 by winget; venv
-  at `D:\Dev\mp3converter\.venv` (torch 2.14.0+cpu, transkun 2.0.1, yt-dlp
-  2026.8.19, pywebview 6.2.1); `build\shell\converter\.venv` is a junction to it.
-- Convert audio popup: choose a file or paste a link, status, cancel, Sign in
-  to YouTube; the `.mid` lands in the MIDI folder and is rescanned.
-- UI pass: stable state pills, one + menu, `RoundCorners` on file list and table.
-- `83fa9ed`: inner shadow bands continue down the sides and fade out. Owner
-  confirmed it looks fine.
-- `83fa9ed`, `e85e62f`: Tracks outer padding, one heading baseline and ink,
-  rules above rows only, exact header rule. Owner: "its good".
-- `92d22ff`: Whole playlist checkbox for a `list=` link; `saved:` per file,
-  one `finished:` summary, failed videos skipped, Cancel keeps saved files.
-- `f9b1b56`: empty file list message centred. Owner confirmed links, playlists,
-  Cancel and the centred message all work (2026-09-15).
+- Repository consolidated: every branch but `main` merged here; stale
+  worktrees and local branches removed; the main checkout's uncommitted doc
+  rewrite discarded (it said no task was queued; it was wrong).
+- Salvaged: the `VELOCITY-CURVES.md` correction from `bc7d0df`, and
+  `VelocityPresets.hpp` from a 2026-09-09 worktree, now fixing the editor
+  presets that started at 0 (`VelocityPresetTests`, `preset-floor-at-zero`).
+- Convert popover reworked: one primary action that becomes Cancel, quieter
+  file picker, sign-in footnote, progress bar, status bar shows a running
+  conversion, `+` marked while it runs. `convert` render scenario added.
+- `SHELL-GAPS.md` and `MIDI-OUTPUT.md` corrected: `08aa1ab` built the MIDI
+  output panel and the velocity modifier control. The panel prompt starts here.
 
 ## Unresolved
 
-- **Release bundle:** `converter\` beside the exe with an embeddable Python,
-  the packages including pywebview, both scripts and `ffmpeg\`. Size not weighed.
-- **Panel seat, not started:** `PROMPT-S-CURVE-AND-SWITCHES.md`, a styling pass
-  on the Convert popup, the owner's UI items in `SHELL-GAPS.md`.
-- **Needs the owner at the keyboard:** delivery into a game, Wooting feel, two
-  devices at once, live curve reconnection, a mixed-DPI move.
+- **Panel seat, not started:** `PROMPT-S-CURVE-AND-SWITCHES.md` (mockup rename,
+  drum and auto-transpose switches, export menu with styled and coloured sheets).
+- **Release bundle:** `converter\` beside the exe with an embeddable Python, a
+  pinned package list including pywebview, `ffmpeg.exe`, Deno, both scripts.
+  Sizes above. Not started.
+- **Needs the owner at the keyboard:** delivery into a game from the shell,
+  Wooting feel, two devices at once, MIDI output into a real synth, live curve
+  reconnection, a mixed-DPI move, and a look at the Convert popover live.
+- **Standing question for the owner:** whether a typing warning comes back
+  (`SHELL-GAPS.md`, "Reported by testers").
 
 ## Validation actually run
 
-- At `f9b1b56`: shell built; `run-shell-tests.ps1 -Render` 274 PASS, 0 FAIL.
-  Playlist loop checked with stubs, then by the owner on a real playlist.
-- At `e85e62f`: `run-shell-parity-mutations.ps1`, 19 of 19 killed. Not rerun
-  since the playlist change, which touched `ShellEngine.cpp`.
-- Not run: native and latency tests, which take the cursor; nothing played into a game.
+- At `f9b1b56`: `run-shell-parity-mutations.ps1`, 19 of 19 killed.
+- At `358588d`: shell built; `ShellTests.exe` 35 PASS, 0 FAIL; `RenderTests.exe`
+  260 PASS, 208 captures including 16 `convert`; `MIDI++.vcxproj` built.
+- At `358588d`: `run-shell-parity-mutations.ps1`, 20 of 20 killed.
+- Not run: native and latency tests, which take the cursor; nothing played into
+  a game or a synth.
 
 ## Build and test
 
@@ -101,19 +101,17 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 & .\tests\run-shell-parity-mutations.ps1
 ```
 
-Shell tests capture injection in process, so always safe; never `*>&1` in PS 5.1.
-
 ## Repository state
 
 - `origin` is K-Alexandru/MIDIPlusPlus; `upstream` is Zephkek/MIDIPlusPlus.
   `main` stays at `e37ba7e`. Pushing without asking is authorized.
-- `claude/continue-here-f0c3de` is pushed and clean; code last changed at `f9b1b56`.
-- Main checkout is on `output-panel`; `D:\Dev\mpp-panels` is on the old
-  `astra/shell-parity` (`bdd7e85`).
-- Never commit `x64/Release/midi/`, `build/`, `tools/mp3-to-midi/cookies.txt`
-  or `tools/mp3-to-midi/browser/`.
+- Branches: `main`, `claude/consolidate-2026-09-15` (this), `astra/shell-parity`
+  (the panel seat's old worktree at `D:\Dev\mpp-panels`, left alone).
+- Never commit `x64/Release/midi/`, `build/`, `MIDI++/MIDI++/`,
+  `tools/mp3-to-midi/cookies.txt` or `tools/mp3-to-midi/browser/`.
 
 ## Next action
 
-Run `tests\run-shell-parity-mutations.ps1` on `f9b1b56`, since `ShellEngine.cpp`
-changed after the last run, and record the result here.
+Hand `PROMPT-S-CURVE-AND-SWITCHES.md` to the panel seat, then start the release
+bundle: extend `tools/make-release.ps1` to stage `converter\` from a pinned
+package list and weigh the zip.
