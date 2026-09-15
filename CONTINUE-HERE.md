@@ -64,13 +64,12 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 
 - Release bundle: embeddable Python 3.12.10, 40 pinned packages, FFmpeg and
   ffprobe 9.0.1, Deno 2.9.6, licences under `converter\licenses\`.
-- `v0.2.0-test` shipped without ffprobe and converted only wav; superseded.
-- `v0.2.1-test` published on K-Alexandru/MIDIPlusPlus-testing from `6526cac`:
-  zip 426 MB, SHA256 `7903889551817ABDBEE57DD00DC52881CF7D7FCB66936210C1A808C27454759C`.
-- MIDI output and theme radios redrawn as 16px rings with a dot.
-- `c5fcc7d`, after `v0.2.1-test`: F-key hints on the transport title row
-  (Tracks gains a row), velocity combo floored at its longest preset name,
-  three restating descriptions cut, Keyboard timing under a closed header.
+- `v0.2.0-test` (no ffprobe, wav only) and `v0.2.1-test` (`6526cac`, fixed,
+  radios redrawn as rings) published on K-Alexandru/MIDIPlusPlus-testing;
+  both superseded.
+- `c5fcc7d`: F-key hints on the transport title row, velocity combo floored
+  at its longest preset name, three restating descriptions cut, Keyboard
+  timing under a closed header.
 - `f9f0687`: window floor raised to 900 x 610, the design height, so two
   track rows always fit; `v0.2.2-test` published from it, zip 426 MB, SHA256
   `7D5C6D8EABF8086E2B0BF44F3553DEC578B9D42B338F872EB6C2A66BCD31473A`.
@@ -81,7 +80,7 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - **Owner to look at live:** the shorter Settings and the smallest window in
   `v0.2.2-test`.
 - **Panel seat, not started:** `PROMPT-S-CURVE-AND-SWITCHES.md`.
-- **Needs the owner at the keyboard:** Convert in `v0.2.1-test`, delivery
+- **Needs the owner at the keyboard:** Convert in `v0.2.2-test`, delivery
   into a game, Wooting feel, two devices, MIDI output into a synth, live
   curve reconnection, a mixed-DPI move. Wikimedia links still 403.
 
