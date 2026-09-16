@@ -15,9 +15,8 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 
 - Panel seat owns `ui/`, including `ShellEngine::Action` and `EngineSnapshot`.
 - Claude owns `MIDI++/`, `tests/`, `tools/`, specs, and engine seams in `ui/`.
-- Owner-approved exceptions on 2026-09-15, not precedents: the Convert
-  popover, the Settings trims, the window floor, the UI review fixes, and
-  everything in `PROMPT-S-CURVE-AND-SWITCHES.md`.
+- Owner-approved exceptions on 2026-09-15, not precedents: the Convert popover,
+  Settings trims, window floor, UI review fixes, `PROMPT-S-CURVE-AND-SWITCHES.md`.
 
 ## Decisions made, do not reopen
 
@@ -45,8 +44,8 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 
 - `tools/make-release.ps1`: builds, stages `converter\` beside the exe, zips;
   `tools/release-README.txt` is the tester README inside the zip.
-- `ui/Panels.cpp`: `DrawSettings`, `DrawSheetStyle`, `DrawConvert`, `DrawLog`.
-- `ui/ShellEngine.cpp`: the switches fall into `Load`; `SheetStyle*` helpers.
+- `ui/Panels.cpp`: `DrawSettings`, `DrawSheetStyle`, `DrawConvert`, `DrawLog`;
+  `ui/ShellEngine.cpp`: the switches fall into `Load`, `SheetStyle*` helpers.
 
 ## Verified facts
 
