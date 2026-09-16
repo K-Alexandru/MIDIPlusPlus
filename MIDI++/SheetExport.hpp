@@ -667,9 +667,11 @@ inline const char* RhythmColour(Rhythm rhythm) {
 
 // A coloured sheet as one self-contained HTML page, on the original's
 // background. Out-of-range notes are underlined and heavy, as it draws them.
-inline std::string ToHtml(const StyledResult& r) {
+// title is the page's own name, the MIDI file's stem when the shell saves it,
+// so a browser tab and a print header say which sheet this is.
+inline std::string ToHtml(const StyledResult& r, const std::string& title = "Sheet") {
     using Kind = StyledItem::Kind;
-    std::string html = "<!doctype html><meta charset=\"utf-8\"><title>Sheet</title>"
+    std::string html = "<!doctype html><meta charset=\"utf-8\"><title>" + detail::EscapeHtml(title) + "</title>"
         "<body style=\"margin:16px;background:#2D2A32;color:#ffffff;font-family:Verdana,sans-serif;"
         "font-size:10pt;line-height:135%\"><div style=\"white-space:pre-wrap\">";
     for (size_t i = 0; i < r.items.size(); ++i) {

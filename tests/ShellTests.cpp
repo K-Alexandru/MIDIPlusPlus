@@ -664,7 +664,8 @@ void SheetMenuTests(const std::filesystem::path& directory) {
         { std::ifstream file(page, std::ios::binary);
           const std::string html((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
           Require(html.starts_with("<!doctype html") && html.find("<span style=\"color:") != std::string::npos,
-                  "the coloured sheet is not the HTML page"); }
+                  "the coloured sheet is not the HTML page");
+          Require(html.find("<title>sheet-menu</title>") != std::string::npos, "the coloured page is not titled after the file"); }
         const auto again = produce(engine, A::CopyStyledSheet);
         Require(again->sheetSaved.empty(), "a copy after a save still points at the file");
 

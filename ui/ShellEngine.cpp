@@ -1173,7 +1173,7 @@ void ShellEngine::Run(std::stop_token stop) {
                         // the file's own, and the panel says where it went.
                         auto page = state.loaded; page.replace_extension(L".html");
                         std::ofstream output(page, std::ios::binary);
-                        output << sheet::ToHtml(result);
+                        output << sheet::ToHtml(result, Utf8(state.loaded.stem()));
                         output.flush();
                         if (!output) throw std::runtime_error("Cannot write " + Utf8(page) + ".");
                         state.sheetSaved = page;
