@@ -121,6 +121,12 @@ void ApplyStyle(const Skin& s, float dpi) {
     c[ImGuiCol_TitleBg]         = ToVec4(s.surface.structure);
     c[ImGuiCol_TitleBgActive]   = ToVec4(s.surface.structure);
     c[ImGuiCol_TitleBgCollapsed]= ToVec4(s.surface.structure);
+    // The log window's resize grip drew as ImGui's accent triangle in the
+    // corner. Invisible at rest and a soft accent under the hand, so the
+    // corner still resizes without a mark that is not from the skin.
+    c[ImGuiCol_ResizeGrip]        = ImVec4(0, 0, 0, 0);
+    c[ImGuiCol_ResizeGripHovered] = ToVec4(s.accent.accentSoft);
+    c[ImGuiCol_ResizeGripActive]  = ToVec4(s.accent.accentSoft);
     c[ImGuiCol_Separator]       = ToVec4(s.border.hairline);
     c[ImGuiCol_TableBorderLight]= ToVec4(s.border.hairline);
     c[ImGuiCol_TableBorderStrong]= ToVec4(s.border.strong);

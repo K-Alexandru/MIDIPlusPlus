@@ -35,6 +35,7 @@ ICONS = [
     ("Copy", "copy"), ("Rename", "pencil"), ("Check", "check"),
     ("SortDown", "arrow-down"), ("SortUp", "arrow-up"),
     ("Undo", "undo-2"), ("Redo", "redo-2"), ("Anchor", "git-commit-horizontal"),
+    ("Clear", "eraser"),
 ]
 
 CURVE_STEPS = 10   # a 24-unit glyph shown at 32px needs no more than this

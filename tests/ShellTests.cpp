@@ -586,8 +586,13 @@ void DrumDetectionTests(const std::filesystem::path& directory) {
         Require(on->detectDrums && on->rows.back().drums, "drum detection did not come back with the switch");
         Require(saved("MIDI_SETTINGS", "DETECT_DRUMS"), "the drum switch was not saved on");
 
+        // A reload keeps the place in the file: the switch is not a restart.
+        const double halfway = on->duration / 2;
+        engine.Send({A::Seek, {}, on->generation, 0, false, halfway});
+        Await([&] { return std::abs(engine.Snapshot()->position - halfway) < 1e-6; }, "seek before the switch was not applied");
         engine.Send({A::AutoTranspose, {}, 0, 0, true});
         auto fitted = reloaded(on->generation);
+        Require(std::abs(fitted->position - halfway) < 1e-6, "the switch reloaded the file from the top");
         Require(fitted->autoTranspose, "the auto-transpose switch did not turn on");
         Require(fitted->transpose >= -12 && fitted->transpose <= 12, "auto-transpose left the Transpose range");
         Require(saved("AUTO_TRANSPOSE", "ENABLED"), "the auto-transpose switch was not saved");

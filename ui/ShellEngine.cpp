@@ -26,7 +26,14 @@ sheet::StyleOptions ClampSheetStyle(sheet::StyleOptions o) {
     o.missingBpm = std::isfinite(o.missingBpm) ? std::clamp(o.missingBpm, 20.0, 400.0) : defaults.missingBpm;
     o.transpose = std::clamp(o.transpose, -24, 24);
     o.resilience = std::clamp(o.resilience, 0, 20);
-    if (o.outOfRangeSeparator.size() > 4) o.outOfRangeSeparator.resize(4);
+    // At most four bytes, cut on a character boundary: a cut through a
+    // multibyte character leaves invalid UTF-8, which json::dump refuses,
+    // and that would stop every later config save.
+    if (o.outOfRangeSeparator.size() > 4) {
+        size_t end = 4;
+        while (end > 0 && (static_cast<unsigned char>(o.outOfRangeSeparator[end]) & 0xC0) == 0x80) --end;
+        o.outOfRangeSeparator.resize(end);
+    }
     return o;
 }
 
@@ -191,6 +198,11 @@ void ShellEngine::Run(std::stop_token stop) {
     // copy and every writer edits it, because reparsing and rewriting the whole
     // file per edit is most of what made changing a keybind feel slow.
     nlohmann::json configJson;
+    // Set only by a successful parse. The save guard used to test
+    // configJson.is_object(), but the first handler to write a key through
+    // operator[] turns a null document into an object, so a config that
+    // failed to parse could be overwritten by a file holding that one key.
+    bool configLoaded = false;
     bool configDirty = false;
     std::chrono::steady_clock::time_point configDue{};
     // Long enough that a run of remaps becomes a single write, short enough
@@ -199,6 +211,8 @@ void ShellEngine::Run(std::stop_token stop) {
     try {
         std::ifstream stream(config_);
         configJson = nlohmann::json::parse(stream);
+        if (!configJson.is_object()) throw std::runtime_error("config.json is not a JSON object.");
+        configLoaded = true;
         state.eightyEightKeys = configJson.value("SHELL_88_KEYS", true);
         state.outRange = configJson.value("SHELL_OUT_RANGE", false);
         state.playbackDelay = std::clamp(configJson.value("SHELL_PLAYBACK_DELAY", 3), 0, 10);
@@ -231,7 +245,7 @@ void ShellEngine::Run(std::stop_token stop) {
         if (!configDirty) return;
         // A config that failed to parse is held as null. Writing that back
         // would replace every saved setting with an empty file.
-        if (!configJson.is_object()) throw std::runtime_error("The configuration was not loaded, so it cannot be saved.");
+        if (!configLoaded) throw std::runtime_error("The configuration was not loaded, so it cannot be saved.");
         auto temporary = config_; temporary += L".shell-tmp";
         { std::ofstream output(temporary); output << configJson.dump(4) << '\n'; output.flush();
           if (!output) throw std::runtime_error("Cannot save the configuration."); }
@@ -711,6 +725,10 @@ void ShellEngine::Run(std::stop_token stop) {
                     [[fallthrough]];
                 case Action::Load: {
                     const bool resumeAfterLoad = command.action != Action::Load && command.amount == 1;
+                    // A switch reloads the file that is playing; it goes on
+                    // from where it was rather than from the top.
+                    const bool sameFile = command.action == Action::DetectDrums || command.action == Action::AutoTranspose;
+                    const double keepPosition = sameFile ? state.position : 0;
                     invalidateVolume();
                     // Stop before potentially slow disk parsing, so a load cannot
                     // keep injecting while the command worker is busy.
@@ -776,6 +794,7 @@ void ShellEngine::Run(std::stop_token stop) {
                     applyTracks();
                     if (!player->note_events.empty())
                         state.duration = static_cast<double>(player->note_events.back().time.count()) / 1e9;
+                    if (sameFile) state.position = std::clamp(keepPosition, 0.0, state.duration);
                     player->midiFileSelected = true;
                     state.loaded = command.path;
                     loadAutoSolo = command.value;

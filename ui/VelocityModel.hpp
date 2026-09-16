@@ -55,7 +55,9 @@ inline float VelocityCurveAt(const VelocityPreset& preset, float x) {
     for (int i = 0; i < 32; ++i) {
         const float edge = static_cast<float>(preset.thresholds[i]);
         if (edge <= previousInput) {
-            if (previousInput == 0) previousOutput = (i + 1) / 31.f;
+            // Capped at the top step: a table of nothing but zeros, which
+            // only a hand-edited config can hold, is every input in step 31.
+            if (previousInput == 0) previousOutput = std::min(i + 1, 31) / 31.f;
             continue;
         }
         if (input <= edge) {

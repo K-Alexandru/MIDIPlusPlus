@@ -25,7 +25,7 @@ ImU32 OpaqueTint(skin::Argb tint, skin::Argb surface) {
 float SpecFontScale(const skin::Skin&) { return 1.3f; }
 enum class Icon { Folder, Open, Refresh, Settings, Sun, Moon, Play, Pause, Back, Forward,
                   Minus, Plus, Left, Right, Down, Up, Close, Keyboard, Speaker, Muted, Solo, Piano,
-                  Mini, Expand, Copy, Rename, Check, SortDown, SortUp, Undo, Redo, Anchor };
+                  Mini, Expand, Copy, Rename, Check, SortDown, SortUp, Undo, Redo, Anchor, Clear };
 
 // Icons are Lucide, flattened to polylines by tools/gen-icons.py into
 // ui/IconData.hpp. They used to be hand-written primitives here, which is how
@@ -1078,6 +1078,10 @@ void Panels::DrawVelocity(const Fonts& fonts, const skin::Skin& design, float dp
     ImGui::SetCursorScreenPos(ImVec2(listMin.x + 8 * dpi, listMin.y + 8 * dpi));
     { FontScope meta(fonts, design, design.type.meta * SpecFontScale(design)); ImGui::TextUnformatted("Starting points"); }
     ImGui::SetCursorScreenPos(ImVec2(listMin.x + 4 * dpi, listMin.y + 32 * dpi));
+    // Rows sit flush: with the body's item spacing between them the six
+    // built-ins ran a row and a half past the list and S-Curve was half
+    // hidden behind a scrollbar at every size. Custom curves still scroll.
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(ImGui::GetStyle().ItemSpacing.x, 0));
     ImGui::BeginChild("##curve-list", ImVec2(presetsWidth - 8 * dpi, mainBottom - listMin.y - 36 * dpi), 0, ImGuiWindowFlags_NoBackground);
     for (size_t i = 0; i < state->curves.size(); ++i) {
         ImGui::PushID(static_cast<int>(i));
@@ -1099,6 +1103,7 @@ void Panels::DrawVelocity(const Fonts& fonts, const skin::Skin& design, float dp
     }
     listRevision_ = state->curveRevision;
     ImGui::EndChild();
+    ImGui::PopStyleVar();
     ImGui::SetCursorScreenPos(ImVec2(start.x, mainBottom + 4 * dpi)); ImGui::Dummy(ImVec2(width, 1));
     ImGui::PopStyleVar(); ImGui::PopFont();
     ImGui::EndChild();
@@ -1484,7 +1489,7 @@ void Panels::DrawConvert(HWND hwnd, const Fonts& fonts, const skin::Skin& design
     const float actionWidth = ImGui::CalcTextSize("Convert").x + 2 * 16 * dpi;
     ImGui::BeginDisabled(busy || !ready);
     ImGui::SetNextItemWidth(width - actionWidth - s.spacing.s2);
-    ImGui::InputTextWithHint("##convert-link", "Paste a YouTube link", convertLink_, sizeof(convertLink_));
+    ImGui::InputTextWithHint("##convert-link", "Paste a YouTube or audio link", convertLink_, sizeof(convertLink_));
     ImGui::EndDisabled();
     ImGui::SameLine();
     if (busy) {
@@ -1676,6 +1681,17 @@ void Panels::DrawSheetStyle(const Fonts& fonts, const skin::Skin& design, float 
     section("Transpose a section");
     note("Only notes between the two times move. Times are seconds into the file, as the transport shows them.");
     const float third = (width - 2 * s.spacing.s2) / 3;
+    // Captions over the three fields, in the meta face like a description,
+    // so nobody has to guess which box is which.
+    { FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
+      ImGui::PushStyleColor(ImGuiCol_Text, Colour(s.ink.secondary));
+      const ImVec2 row = ImGui::GetCursorScreenPos();
+      auto* draw = ImGui::GetWindowDrawList();
+      draw->AddText(row, Colour(s.ink.secondary), "From");
+      draw->AddText(ImVec2(row.x + third + s.spacing.s2, row.y), Colour(s.ink.secondary), "To");
+      draw->AddText(ImVec2(row.x + 2 * (third + s.spacing.s2), row.y), Colour(s.ink.secondary), "Semitones");
+      ImGui::Dummy(ImVec2(0, ImGui::GetTextLineHeight()));
+      ImGui::PopStyleColor(); }
     ImGui::SetNextItemWidth(third);
     ImGui::InputFloat("##region-from", &regionFrom_, 0, 0, "%.1f s");
     ImGui::SameLine(0, s.spacing.s2);
@@ -1772,9 +1788,12 @@ void Panels::DrawLog(HWND hwnd, const Fonts& fonts, const skin::Skin& design, fl
     ImGui::SetNextWindowSize(ImVec2(std::min(600 * dpi, limit.x), std::min(320 * dpi, limit.y)), ImGuiCond_Appearing);
     ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + viewport->WorkSize.x / 2,
                                   viewport->WorkPos.y + viewport->WorkSize.y / 2), ImGuiCond_Appearing, ImVec2(.5f, .5f));
-    if (ImGui::Begin("Log", &logOpen)) {
+    // No collapse arrow: ImGui's default title-bar triangle is the one
+    // glyph in the app not drawn from the icon set, and folding the log to
+    // a title bar is not a state anyone asked for.
+    if (ImGui::Begin("Log", &logOpen, ImGuiWindowFlags_NoCollapse)) {
         const auto state = engine.Snapshot();
-        if (IconButton("##clear-log", Icon::Refresh, "Clear Log", s, dpi)) engine.Send({ShellEngine::Action::ClearLog});
+        if (IconButton("##clear-log", Icon::Clear, "Clear Log", s, dpi)) engine.Send({ShellEngine::Action::ClearLog});
         ImGui::SameLine();
         if (IconButton("##copy-log", Icon::Copy, "Copy Log", s, dpi)) CopyUtf8ToClipboard(hwnd, *state->log);
         ImGui::SameLine(); ImGui::AlignTextToFramePadding(); ImGui::TextDisabled("Latest 256 KB");
@@ -1943,12 +1962,16 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
         sheetStatusGeneration_ = state->generation;
         sheetPending_ = false;
         if (!state->sheetSaved.empty()) sheetStatus_ = "Saved " + Utf8(state->sheetSaved.filename()) + " beside the MIDI file.";
-        else if (state->sheetText->empty()) sheetStatus_ = "No mapped notes to copy.";
+        else if (state->sheetText->empty() || state->sheetNotes == 0) sheetStatus_ = "No mapped notes to copy.";
         else if (CopyUtf8ToClipboard(hwnd, *state->sheetText))
             sheetStatus_ = "Copied " + std::to_string(state->sheetNotes) + " notes.";
         else sheetStatus_ = "Clipboard is busy. Try again.";
     }
     if (sheetStatusGeneration_ != state->generation) { sheetStatus_.clear(); sheetPending_ = false; }
+    // A save that failed, a read-only folder for one, raises the engine's
+    // error instead of a sheet; the status bar shows that, so the
+    // "Writing..." line must not stay up waiting for a sheet that never comes.
+    else if (sheetPending_ && !state->error.empty()) { sheetStatus_.clear(); sheetPending_ = false; }
     else if (!state->sheetReady && !sheetPending_) sheetStatus_.clear();
     if (!scannedLive_ && hwnd) { engine.Send({ShellEngine::Action::LiveScan}); scannedLive_ = true; }
     if (!scannedOutput_ && hwnd) { engine.Send({ShellEngine::Action::OutputScan}); scannedOutput_ = true; }
@@ -2178,8 +2201,13 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     // Opened out here so it is a sibling of the menu, not a child that
     // closes with it, as the Convert popover does.
     if (styleRequested) ImGui::OpenPopup("Sheet style");
+    // Under the Export button, right-aligned to it, as Settings hangs under
+    // its own button; the mouse position would put it wherever the menu
+    // item happened to be. Tall enough to reach the window's bottom pad.
+    const ImVec2 stylePosition(content.x + contentWidth - 360 * dpi, content.y + titleHeight + 4 * dpi);
+    ImGui::SetNextWindowPos(stylePosition);
     ImGui::SetNextWindowSizeConstraints(ImVec2(360 * dpi, 0),
-                                        ImVec2(360 * dpi, ImGui::GetMainViewport()->Size.y - 2 * s.spacing.windowPad));
+                                        ImVec2(360 * dpi, std::max(120 * dpi, ImGui::GetMainViewport()->Size.y - stylePosition.y - 28 * dpi - s.spacing.windowPad)));
     if (ImGui::BeginPopup("Sheet style")) {
         DrawSheetStyle(fonts, design, dpi, engine);
         ImGui::EndPopup();
