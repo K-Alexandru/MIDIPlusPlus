@@ -63,7 +63,8 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 
 ## Work completed, 2026-09-15
 
-- `v0.2.2-test` published on K-Alexandru/MIDIPlusPlus-testing from `f9f0687`.
+- `v0.2.3-test` published on K-Alexandru/MIDIPlusPlus-testing from `b8281cb`,
+  zip 426 MB, SHA256 `10B781C430C0D868C4DAFE35338CB13D509EC25C85AEED7979E5798589C93428`.
 - S-Curve inverted so it draws and plays as the S the owner tuned; pencil
   shadow fixed at the generator; mockup renamed Pro to S-Curve, recaptured.
 - Settings switches for drum detection and auto-transpose, with reload.
@@ -76,13 +77,11 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - **Owner to look at live:** the S-Curve graph and how it plays now that the
   response is the S (R5 played its inverse); Settings length; the smallest
   window; Convert with a file and a link; the Sheet style popover.
-- **Owner to answer:** the R5 config also holds "s_curve smoth"; S-Curve is
-  "radiant grand" per the 09-04 and 09-11 decisions. Say if the other was meant.
+- **Answered 2026-09-15:** S-Curve is "radiant grand"; the R5 config's
+  "s_curve smoth" is a different curve and stays out.
 - **Needs the owner at the keyboard:** delivery into a game, Wooting feel,
   two devices, MIDI output into a synth, live curve reconnection, a mixed-DPI
   move. The Wikimedia 403 is fixed by a user-agent retry in `convert.py`.
-- `build\release\MIDIPlusPlus-test-build.zip` is staged for `v0.2.3-test`;
-  the upload waits on the owner's confirmation.
 
 ## Validation actually run
 
@@ -113,7 +112,7 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 
 ## Next action
 
-Publish `v0.2.3-test` with `tools\make-release.ps1` so the owner can judge
-the S-Curve in game, and ask the two owner questions above. Then
-`gh issue list --repo K-Alexandru/MIDIPlusPlus-testing` and work the first
-report in a worktree off this branch.
+Run `gh issue list --repo K-Alexandru/MIDIPlusPlus-testing` and work the
+first tester report on `v0.2.3-test` in a worktree off this branch. With no
+reports, ask the owner for the cursor and run `tests\run-native-tests.ps1`
+to prove the 900 x 610 clamp on the real window.
