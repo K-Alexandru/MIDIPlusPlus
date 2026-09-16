@@ -88,8 +88,7 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 ## Validation actually run
 
 - `9e5910a`: `ShellTests.exe` all PASS; `RenderTests.exe` 360 PASS over 18
-  scenarios; every new capture inspected at 100%, the pencil at 200%.
-- `run-shell-parity-mutations.ps1` at `6f026c4`: 24 of 24 killed.
+  scenarios, every new capture inspected; mutations at `6f026c4`: 24 of 24 killed.
 - `make-release.ps1` at `9e5910a`: converter check passed. Not run: native and
   latency tests, `signin.py`, the shell live.
 
