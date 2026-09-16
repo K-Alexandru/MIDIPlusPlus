@@ -105,15 +105,15 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 
 - `origin` is K-Alexandru/MIDIPlusPlus; `upstream` is Zephkek/MIDIPlusPlus.
   `main` stays at `e37ba7e`. Pushing without asking is authorized.
-- The main checkout `D:\Dev\MIDIPlusPlus-modded` is on this branch, pushed,
-  clean apart from the owner's rebuilt `x64\Release\MIDI++.exe` and
-  `x64\Release\midi\`. `D:\Dev\mpp-panels` is the panel seat's; leave it.
+- The main checkout `D:\Dev\MIDIPlusPlus-modded` is on this branch at
+  `97752fd`, pushed, clean apart from the owner's rebuilt `x64\Release\MIDI++.exe`
+  and `x64\Release\midi\`. `D:\Dev\mpp-panels` is the panel seat's; leave it.
 - Never commit `x64/Release/midi/`, `build/`, `MIDI++/MIDI++/`, `.claude/`,
   `tools/mp3-to-midi/cookies.txt` or `tools/mp3-to-midi/browser/`.
 
 ## Next action
 
-Wait for the owner's look at the sheet page and the graph. Then run
-`gh issue list --repo K-Alexandru/MIDIPlusPlus-testing` and work the first
-tester report in a worktree off this branch; with none, run
-`tests\run-shell-parity-mutations.ps1` to confirm the sheet mutations still die.
+Ask the owner what they found in the sheet editor, Settings and the graph on
+the `ef4aad6` build, and fix the first thing they name in a worktree off this
+branch. With nothing named, run `gh issue list --repo
+K-Alexandru/MIDIPlusPlus-testing` and work the first tester report.
