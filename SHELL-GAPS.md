@@ -357,8 +357,11 @@ Still open:
   the packages and `ffmpeg\`. CPU PyTorch alone is several hundred MB.
 - GPU speed on this machine. The card is AMD, so PyTorch runs on the CPU;
   about 24 s for 93 s of solo piano.
-- Links from sites that refuse yt-dlp's default client, as Wikimedia does
-  with a 403.
+- **Fixed 2026-09-15:** a direct media link, `upload.wikimedia.org` for
+  one, goes through yt-dlp's generic extractor, and Wikimedia answers 403
+  unless the client names itself. `download` in `convert.py` retries a 403
+  once under the program's own user agent; YouTube's extractor never reaches
+  that path. Reproduced and verified with the staged bundle.
 - YouTube refuses the owner's connection unless signed in. Sign in to YouTube
   in the popup (`signin.py`, 2026-09-14) fixes it; the owner confirmed the
   window works. A release must bundle `pywebview` for it.

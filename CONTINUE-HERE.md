@@ -76,12 +76,13 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - **Owner to look at live:** the S-Curve graph and how it plays now that the
   response is the S (R5 played its inverse); Settings length; the smallest
   window; Convert with a file and a link; the Sheet style popover.
-- **Owner to answer:** the R5 config also holds a curve named "s_curve smoth".
-  S-Curve is "radiant grand" per the 09-04 and 09-11 decisions. Say if the
-  other one was meant.
+- **Owner to answer:** the R5 config also holds "s_curve smoth"; S-Curve is
+  "radiant grand" per the 09-04 and 09-11 decisions. Say if the other was meant.
 - **Needs the owner at the keyboard:** delivery into a game, Wooting feel,
   two devices, MIDI output into a synth, live curve reconnection, a mixed-DPI
-  move. Wikimedia links still 403. No test build carries today's work yet.
+  move. The Wikimedia 403 is fixed by a user-agent retry in `convert.py`.
+- `build\release\MIDIPlusPlus-test-build.zip` is staged for `v0.2.3-test`;
+  the upload waits on the owner's confirmation.
 
 ## Validation actually run
 
@@ -89,8 +90,7 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
   16 scenarios, 4 skins, 5 DPI passes; captures for `sheet-style`,
   `settings-switches` and `export` inspected at 100%, the pencil at 200%.
 - `run-shell-parity-mutations.ps1`: 24 of 24 killed, baselines passed.
-- Not run: native and latency tests, `signin.py`, `make-release.ps1`, the
-  shell live.
+- Not run: native and latency tests, `signin.py`, the shell live.
 
 ## Build and test
 

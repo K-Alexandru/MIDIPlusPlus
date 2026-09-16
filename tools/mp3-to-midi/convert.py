@@ -73,6 +73,19 @@ def ydl_options():
     return options
 
 
+USER_AGENT = "MIDIPlusPlus/0.2 (audio to MIDI converter; +https://github.com/K-Alexandru/MIDIPlusPlus)"
+
+
+def fetch(link, options):
+    import yt_dlp
+
+    with yt_dlp.YoutubeDL(options) as ydl:
+        info = ydl.extract_info(link, download=True)
+        if info is None:
+            raise RuntimeError("The link has no audio that can be downloaded.")
+        return info, os.path.splitext(ydl.prepare_filename(info))[0] + ".mp3"
+
+
 def download(link, folder, prefix=""):
     import yt_dlp
 
@@ -83,11 +96,20 @@ def download(link, folder, prefix=""):
         "outtmpl": os.path.join(folder, "%(title)s.%(ext)s"),
         "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3"}],
     })
-    with yt_dlp.YoutubeDL(options) as ydl:
-        info = ydl.extract_info(link, download=True)
-        if info is None:
-            raise RuntimeError("The link has no audio that can be downloaded.")
-        audio = os.path.splitext(ydl.prepare_filename(info))[0] + ".mp3"
+    try:
+        info, audio = fetch(link, options)
+    except yt_dlp.utils.DownloadError as failure:
+        # A direct media link goes through yt-dlp's generic extractor with
+        # its default headers, and some hosts refuse those outright:
+        # upload.wikimedia.org answers 403 unless the client names itself,
+        # which is Wikimedia's stated policy. Retried once under this
+        # program's own name. YouTube is not touched by this, because its
+        # extractor sets its own client headers and never gets here.
+        if "403" not in str(failure):
+            raise
+        say("step", f"{prefix}The site refused the download. Trying again as MIDI++")
+        options["http_headers"] = {"User-Agent": USER_AGENT}
+        info, audio = fetch(link, options)
     if not os.path.exists(audio):
         raise RuntimeError("The download finished without an audio file.")
     return audio, info.get("title") or "conversion"
