@@ -3,6 +3,7 @@
 #include "imgui_internal.h"
 #include "json.hpp"
 #include <commdlg.h>
+#include <shellapi.h>
 #include <shobjidl.h>
 #include <fstream>
 #include <cmath>
@@ -308,11 +309,16 @@ bool SettingRadio(const char* label, bool selected, const skin::Skin& design, fl
     const auto min = ImGui::GetCursorScreenPos();
     const float height = s.metric.controlHeight;
     ImGui::PushID(label);
+    // The hit area is invisible in every state: only the ring answers a
+    // hover. With just the resting colours cleared, the button's own hover
+    // and press fills drew a box wrapped tight around the label.
     ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, IM_COL32(0, 0, 0, 0));
     ImGui::PushStyleColor(ImGuiCol_Border, IM_COL32(0, 0, 0, 0));
     const bool clicked = ImGui::Button("##radio", ImVec2(diameter + 8 * dpi + labelSize.x, height));
     const bool hovered = ImGui::IsItemHovered();
-    ImGui::PopStyleColor(2);
+    ImGui::PopStyleColor(4);
     ImGui::PopID();
     auto* draw = ImGui::GetWindowDrawList();
     const ImDrawListFlags flags = draw->Flags;
@@ -324,6 +330,47 @@ bool SettingRadio(const char* label, bool selected, const skin::Skin& design, fl
     draw->Flags = flags;
     draw->AddText(ImVec2(min.x + diameter + 8 * dpi, min.y + (height - labelSize.y) / 2), Colour(s.ink.primary), label);
     return clicked && !selected;
+}
+
+// A tick box drawn like the radio: a 16px rounded square with the Lucide
+// check inside, green when on the way the switch and the radio are green.
+// ImGui's own is a flat square at the text field's height with a check
+// that is a filled polygon, and it looked like a different application's.
+// Returns true on a click, with value already toggled.
+bool SettingCheck(const char* label, bool& value, const char* description,
+                  const Fonts& fonts, const skin::Skin& design, float dpi) {
+    const auto s = skin::ScaleGeometry(design, dpi);
+    const float side = 16 * dpi;
+    const ImVec2 labelSize = ImGui::CalcTextSize(label);
+    const auto min = ImGui::GetCursorScreenPos();
+    const float height = s.metric.controlHeight;
+    ImGui::PushID(label);
+    ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, IM_COL32(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_Border, IM_COL32(0, 0, 0, 0));
+    const bool clicked = ImGui::Button("##check", ImVec2(side + 8 * dpi + labelSize.x, height));
+    const bool hovered = ImGui::IsItemHovered();
+    ImGui::PopStyleColor(4);
+    ImGui::PopID();
+    if (clicked) value = !value;
+    auto* draw = ImGui::GetWindowDrawList();
+    const ImDrawListFlags flags = draw->Flags;
+    draw->Flags |= ImDrawListFlags_AntiAliasedFill | ImDrawListFlags_AntiAliasedLines;
+    const ImVec2 box(min.x, min.y + (height - side) / 2);
+    const ImVec2 boxEnd(box.x + side, box.y + side);
+    draw->AddRectFilled(box, boxEnd, Colour(value ? s.accent.okSoft : hovered ? s.surface.elevatedHot : s.surface.recessed), 4 * dpi);
+    draw->AddRect(box, boxEnd, Colour(value ? s.accent.okBorder : s.border.strong), 4 * dpi, 0, dpi);
+    if (value) DrawIcon(draw, Icon::Check, ImVec2(box.x + 2 * dpi, box.y + 2 * dpi), side - 4 * dpi, Colour(s.accent.okInk), dpi);
+    draw->Flags = flags;
+    draw->AddText(ImVec2(min.x + side + 8 * dpi, min.y + (height - labelSize.y) / 2), Colour(s.ink.primary), label);
+    if (description && *description) {
+        FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
+        ImGui::PushStyleColor(ImGuiCol_Text, Colour(s.ink.secondary));
+        ImGui::TextWrapped("%s", description);
+        ImGui::PopStyleColor();
+    }
+    return clicked;
 }
 
 void BeginPanel(const char* id, ImVec2 min, ImVec2 max, const skin::Skin& s, ImGuiWindowFlags flags = 0) {
@@ -907,22 +954,15 @@ void Panels::DrawVelocity(const Fonts& fonts, const skin::Skin& design, float dp
         draw->AddLine(ImVec2(x, plotMin.y), ImVec2(x, plotMax.y), Colour(s.border.hairline), dpi);
         draw->AddLine(ImVec2(plotMin.x, y), ImVec2(plotMax.x, y), Colour(s.border.hairline), dpi);
     }
-    for (int i = 0; i < 32; i += 2) {
-        const auto point = [&](float t) { return ImVec2(plotMin.x + t * (plotMax.x - plotMin.x), plotMax.y - t * (plotMax.y - plotMin.y)); };
-        draw->AddLine(point(i / 32.f), point((i + 1) / 32.f), Colour(s.ink.tertiary), dpi);
-    }
+    // The unchanged response, as one more hairline of the grid rather than
+    // a dashed line in the ink colour: it is a reference, not a series.
+    draw->AddLine(ImVec2(plotMin.x, plotMax.y), ImVec2(plotMax.x, plotMin.y), Colour(s.border.hairline), dpi);
 
+    // The velocities played most, which an anchor snaps to. They are drawn
+    // only while an anchor is being dragged (below), because at rest they
+    // were dashed lines and arrows on a graph that already had a grid, a
+    // fill and a curve.
     const auto snapTargets = PlayedVelocityTargets(state->playedVelocities);
-    for (const float target : snapTargets) {
-        const float x = plotMin.x + target * (plotMax.x - plotMin.x);
-        for (int i = 0; i < 12; i += 2) {
-            const float y0 = plotMin.y + i * (plotMax.y - plotMin.y) / 12;
-            const float y1 = plotMin.y + (i + 1) * (plotMax.y - plotMin.y) / 12;
-            draw->AddLine(ImVec2(x, y0), ImVec2(x, y1), Colour(s.ink.tertiary), dpi);
-        }
-        draw->AddTriangleFilled(ImVec2(x - 3 * dpi, plotMax.y), ImVec2(x + 3 * dpi, plotMax.y),
-                                ImVec2(x, plotMax.y - 5 * dpi), Colour(s.ink.secondary));
-    }
 
     ImGui::SetCursorScreenPos(plotMin);
     ImGui::BeginDisabled(state->comparingCurve);
@@ -978,6 +1018,11 @@ void Panels::DrawVelocity(const Fonts& fonts, const skin::Skin& design, float dp
             if (std::hypot(dx, dy) >= 2 * dpi) freeDraw_.push_back(point);
         }
     }
+    if (ImGui::IsItemActive() && curveGesture_ && curveTool_ == 0)
+        for (const float target : snapTargets) {
+            const float x = plotMin.x + target * (plotMax.x - plotMin.x);
+            draw->AddLine(ImVec2(x, plotMin.y), ImVec2(x, plotMax.y), Colour(s.accent.accentSoft), 2 * dpi);
+        }
     if (ImGui::IsItemDeactivated() && curveGesture_) {
         if (curveTool_ == 0 && activeAnchor_ >= 0) {
             const auto mouse = ImGui::GetIO().MousePos;
@@ -1000,25 +1045,21 @@ void Panels::DrawVelocity(const Fonts& fonts, const skin::Skin& design, float dp
     }
     ImGui::EndDisabled();
 
+    // The 32 steps the game receives, as one soft fill whose top edge is the
+    // staircase. The steps used to be outlined as well, which put a second
+    // grey line under the curve everywhere the two did not coincide.
     const auto thresholds = VelocityThresholds(preset, shown);
     int previousThreshold = 0;
-    const auto ghost = Colour((s.ink.tertiary & 0x00ffffffu) | 0x18000000u);
+    const auto ghost = Colour((s.ink.tertiary & 0x00ffffffu) | 0x22000000u);
     for (int bucket = 0; bucket < 32; ++bucket) {
         const int edge = thresholds[bucket];
         if (edge <= previousThreshold) continue;
         const float x0 = plotMin.x + previousThreshold / 127.f * (plotMax.x - plotMin.x);
         const float x1 = plotMin.x + edge / 127.f * (plotMax.x - plotMin.x);
         const float y = plotMax.y - bucket / 31.f * (plotMax.y - plotMin.y);
-        draw->AddRectFilled(ImVec2(x0 + .5f * dpi, y), ImVec2(x1 - .5f * dpi, plotMax.y), ghost);
+        draw->AddRectFilled(ImVec2(x0, y), ImVec2(x1, plotMax.y), ghost);
         previousThreshold = edge;
     }
-    for (int input = 1; input <= 127; ++input) {
-        const float y = plotMax.y - VelocityBucket(thresholds, input) / 31.f * (plotMax.y - plotMin.y);
-        const float x = plotMin.x + (input - 1) / 127.f * (plotMax.x - plotMin.x);
-        draw->PathLineTo(ImVec2(x, y));
-        draw->PathLineTo(ImVec2(plotMin.x + input / 127.f * (plotMax.x - plotMin.x), y));
-    }
-    draw->PathStroke(Colour(s.ink.tertiary), 0, dpi);
     DrawCurveLine(draw, preset, shown, plotMin, plotMax, Colour(s.accent.accent), 2 * dpi);
     if (!state->comparingCurve && curveTool_ == 0) for (size_t i = 0; i < editor_.anchors.size(); ++i) {
         const auto& anchor = editor_.anchors[i];
@@ -1269,10 +1310,9 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
     }
     bool active = state->liveActive;
     ImGui::BeginDisabled(state->liveDevice.empty());
-    if (ImGui::Checkbox("Midi2Key", &active)) engine.Send({ShellEngine::Action::LiveActive, {}, 0, 0, active});
+    if (SettingCheck("Midi2Key", active, "Types incoming MIDI notes using the current key mapping.", fonts, design, dpi))
+        engine.Send({ShellEngine::Action::LiveActive, {}, 0, 0, active});
     ImGui::EndDisabled();
-    { FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
-      ImGui::TextWrapped("Types incoming MIDI notes using the current key mapping."); }
     ImGui::SetNextItemWidth(-1);
     const auto channel = state->liveChannel < 0 ? "Every channel" : "Channel " + std::to_string(state->liveChannel + 1);
     const bool channelOpen = ImGui::BeginCombo("##live-channel", channel.c_str(), ImGuiComboFlags_NoArrowButton);
@@ -1290,12 +1330,10 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
     // scroll. A measurement keeps running with the header closed.
     if (ImGui::CollapsingHeader("Keyboard timing")) {
     bool measure = measuring_;
-    if (ImGui::Checkbox("Measure keyboard timing", &measure)) {
+    if (SettingCheck("Measure keyboard timing", measure, "Collects note observations while Settings is open.", fonts, design, dpi)) {
         if (measure) { timing_ = input_latency::Collector{}; timingSummary_ = {}; measuring_ = input_latency::start(); }
         else { input_latency::stop(); measuring_ = false; timingSummary_ = {}; }
     }
-    { FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
-      ImGui::TextWrapped("Collects note observations while Settings is open."); }
     if (!measuring_ && input_latency::hookError()) ImGui::Text("Hook unavailable: %lu", input_latency::hookError());
     ImGui::SetNextItemWidth(-1);
     const char* sourceLabels[]{"Live input", "Autoplay"};
@@ -1505,7 +1543,7 @@ void Panels::DrawConvert(HWND hwnd, const Fonts& fonts, const skin::Skin& design
     // Only for a link that names a playlist. Unticked, a video watched inside
     // a playlist still converts on its own.
     if (playlistLink) {
-        ImGui::Checkbox("Whole playlist", &convertPlaylist_);
+        SettingCheck("Whole playlist", convertPlaylist_, nullptr, fonts, design, dpi);
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("Every video in turn. Cancel keeps the files made so far.");
     }
     if (TransportButton("##convert-file", Icon::Open, "Choose an audio file", s, dpi)) {
@@ -1961,7 +1999,13 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
         handledSheetRevision_ = state->sheetRevision;
         sheetStatusGeneration_ = state->generation;
         sheetPending_ = false;
-        if (!state->sheetSaved.empty()) sheetStatus_ = "Saved " + Utf8(state->sheetSaved.filename()) + " beside the MIDI file.";
+        if (!state->sheetSaved.empty()) {
+            // The page is the engine's; opening it is the panel's, because
+            // a test engine must never launch a browser.
+            const auto opened = reinterpret_cast<INT_PTR>(ShellExecuteW(hwnd, L"open", state->sheetSaved.c_str(), nullptr, nullptr, SW_SHOWNORMAL));
+            sheetStatus_ = opened > 32 ? "Opened the coloured sheet in your browser."
+                                       : "Could not open a browser. The page is at " + Utf8(state->sheetSaved) + ".";
+        }
         else if (state->sheetText->empty() || state->sheetNotes == 0) sheetStatus_ = "No mapped notes to copy.";
         else if (CopyUtf8ToClipboard(hwnd, *state->sheetText))
             sheetStatus_ = "Copied " + std::to_string(state->sheetNotes) + " notes.";
@@ -2192,7 +2236,11 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
         // is the same sheet with its rhythm colours, and it prints and
         // screenshots from the browser, which is how an image is exported.
         if (ImGui::MenuItem("Copy styled sheet")) request(ShellEngine::Action::CopyStyledSheet, "Preparing styled sheet...");
-        if (ImGui::MenuItem("Save coloured sheet")) request(ShellEngine::Action::SaveSheetHtml, "Writing coloured sheet...");
+        // The coloured page opens in the browser with every setting beside
+        // the sheet, redrawn as they change, as midi-converter's own page
+        // does; it is written to the temp folder and saves itself from
+        // there, so nothing lands in the MIDI folder.
+        if (ImGui::MenuItem("Open coloured sheet")) request(ShellEngine::Action::SaveSheetHtml, "Opening coloured sheet...");
         ImGui::Separator();
         if (ImGui::MenuItem("Sheet style...")) styleRequested = true;
         ImGui::EndPopup();

@@ -4,7 +4,7 @@
 #include "MIDI2Key.hpp"
 #include "MidiOutput.hpp"
 #include "WootingAnalog.hpp"
-#include "../MIDI++/SheetExport.hpp"
+#include "../MIDI++/SheetPage.hpp"
 #include <fstream>
 #include <cmath>
 #include <intrin.h>
@@ -1169,14 +1169,31 @@ void ShellEngine::Run(std::stop_token stop) {
                                                sheet::MeterMarksFromTicks(meters, tempos, division), state.sheetStyle);
                     state.sheetSaved.clear();
                     if (command.action == Action::SaveSheetHtml && result.notes > 0) {
-                        // Beside the MIDI file, under its name: the page is
-                        // the file's own, and the panel says where it went.
-                        auto page = state.loaded; page.replace_extension(L".html");
-                        std::ofstream output(page, std::ios::binary);
-                        output << sheet::ToHtml(result, Utf8(state.loaded.stem()));
+                        // The editable page, in the user's temp folder under
+                        // the file's name: the panel opens it in the browser,
+                        // and the page saves itself wherever the user says.
+                        // Nothing is written into the MIDI folder.
+                        sheet::PageInput page;
+                        page.title = Utf8(state.loaded.stem());
+                        page.mapping = state.keyMappings;
+                        page.tempos = sheet::TempoMarksFromTicks(tempos, division);
+                        page.meters = sheet::MeterMarksFromTicks(meters, tempos, division);
+                        page.options = state.sheetStyle;
+                        for (const auto& region : state.sheetRegions) page.regions.push_back({region.from, region.to, region.semitones});
+                        for (const auto& event : player->note_events) {
+                            if (event.action != EventType::Press || event.note_or_control == "sustain" || !audible(event.trackIndex)) continue;
+                            const int midi = MidiNumberForNoteName(std::string(event.note_or_control).c_str());
+                            if (midi >= 0) page.notes.push_back({static_cast<double>(event.time.count()) / 1e9, midi});
+                        }
+                        std::error_code ignored;
+                        const auto folder = std::filesystem::temp_directory_path(ignored) / L"MIDI++ sheets";
+                        std::filesystem::create_directories(folder, ignored);
+                        auto path = folder / state.loaded.filename(); path.replace_extension(L".html");
+                        std::ofstream output(path, std::ios::binary);
+                        output << sheet::ToEditorHtml(page);
                         output.flush();
-                        if (!output) throw std::runtime_error("Cannot write " + Utf8(page) + ".");
-                        state.sheetSaved = page;
+                        if (!output) throw std::runtime_error("Cannot write " + Utf8(path) + ".");
+                        state.sheetSaved = path;
                     }
                     state.sheetText = std::make_shared<const std::string>(std::move(result.text));
                     state.sheetNotes = result.notes;

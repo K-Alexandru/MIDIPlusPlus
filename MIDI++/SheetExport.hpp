@@ -669,11 +669,11 @@ inline const char* RhythmColour(Rhythm rhythm) {
 // background. Out-of-range notes are underlined and heavy, as it draws them.
 // title is the page's own name, the MIDI file's stem when the shell saves it,
 // so a browser tab and a print header say which sheet this is.
-inline std::string ToHtml(const StyledResult& r, const std::string& title = "Sheet") {
+namespace detail {
+// The sheet's own markup, shared by the static page and the editable one.
+inline std::string SheetBody(const StyledResult& r) {
     using Kind = StyledItem::Kind;
-    std::string html = "<!doctype html><meta charset=\"utf-8\"><title>" + detail::EscapeHtml(title) + "</title>"
-        "<body style=\"margin:16px;background:#2D2A32;color:#ffffff;font-family:Verdana,sans-serif;"
-        "font-size:10pt;line-height:135%\"><div style=\"white-space:pre-wrap\">";
+    std::string html;
     for (size_t i = 0; i < r.items.size(); ++i) {
         const auto& item = r.items[i];
         if (item.kind == Kind::Chord) {
@@ -693,7 +693,14 @@ inline std::string ToHtml(const StyledResult& r, const std::string& title = "She
             if (!nearComment) html += "<br>";
         }
     }
-    return html + "</div></body>";
+    return html;
+}
+} // namespace detail
+
+inline std::string ToHtml(const StyledResult& r, const std::string& title = "Sheet") {
+    return "<!doctype html><meta charset=\"utf-8\"><title>" + detail::EscapeHtml(title) + "</title>"
+        "<body style=\"margin:16px;background:#2D2A32;color:#ffffff;font-family:Verdana,sans-serif;"
+        "font-size:10pt;line-height:135%\"><div style=\"white-space:pre-wrap\">" + detail::SheetBody(r) + "</div></body>";
 }
 
 } // namespace sheet

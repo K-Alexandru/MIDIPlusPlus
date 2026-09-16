@@ -14,6 +14,19 @@ try {
     $ErrorActionPreference = 'Stop'
     if ($testExitCode -ne 0) { throw 'Shell tests failed.' }
 } finally { Pop-Location }
+# The coloured page draws with its own script; ShellTests writes the page and
+# a fixture, and node holds the script to the app's text. Node is only on a
+# developer machine, so its absence is reported, not fatal.
+$node = Get-Command node -ErrorAction SilentlyContinue
+if ($node) {
+    $ErrorActionPreference = 'Continue'
+    & $node.Source (Join-Path $PSScriptRoot 'sheet-page-parity.js') (Join-Path $testDirectory 'sheet-page.html') (Join-Path $testDirectory 'sheet-page-parity.json')
+    $parityExitCode = $LASTEXITCODE
+    $ErrorActionPreference = 'Stop'
+    if ($parityExitCode -ne 0) { throw 'Sheet page parity failed.' }
+} else {
+    Write-Host 'SKIP sheet page parity: node is not installed.'
+}
 if ($Render) {
     & $msbuildPath (Join-Path $PSScriptRoot 'RenderTests.vcxproj') /p:Configuration=Release /p:Platform=x64 /m /v:minimal /nologo
     if ($LASTEXITCODE -ne 0) { throw 'Render test build failed.' }

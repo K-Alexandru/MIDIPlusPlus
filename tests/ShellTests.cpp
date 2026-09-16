@@ -5,7 +5,7 @@
 #include "../MIDI++/WootingAnalog.hpp"
 #include "../MIDI++/MidiInput.hpp"
 #include "../MIDI++/MidiOutput.hpp"
-#include "../MIDI++/SheetExport.hpp"
+#include "../MIDI++/SheetPage.hpp"
 #include "../MIDI++/AudioToMidi.hpp"
 #include "../MIDI++/VelocityPresets.hpp"
 #include "../MIDI++/MidiStreamSplit.hpp"
@@ -628,9 +628,60 @@ void DrumDetectionTests(const std::filesystem::path& directory) {
 }
 
 // The Export menu's styled entries. midi-converter's notation goes to the
-// clipboard as text or beside the MIDI file as a coloured page, the style is
-// saved and reopened, and a section transposition moves only the notes inside
-// its times and is dropped with the file it was timed against.
+// clipboard as text or to the temp folder as the editable coloured page,
+// never into the MIDI folder; the style is saved and reopened, and a section
+// transposition moves only the notes inside its times and is dropped with
+// the file it was timed against.
+// The coloured page draws with its own translation of sheet::Style. This
+// writes a score that reaches every branch the settings can take (struck and
+// spread chords, a repeated pitch, shifted characters, both out-of-range
+// ends, tempo and meter changes, a section transposition) and the app's text
+// for it under each of several styles; tests/sheet-page-parity.js runs the
+// page's script over the same input and requires the same text.
+void WriteSheetPageParityFixture(const std::filesystem::path& file, const std::map<std::string, std::string>& mapping) {
+    sheet::PageInput in;
+    in.title = "parity";
+    in.mapping = mapping;
+    in.tempos = {{0.0, 120}, {4.0, 150}, {8.0, 100}, {8.5, 100}};
+    in.meters = {{0.0, 4}, {6.0, 3}};
+    in.regions = {{1.0, 3.0, 12}, {9.0, 9.5, -7}};
+    const int pitches[]{60, 64, 67, 72, 59, 62, 25, 100, 61, 66, 70, 73, 48, 55, 84, 96, 97, 35, 36, 108, 21, 60};
+    double t = 0;
+    for (int i = 0; i < 40; ++i) {
+        const int midi = pitches[i % (sizeof(pitches) / sizeof(pitches[0]))];
+        in.notes.push_back({t, midi});
+        if (i % 5 == 0) { in.notes.push_back({t, midi + 4}); in.notes.push_back({t, midi + 4}); }   // struck chord, one merge
+        if (i % 7 == 0) { in.notes.push_back({t + 0.012, midi + 7}); in.notes.push_back({t + 0.024, midi - 12}); }   // spread chord
+        t += (i % 3 == 0) ? 0.125 : (i % 3 == 1) ? 0.5 : 1.25;
+    }
+    std::vector<std::pair<std::string, sheet::StyleOptions>> cases;
+    { sheet::StyleOptions o; cases.push_back({"defaults", o}); }
+    { sheet::StyleOptions o; o.tempoMarks = true; o.curlyQuantizes = false; o.sequentialQuantize = false; cases.push_back({"rhythm, brackets, sorted spread", o}); }
+    { sheet::StyleOptions o; o.classicChordOrder = true; o.shifts = sheet::Place::End; o.outOfRangePlace = sheet::Place::Start;
+      o.outOfRangeMarks = true; o.outOfRangeSeparator = "*"; cases.push_back({"classic, shifts last, marked", o}); }
+    { sheet::StyleOptions o; o.breaks = sheet::Breaks::Beats; o.beats = 3; o.quantizeMs = 5; cases.push_back({"beats, tight window", o}); }
+    { sheet::StyleOptions o; o.breaks = sheet::Breaks::None; o.bpmStyle = sheet::BpmStyle::Simple; o.minSpeedChange = 0; o.missingBpm = 90;
+      cases.push_back({"no breaks, arrows", o}); }
+    { sheet::StyleOptions o; o.showOutOfRange = false; o.outOfRangePlace = sheet::Place::End; cases.push_back({"out of range hidden", o}); }
+    { sheet::StyleOptions o; o.autoTranspose = true; o.transpose = 2; o.resilience = 0; cases.push_back({"auto transpose", o}); }
+    { sheet::StyleOptions o; o.transpose = -5; o.shifts = sheet::Place::InOrder; o.bpmChanges = false; cases.push_back({"down five, no tempo", o}); }
+    std::string json = "{\"data\":" + sheet::detail::PageJson(in, "") + ",\"cases\":[";
+    for (size_t i = 0; i < cases.size(); ++i) {
+        auto notes = in.notes;
+        for (auto& note : notes)
+            for (const auto& region : in.regions)
+                if (note.seconds >= region.from && note.seconds <= region.to) note.midi += region.semitones;
+        const auto result = sheet::Style(notes, in.mapping, in.tempos, in.meters, cases[i].second);
+        Require(result.notes > 0, "the parity fixture produced no sheet");
+        json += (i ? "," : "") + std::string("{\"name\":") + sheet::detail::JsonString(cases[i].first) +
+                ",\"options\":" + sheet::detail::JsonOptions(cases[i].second) +
+                ",\"expected\":" + sheet::detail::JsonString(result.text) + "}";
+    }
+    json += "]}\n";
+    std::ofstream out(file, std::ios::binary); out << json;
+    Require(static_cast<bool>(out), "the parity fixture was not written");
+}
+
 void SheetMenuTests(const std::filesystem::path& directory) {
     using A = shell::ShellEngine::Action;
     const auto fixture = directory / L"sheet-menu.mid";
@@ -660,12 +711,21 @@ void SheetMenuTests(const std::filesystem::path& directory) {
         const std::string styledText = *styled->sheetText;
 
         const auto saved = produce(engine, A::SaveSheetHtml);
-        Require(saved->sheetSaved == page && std::filesystem::exists(page), "the coloured sheet was not written beside the MIDI file");
-        { std::ifstream file(page, std::ios::binary);
+        std::error_code ignored;
+        const auto expectedPage = std::filesystem::temp_directory_path(ignored) / L"MIDI++ sheets" / L"sheet-menu.html";
+        Require(saved->sheetSaved == expectedPage && std::filesystem::exists(expectedPage), "the coloured sheet was not written to the temp folder");
+        Require(!std::filesystem::exists(page), "the coloured sheet was written beside the MIDI file");
+        { std::ifstream file(expectedPage, std::ios::binary);
           const std::string html((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
           Require(html.starts_with("<!doctype html") && html.find("<span style=\"color:") != std::string::npos,
                   "the coloured sheet is not the HTML page");
-          Require(html.find("<title>sheet-menu</title>") != std::string::npos, "the coloured page is not titled after the file"); }
+          Require(html.find("<title>sheet-menu</title>") != std::string::npos, "the coloured page is not titled after the file");
+          Require(html.find("id=\"sheet-data\"") != std::string::npos && html.find("/*SHEET-CORE-START*/") != std::string::npos,
+                  "the coloured page does not carry its data and script");
+          Require(html.find("\"expected\":") != std::string::npos, "the coloured page does not carry the app's text for its parity check");
+          // For tests/sheet-page-parity.js, which runs the page's script on
+          // the page's own data and on the fixture written below.
+          std::ofstream copy(directory / L"sheet-page.html", std::ios::binary); copy << html; }
         const auto again = produce(engine, A::CopyStyledSheet);
         Require(again->sheetSaved.empty(), "a copy after a save still points at the file");
 
@@ -697,6 +757,7 @@ void SheetMenuTests(const std::filesystem::path& directory) {
         Require(engine.Snapshot()->sheetStyle.beats == 32, "the sheet style was not clamped");
         Require(produce(engine, A::CopyStyledSheet)->sheetText->find("Transpose by: -3") != std::string::npos,
                 "the sheet style did not reach the styled sheet");
+        WriteSheetPageParityFixture(directory / L"sheet-page-parity.json", engine.Snapshot()->keyMappings);
     }
     {
         shell::ShellEngine engine(directory / L"config.json");
@@ -710,7 +771,7 @@ void SheetMenuTests(const std::filesystem::path& directory) {
     }
     std::filesystem::remove(page);
     std::filesystem::remove(fixture);
-    std::cout << "PASS export menu: styled copy, coloured page beside the file, section transpositions, saved style\n";
+    std::cout << "PASS export menu: styled copy, editable page in temp and not beside the file, section transpositions, saved style, parity fixture\n";
 }
 
 // The original window's editor presets. Every threshold must be one an input

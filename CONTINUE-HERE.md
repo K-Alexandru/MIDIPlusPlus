@@ -15,38 +15,41 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 
 - Panel seat owns `ui/`, including `ShellEngine::Action` and `EngineSnapshot`.
 - Claude owns `MIDI++/`, `tests/`, `tools/`, specs, and engine seams in `ui/`.
-- Owner-approved exceptions on 2026-09-15, not precedents: the Convert popover,
-  Settings trims, window floor, UI review fixes, `PROMPT-S-CURVE-AND-SWITCHES.md`.
+- Owner-approved exceptions, not precedents: the Convert popover, Settings
+  trims, window floor, UI review fixes, and the 2026-09-16 pass below.
 
 ## Decisions made, do not reopen
 
 - Velocity stays on a modifier (`VELOCITY_MODIFIER`); the tap is four events
-  in one `SendInput` call.
-- Injection never shares a thread with the message loop (`HANDOFF.md` section 4).
-- Legit mode applies at dispatch, never at parse time (`LEGIT-MODE.md`).
+  in one `SendInput` call. Injection never shares a thread with the message
+  loop (`HANDOFF.md` section 4). Legit mode applies at dispatch (`LEGIT-MODE.md`).
 - Timing numbers stop at the keyboard hook; never call them end-to-end latency.
-- A skin chooses colour only; every skin is 1090 x 635 collapsed.
-- The window floor is 900 x 610, the design height. Fit the width, not the height.
-- Six built-in velocity curves, the sixth being S-Curve: the R5 "radiant
-  grand" values read as a response, so the engine table is their inverse
-  and the shell draws the S the owner tuned (`SHELL-GAPS.md`, "Pro, now
-  S-Curve"). Owner confirmed 2026-09-15; R5's "s_curve smoth" stays out.
+- A skin chooses colour only; every skin is 1090 x 635 collapsed. The window
+  floor is 900 x 610, the design height. Fit the width, not the height.
+- Six built-in velocity curves, the sixth being S-Curve: the engine table is
+  the inverse of the R5 values and the shell draws the S the owner tuned.
 - MP3 to MIDI is a Python sidecar, never in process, bundled with a release.
-- YouTube links use a signed-in session from `signin.py`; no third-party
-  download service. The app never reads a browser's cookies itself.
-- Sheet image export is the coloured page printed from a browser; a section
-  transposition is named by time, since the shell renders no sheet.
+  YouTube links use a signed-in session from `signin.py`; the app never reads
+  a browser's cookies itself.
+- The coloured sheet is a page in the browser, never a file beside the MIDI:
+  `%TEMP%\MIDI++ sheets\<stem>.html`, opened by the panel, saved from the
+  page. Its script is a translation of `sheet::Style`; the parity test holds
+  the two together, so a change to one is a change to both.
+- The velocity graph carries a grid, one hairline for the unchanged
+  response, the step fill, the histogram and the curve. No dashed lines, no
+  markers at rest; the played-velocity guides show only while an anchor drags.
 - UI copy follows `HANDOFF.md` section 15; attribution follows section 13.
-- One branch. New work goes in a worktree off it and merges back; a merged
-  branch is deleted, locally and on `origin`.
-- Test builds stay on this PC (owner, 2026-09-16): `make-release.ps1` zips to
-  `build\release\` and the reply gives the paths. No GitHub release uploads.
+- One branch: work in a worktree off it, merge back, delete the merged branch.
+- Test builds stay on this PC: `make-release.ps1` zips to `build\release\`
+  and the reply gives the paths. No GitHub release uploads.
 
 ## Relevant files
 
-- `tools/make-release.ps1`: builds, stages `converter\` beside the exe, zips.
-- `ui/Panels.cpp`: `DrawSettings`, `DrawSheetStyle`, `DrawConvert`, `DrawLog`;
-  `ui/ShellEngine.cpp`: the switches fall into `Load`, `SheetStyle*` helpers.
+- `MIDI++/SheetPage.hpp`: `ToEditorHtml`, the page's CSS, its script in two
+  halves (`SHEET-CORE` is DOM-free for node), `PageJson`.
+- `tests/sheet-page-parity.js`: run by `run-shell-tests.ps1` when node exists.
+- `ui/Panels.cpp`: `SettingRadio`, `SettingCheck`, `DrawVelocity`,
+  `DrawSheetStyle`; the Export menu and the browser launch in `Draw`.
 
 ## Verified facts
 
@@ -60,37 +63,33 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
   engine's first snapshot is blank, so tests `Await` the parsed config.
 - Run MSBuild from PowerShell: Git Bash rewrites `/p:` switches as paths.
 
-## Work completed, 2026-09-15 and 16
+## Work completed, 2026-09-16
 
-- `v0.2.3-test` (`b8281cb`) and `v0.2.4-test` (`9e5910a`) published on
-  K-Alexandru/MIDIPlusPlus-testing. The latter's zip is 426 MB, SHA256
-  `2389B27EC39C0ABF570881D363524AFBC7A909D34D7E9CCDDAFF9F3ECB32EDF2`.
-- S-Curve inverted so it draws and plays as tuned; pencil shadow fixed at
-  the icon generator; mockup says S-Curve and `docs/design` is recaptured.
-- Settings switches for drum detection and auto-transpose, reloading the
-  open file in place.
-- Export menu: Copy styled sheet, Save coloured sheet, Sheet style popover
-  with every `sheet::StyleOptions` field and per-section transposition.
-- The Wikimedia 403: a refused direct link is retried under the app's user agent.
-- Review fixes: config save guard is a parse flag, separator cut on a UTF-8
-  boundary, all six presets fit the list, log window skinned with an eraser
-  for Clear, key-mapping and autovol render scenarios, page titled after
-  its file. The owner's 2026-09-07 UI pass is closed in `SHELL-GAPS.md`.
+- Open coloured sheet replaces Save coloured sheet: the editable page, with
+  every style setting, selection transposition, Copy, Save page and Print.
+  `SheetMenuTests` requires the temp path and no file beside the MIDI;
+  the parity fixture covers nine sheets.
+- Settings: the Keystrokes/MIDI radios no longer draw a hover box around the
+  label; Midi2Key, Measure keyboard timing and Whole playlist are
+  `SettingCheck`, a rounded square with the Lucide check, green when on.
+- Velocity graph: dashed diagonal, dashed snap lines and their triangles,
+  the staircase outline and the hairline gaps in the step fill are gone.
+- Log: MMCSS refusal is one note. Mockup graph matched, `docs/design` recaptured.
 
 ## Unresolved
 
-- **Owner to look at live on `v0.2.4-test`:** S-Curve in game (R5 played its
-  inverse); Settings length; the smallest window; Convert; Sheet style.
-- **Needs the owner at the keyboard:** delivery into a game, Wooting feel,
-  two devices, MIDI output into a synth, live curve reconnection, a mixed-DPI
-  move, the 900 x 610 clamp on a real window.
+- **Owner to look at live:** the sheet page from a real file, in their
+  browser; the checkboxes and radios in Settings; the graph at each skin.
+- **Needs the owner at the keyboard:** game delivery, Wooting, two devices,
+  MIDI out to a synth, live curve reconnection, mixed DPI, the 900 x 610 clamp.
 
 ## Validation actually run
 
-- `9e5910a`: `ShellTests.exe` all PASS; `RenderTests.exe` 360 PASS over 18
-  scenarios, every new capture inspected; mutations at `6f026c4`: 24 of 24 killed.
-- `make-release.ps1` at `9e5910a`: converter check passed. Not run: native and
-  latency tests, `signin.py`, the shell live.
+- `ShellTests.exe` all PASS; sheet page parity 9 of 9; `RenderTests.exe`
+  every scenario PASS at 100 to 200%; the page opened in the built-in browser
+  with live transposition and a section from a selection, no console errors.
+- Not run: native and latency tests, `signin.py`, the shell live, mutations.
+  `make-release.ps1` stopped at staging: the owner's shell was running.
 
 ## Build and test
 
@@ -113,7 +112,7 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 
 ## Next action
 
-Run `gh issue list --repo K-Alexandru/MIDIPlusPlus-testing` and work the
-first tester report on `v0.2.4-test` in a worktree off this branch. With no
-reports, ask the owner for the cursor and run `tests\run-native-tests.ps1`
-to prove the 900 x 610 clamp on the real window.
+Wait for the owner's look at the sheet page and the graph. Then run
+`gh issue list --repo K-Alexandru/MIDIPlusPlus-testing` and work the first
+tester report in a worktree off this branch; with none, run
+`tests\run-shell-parity-mutations.ps1` to confirm the sheet mutations still die.

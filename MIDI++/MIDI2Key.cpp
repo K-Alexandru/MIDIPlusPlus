@@ -8,18 +8,23 @@
 
 #pragma comment(lib, "avrt.lib")
 
+// MMCSS is a request, not a requirement: without it live input runs at the
+// normal thread priority and still works. The shell constructs a MIDI2Key
+// for every device change, so a machine that refuses the class was writing
+// the same [error] line into the log on each one. Said once, as a note.
 static void setThreadToRealTime() {
+    static bool reported = false;
     SetPriorityClass(GetCurrentProcess(), REALTIME_PRIORITY_CLASS);
     DWORD taskIndex = 0;
     HANDLE hTask = AvSetMmThreadCharacteristicsW(L"Pro Audio", &taskIndex);
     if (!hTask) {
-        std::wcerr << L"Failed to join MMCSS Pro Audio class" << std::endl;
+        if (!reported) std::wcout << L"MMCSS Pro Audio is unavailable; live input runs at normal thread priority." << std::endl;
+        reported = true;
     }
     else {
         BOOL ok = AvSetMmThreadPriority(hTask, AVRT_PRIORITY_CRITICAL);
-        if (!ok) {
-            std::wcerr << L"Failed to set MMCSS subpriority" << std::endl;
-        }
+        if (!ok && !reported) std::wcout << L"MMCSS accepted the thread but refused the critical priority." << std::endl;
+        if (!ok) reported = true;
     }
 }
 alignas(64) char  MIDI2Key::m_lastVelocityKey = '\0';
