@@ -632,13 +632,13 @@ void Panels::DrawAutoVolume(const Fonts& fonts, const skin::Skin& design, float 
         ImGui::TextWrapped("Adjusts game volume from note velocity using the volume keys.");
         ImGui::Spacing();
         if (state->autoVolume) {
-            ImGui::TextUnformatted("On");
+            ImGui::TextUnformatted("AutoVol is on");
             ImGui::TextWrapped("Calibrated for: %s", state->volumeTarget.title.c_str());
         } else if (pending) {
             if (state->autoVolumeFocusing) ImGui::TextUnformatted("Focusing the selected game...");
             else ImGui::Text("Calibration starts in %d", state->autoVolumeCountdown);
-        } else if (state->autoVolumeNeedsCalibration) ImGui::TextUnformatted("Off: calibration needed");
-        else ImGui::TextUnformatted("Off");
+        } else if (state->autoVolumeNeedsCalibration) ImGui::TextUnformatted("AutoVol is off until it is calibrated");
+        else ImGui::TextUnformatted("AutoVol is off");
         ImGui::Spacing();
         ImGui::BeginDisabled(pending);
         ImGui::TextUnformatted("Game window");

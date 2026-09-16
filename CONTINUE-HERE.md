@@ -46,8 +46,7 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 
 - `tools/make-release.ps1`: builds, stages `converter\` beside the exe, zips.
 - `ui/Panels.cpp`: `DrawSettings`, `DrawSheetStyle`, `DrawConvert`.
-- `ui/ShellEngine.cpp`: `DetectDrums`/`AutoTranspose` fall into `Load`;
-  `CopyStyledSheet`/`SaveSheetHtml`; `SheetStyle*` helpers at the top.
+- `ui/ShellEngine.cpp`: the switches fall into `Load`; `SheetStyle*` helpers.
 
 ## Verified facts
 
@@ -71,12 +70,14 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - Export menu: Copy styled sheet, Save coloured sheet, Sheet style popover
   with every `sheet::StyleOptions` field and per-section transposition,
   About credit for midi-converter. All under the "sheet" test group.
+- A review pass at `6f026c4`: a switch reload keeps its place, the config
+  save guard is a parse flag, the separator is cut on a UTF-8 boundary, all
+  six presets fit the list, the log window is skinned, Clear has an eraser.
 
 ## Unresolved
 
-- **Owner to look at live:** the S-Curve graph and how it plays now that the
-  response is the S (R5 played its inverse); Settings length; the smallest
-  window; Convert with a file and a link; the Sheet style popover.
+- **Owner to look at live:** S-Curve in game (R5 played its inverse);
+  Settings length; the smallest window; Convert; the Sheet style popover.
 - **Answered 2026-09-15:** S-Curve is "radiant grand"; the R5 config's
   "s_curve smoth" is a different curve and stays out.
 - **Needs the owner at the keyboard:** delivery into a game, Wooting feel,
