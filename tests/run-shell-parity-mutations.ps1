@@ -41,14 +41,9 @@ $cases = @(
     # Out-of-range notes are the notation's main difference from ours, which
     # drops them. Dropping them here too loses the feature silently.
     @{Name='out-of-range-dropped'; File='MIDI++\SheetExport.hpp'; Group='sheet'; Find='const bool drawOor = n.outOfRange && o.showOutOfRange;'; Replace='const bool drawOor = false;'; Failure='an out-of-range note is kept and marked'},
-    # A section transposition that is accepted and listed but never applied
-    # looks done in the popover and changes nothing in the sheet.
-    # Only the addition is replaced: the for loop above it has no braces, so
-    # removing the whole statement would make the next line its body.
-    @{Name='section-transpose-ignored'; File='ui\ShellEngine.cpp'; Group='sheet'; Find='note.midi += region.semitones;'; Replace='note.midi += 0; /* section ignored */'; Failure='a section transposition did not change the sheet'},
-    # And a style that is applied but not written is back to the defaults at
-    # the next start, which every setting midi-converter exposes must not be.
-    @{Name='sheet-style-unsaved'; File='ui\ShellEngine.cpp'; Group='sheet'; Find='configJson["SHELL_SHEET_STYLE"] = SheetStyleToJson(state.sheetStyle);'; Replace='/* not saved */'; Failure='the sheet style was not saved'},
+    # The editor page must carry the notes it draws from; a page without them
+    # opens as an empty sheet with every control doing nothing.
+    @{Name='sheet-page-no-notes'; File='ui\ShellEngine.cpp'; Group='sheet'; Find='if (midi >= 0) page.notes.push_back'; Replace='if (false) page.notes.push_back'; Failure='the coloured sheet was not written to the temp folder'},
     # Detection only ever labelled tracks. Dropping the label leaves a drum
     # part that is not on channel 10 looking like piano to Solo Piano.
     @{Name='drum-flags-ignored'; File='ui\ShellEngine.cpp'; Group='drums'; Find='row.drums = true; row.piano = false;'; Replace='/* heuristic ignored */'; Failure='the heuristic''s drum track is not shown as drums'},

@@ -627,11 +627,10 @@ void DrumDetectionTests(const std::filesystem::path& directory) {
     std::cout << "PASS drum detection labels a non-channel-10 kit and Solo Piano mutes it; the switches save and reload; auto-transpose types no arrows\n";
 }
 
-// The Export menu's styled entries. midi-converter's notation goes to the
-// clipboard as text or to the temp folder as the editable coloured page,
-// never into the MIDI folder; the style is saved and reopened, and a section
-// transposition moves only the notes inside its times and is dropped with
-// the file it was timed against.
+// The Export menu: the plain sheet goes to the clipboard, and the editor
+// page goes to the temp folder, never into the MIDI folder. Every setting
+// is the page's, so the engine keeps none; the page's script is held to
+// the app's notation by the parity fixture written here.
 // The coloured page draws with its own translation of sheet::Style. This
 // writes a score that reaches every branch the settings can take (struck and
 // spread chords, a repeated pitch, shifted characters, both out-of-range
@@ -706,11 +705,8 @@ void SheetMenuTests(const std::filesystem::path& directory) {
         load(engine);
         const auto plain = produce(engine, A::CopySheet);
         Require(plain->sheetSaved.empty() && !plain->sheetText->empty(), "the plain sheet did not take the clipboard path");
-        const auto styled = produce(engine, A::CopyStyledSheet);
-        Require(styled->sheetSaved.empty() && styled->sheetNotes > 0 && !styled->sheetText->empty(), "the styled sheet is empty");
-        const std::string styledText = *styled->sheetText;
-
-        const auto saved = produce(engine, A::SaveSheetHtml);
+        const auto saved = produce(engine, A::OpenSheetEditor);
+        Require(saved->sheetNotes > 0 && !saved->sheetText->empty(), "the editor page carried no sheet");
         std::error_code ignored;
         const auto expectedPage = std::filesystem::temp_directory_path(ignored) / L"MIDI++ sheets" / L"sheet-menu.html";
         Require(saved->sheetSaved == expectedPage && std::filesystem::exists(expectedPage), "the coloured sheet was not written to the temp folder");
@@ -726,52 +722,13 @@ void SheetMenuTests(const std::filesystem::path& directory) {
           // For tests/sheet-page-parity.js, which runs the page's script on
           // the page's own data and on the fixture written below.
           std::ofstream copy(directory / L"sheet-page.html", std::ios::binary); copy << html; }
-        const auto again = produce(engine, A::CopyStyledSheet);
-        Require(again->sheetSaved.empty(), "a copy after a save still points at the file");
-
-        // A section transposition moves only the notes inside its times. The
-        // fixture's notes are all at the start, so a region over them changes
-        // the sheet and a region after them does not.
-        // Sections are timed against the open file, so they carry its
-        // generation like every other score command.
-        const auto generation = engine.Snapshot()->generation;
-        shell::ShellEngine::Command over{A::SheetRegionAdd, {}, generation}; over.region = {0, 1000, 12};
-        engine.Send(over);
-        Await([&] { return engine.Snapshot()->sheetRegions.size() == 1; }, "the section was not added");
-        Require(*produce(engine, A::CopyStyledSheet)->sheetText != styledText, "a section transposition did not change the sheet");
-        engine.Send({A::SheetRegionClear, {}, generation});
-        shell::ShellEngine::Command after{A::SheetRegionAdd, {}, generation}; after.region = {500, 1000, 12};
-        engine.Send(after);
-        Await([&] { const auto s = engine.Snapshot(); return s->sheetRegions.size() == 1 && s->sheetRegions[0].from == 500; }, "the second section was not added");
-        Require(*produce(engine, A::CopyStyledSheet)->sheetText == styledText, "a section transposition moved notes outside its times");
-        shell::ShellEngine::Command silent{A::SheetRegionAdd, {}, generation}; silent.region = {0, 1, 0};
-        engine.Send(silent);
-        load(engine);
-        Require(engine.Snapshot()->sheetRegions.empty(), "section transpositions survived a Load");
-
-        // The style reaches the sheet and the file.
-        shell::ShellEngine::Command style{A::SheetStyle};
-        style.style.transpose = 3; style.style.tempoMarks = true; style.style.breaks = sheet::Breaks::None; style.style.beats = 99;
-        engine.Send(style);
-        Await([&] { return engine.Snapshot()->sheetStyle.transpose == 3; }, "the sheet style was not applied");
-        Require(engine.Snapshot()->sheetStyle.beats == 32, "the sheet style was not clamped");
-        Require(produce(engine, A::CopyStyledSheet)->sheetText->find("Transpose by: -3") != std::string::npos,
-                "the sheet style did not reach the styled sheet");
+        const auto again = produce(engine, A::CopySheet);
+        Require(again->sheetSaved.empty(), "a copy after opening the editor still points at the page");
         WriteSheetPageParityFixture(directory / L"sheet-page-parity.json", engine.Snapshot()->keyMappings);
-    }
-    {
-        shell::ShellEngine engine(directory / L"config.json");
-        // The worker publishes the parsed config; the first snapshot is blank.
-        Await([&] { return engine.Snapshot()->sheetStyle.transpose == 3 || !engine.Snapshot()->error.empty(); }, "the sheet style was not saved");
-        const auto state = engine.Snapshot();
-        Require(state->sheetStyle.transpose == 3, "the sheet style was not saved");
-        Require(state->sheetStyle.tempoMarks && state->sheetStyle.breaks == sheet::Breaks::None, "the sheet style was saved incomplete");
-        engine.Send({A::SheetStyle});   // back to the defaults for the next test
-        Await([&] { return engine.Snapshot()->sheetStyle.transpose == 0; }, "the sheet style was not reset");
     }
     std::filesystem::remove(page);
     std::filesystem::remove(fixture);
-    std::cout << "PASS export menu: styled copy, editable page in temp and not beside the file, section transpositions, saved style, parity fixture\n";
+    std::cout << "PASS export menu: plain copy, editor page in temp and not beside the file, parity fixture\n";
 }
 
 // The original window's editor presets. Every threshold must be one an input

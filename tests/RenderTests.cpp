@@ -94,7 +94,7 @@ int wmain() {
         const auto skins = skin::All();
         // Returning to 100% catches cumulative scaling after a monitor move.
         for (const float dpi : {1.f, 1.25f, 1.5f, 2.f, 1.f}) for (int i = 0; i < 4; ++i)
-        for (int mode = 0; mode < 18; ++mode) {
+        for (int mode = 0; mode < 17; ++mode) {
             panels.preferences.skin = i;
             panels.miniMode = mode == 1 || mode == 2 || mode == 8 || mode == 9 || mode == 10;
             panels.miniAutoplay = mode == 2 || mode == 8 || mode == 10;
@@ -103,11 +103,9 @@ int wmain() {
             // "minimum" is the smallest window WM_GETMINMAXINFO allows, 900 x 610:
             // the design height at 190 less width, where the right column is
             // at its narrowest.
-            // "sheet-style" is the Export menu's popover with every
-            // midi-converter setting, opened through the same hook as convert.
             const char* variants[]{"full", "mini-live", "mini-autoplay", "log", "settings", "sort", "export",
                                    "countdown", "mini-countdown", "mini-log", "mini-open", "velocity-editor", "convert", "minimum",
-                                   "sheet-style", "settings-switches",
+                                   "settings-switches",
                                    // Two windows rather than popups: the key mapping
                                    // panel below the main window and the AutoVol window.
                                    "key-mapping", "autovol"};
@@ -165,16 +163,15 @@ int wmain() {
                 ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0);
                 ImGui::Begin("##shell", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoScrollbar);
                 ImGui::PopStyleVar(2);
-                if ((mode == 4 || mode == 15) && frame == 2) ImGui::OpenPopup("Settings");
+                if ((mode == 4 || mode == 14) && frame == 2) ImGui::OpenPopup("Settings");
                 panels.openConvert = mode == 12 && frame == 2;
-                panels.openSheetStyle = mode == 14 && frame == 2;
                 // Settings scrolls, and the drum and auto-transpose switches
                 // sit below the fold, so this scenario scrolls to them.
-                panels.revealSettingsSwitches = mode == 15;
-                panels.preferences.keyMappingOpen = mode == 16;
-                panels.autoVolumeOpen = mode == 17;
+                panels.revealSettingsSwitches = mode == 14;
+                panels.preferences.keyMappingOpen = mode == 15;
+                panels.autoVolumeOpen = mode == 16;
                 panels.Draw(nullptr, fonts, skins[i], dpi, engine);
-                if (frame == 6) Require(ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) == ((mode >= 4 && mode <= 6) || mode == 12 || mode == 14 || mode == 15),
+                if (frame == 6) Require(ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) == ((mode >= 4 && mode <= 6) || mode == 12 || mode == 14),
                                         "render scenario popup did not open or leaked from a previous capture");
                 ImGui::End(); ImGui::PopFont(); ImGui::Render();
                 Require(ImGui::GetDrawData()->TotalVtxCount > 1000, "blank or incomplete frame");

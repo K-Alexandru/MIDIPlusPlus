@@ -1603,161 +1603,6 @@ void Panels::DrawConvert(HWND hwnd, const Fonts& fonts, const skin::Skin& design
     ImGui::PopStyleVar(2);
 }
 
-// midi-converter's notation settings. Every field of sheet::StyleOptions is a
-// setting the original exposes, so every one has a control here; the panel
-// edits a copy and sends the whole struct on each change, and the engine
-// saves it. Section transpositions are the original's per-selection
-// transpose, named by time because the shell has no rendered sheet to
-// select in; the transport shows the times.
-void Panels::DrawSheetStyle(const Fonts& fonts, const skin::Skin& design, float dpi, ShellEngine& engine) {
-    const auto state = engine.Snapshot();
-    const auto s = skin::ScaleGeometry(design, dpi);
-    FontScope font(fonts, design, design.type.body * SpecFontScale(design));
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12 * dpi, (s.metric.controlHeight - ImGui::GetTextLineHeight()) / 2));
-    const float width = ImGui::GetContentRegionAvail().x;
-    if (ImGui::IsWindowAppearing()) {
-        styleDraft_ = state->sheetStyle;
-        strncpy_s(styleSeparator_, styleDraft_.outOfRangeSeparator.c_str(), sizeof(styleSeparator_) - 1);
-    }
-    auto& o = styleDraft_;
-    bool changed = false;
-    const auto section = [&](const char* label) {
-        ImGui::Dummy(ImVec2(0, s.spacing.s1));
-        FontScope meta(fonts, design, design.type.meta * SpecFontScale(design), Weight::Semibold);
-        ImGui::PushStyleColor(ImGuiCol_Text, Colour(s.ink.secondary));
-        ImGui::TextUnformatted(label); ImGui::PopStyleColor();
-    };
-    const auto note = [&](const char* text) {
-        FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
-        ImGui::PushStyleColor(ImGuiCol_Text, Colour(s.ink.secondary));
-        ImGui::PushTextWrapPos(width); ImGui::TextUnformatted(text); ImGui::PopTextWrapPos();
-        ImGui::PopStyleColor();
-    };
-    const auto choice = [&](const char* label, const char* id, int& value, std::initializer_list<const char*> names) {
-        ImGui::TextUnformatted(label);
-        ImGui::SetNextItemWidth(-1);
-        value = std::clamp(value, 0, static_cast<int>(names.size()) - 1);
-        const bool open = ImGui::BeginCombo(id, *(names.begin() + value), ImGuiComboFlags_NoArrowButton);
-        ComboChevron();
-        if (open) {
-            int i = 0;
-            for (const char* name : names) {
-                if (ImGui::Selectable(name, i == value)) { value = i; changed = true; }
-                ++i;
-            }
-            ImGui::EndCombo();
-        }
-    };
-    const auto number = [&](const char* label, const char* id, int& value, int low, int high, const char* format) {
-        ImGui::TextUnformatted(label);
-        ImGui::SetNextItemWidth(-1);
-        if (ImGui::SliderInt(id, &value, low, high, format)) changed = true;
-    };
-
-    { FontScope title(fonts, design, design.type.heading * SpecFontScale(design), Weight::Semibold);
-      ImGui::TextUnformatted("Sheet style"); }
-    note("How Copy styled sheet and Save coloured sheet write the notation. Kept with your settings.");
-
-    section("Chords");
-    ImGui::TextUnformatted("Chord window");
-    float quantize = static_cast<float>(o.quantizeMs);
-    ImGui::SetNextItemWidth(-1);
-    if (ImGui::SliderFloat("##chord-window", &quantize, 0, 200, "%.0f ms")) { o.quantizeMs = quantize; changed = true; }
-    note("A note this close to the one before joins its chord.");
-    changed |= SettingSwitch("Keep spread chords in played order", o.sequentialQuantize,
-                             "Off sorts every chord by pitch.", fonts, design, dpi);
-    changed |= SettingSwitch("Write spread chords in braces", o.curlyQuantizes,
-                             "Off writes them in brackets like struck chords.", fonts, design, dpi);
-    changed |= SettingSwitch("Classic chord order", o.classicChordOrder,
-                             "The ordering of the first Virtual Piano converters.", fonts, design, dpi);
-    int shifts = static_cast<int>(o.shifts);
-    choice("Shifted characters", "##shifts", shifts, {"First in the chord", "Last in the chord", "In pitch order"});
-    o.shifts = static_cast<sheet::Place>(shifts);
-
-    section("Out of range");
-    changed |= SettingSwitch("Keep out-of-range notes", o.showOutOfRange,
-                             "Off leaves out notes the game has no key for.", fonts, design, dpi);
-    changed |= SettingSwitch("Mark out-of-range notes", o.outOfRangeMarks,
-                             "Writes the separator before each one.", fonts, design, dpi);
-    ImGui::TextUnformatted("Separator");
-    ImGui::SetNextItemWidth(-1);
-    if (ImGui::InputText("##oor-separator", styleSeparator_, sizeof(styleSeparator_))) {
-        o.outOfRangeSeparator = styleSeparator_; changed = true;
-    }
-    int place = static_cast<int>(o.outOfRangePlace);
-    choice("Out-of-range notes sit", "##oor-place", place, {"First in the chord", "Last in the chord", "Low first, high last"});
-    o.outOfRangePlace = static_cast<sheet::Place>(place);
-
-    section("Rhythm and tempo");
-    changed |= SettingSwitch("Rhythm separators", o.tempoMarks,
-                             "The gap after a chord becomes a dash, a comma or a bar by its length.", fonts, design, dpi);
-    changed |= SettingSwitch("Mention tempo changes", o.bpmChanges, nullptr, fonts, design, dpi);
-    int wording = static_cast<int>(o.bpmStyle);
-    choice("Tempo change wording", "##bpm-style", wording, {"Detailed", "Arrows"});
-    o.bpmStyle = static_cast<sheet::BpmStyle>(wording);
-    number("Smallest tempo change mentioned", "##min-speed", o.minSpeedChange, 0, 100, "%d%%");
-    int breaks = static_cast<int>(o.breaks);
-    choice("Line breaks", "##breaks", breaks, {"Every bar", "Every few beats", "None"});
-    o.breaks = static_cast<sheet::Breaks>(breaks);
-    if (o.breaks == sheet::Breaks::Beats) number("Beats per line", "##beats", o.beats, 1, 32, "%d beats");
-    int missing = static_cast<int>(std::lround(o.missingBpm));
-    number("Tempo when the file names none", "##missing-bpm", missing, 20, 400, "%d BPM");
-    o.missingBpm = missing;
-
-    section("Transposition");
-    number("Transpose", "##sheet-transpose", o.transpose, -24, 24, "%+d semitones");
-    changed |= SettingSwitch("Find the best transposition", o.autoTranspose,
-                             "Searches near Transpose for the shift that keeps the most notes on keys.", fonts, design, dpi);
-    number("Resilience", "##resilience", o.resilience, 0, 20, "%d");
-    note("How much better a shift must score to replace Transpose.");
-    if (changed) {
-        ShellEngine::Command command{ShellEngine::Action::SheetStyle};
-        command.style = o;
-        engine.Send(std::move(command));
-    }
-
-    section("Transpose a section");
-    note("Only notes between the two times move. Times are seconds into the file, as the transport shows them.");
-    const float third = (width - 2 * s.spacing.s2) / 3;
-    // Captions over the three fields, in the meta face like a description,
-    // so nobody has to guess which box is which.
-    { FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
-      ImGui::PushStyleColor(ImGuiCol_Text, Colour(s.ink.secondary));
-      const ImVec2 row = ImGui::GetCursorScreenPos();
-      auto* draw = ImGui::GetWindowDrawList();
-      draw->AddText(row, Colour(s.ink.secondary), "From");
-      draw->AddText(ImVec2(row.x + third + s.spacing.s2, row.y), Colour(s.ink.secondary), "To");
-      draw->AddText(ImVec2(row.x + 2 * (third + s.spacing.s2), row.y), Colour(s.ink.secondary), "Semitones");
-      ImGui::Dummy(ImVec2(0, ImGui::GetTextLineHeight()));
-      ImGui::PopStyleColor(); }
-    ImGui::SetNextItemWidth(third);
-    ImGui::InputFloat("##region-from", &regionFrom_, 0, 0, "%.1f s");
-    ImGui::SameLine(0, s.spacing.s2);
-    ImGui::SetNextItemWidth(third);
-    ImGui::InputFloat("##region-to", &regionTo_, 0, 0, "%.1f s");
-    ImGui::SameLine(0, s.spacing.s2);
-    ImGui::SetNextItemWidth(third);
-    ImGui::InputInt("##region-semitones", &regionSemitones_, 0, 0);
-    regionSemitones_ = std::clamp(regionSemitones_, -24, 24);
-    ImGui::BeginDisabled(regionSemitones_ == 0 || state->loaded.empty());
-    if (ImGui::Button("Add section", ImVec2(-1, s.metric.controlHeight))) {
-        ShellEngine::Command command{ShellEngine::Action::SheetRegionAdd};
-        command.generation = state->generation;   // timed against this file
-        command.region = {regionFrom_, regionTo_, regionSemitones_};
-        engine.Send(std::move(command));
-    }
-    ImGui::EndDisabled();
-    for (size_t i = 0; i < state->sheetRegions.size(); ++i) {
-        const auto& region = state->sheetRegions[i];
-        char line[96];
-        snprintf(line, sizeof(line), "%.1f s to %.1f s: %+d semitones", region.from, region.to, region.semitones);
-        ImGui::TextUnformatted(line);
-    }
-    if (!state->sheetRegions.empty() && ImGui::Button("Clear sections", ImVec2(-1, s.metric.controlHeight)))
-        engine.Send({ShellEngine::Action::SheetRegionClear, {}, state->generation});
-    ImGui::PopStyleVar();
-}
-
 void Panels::DrawStatus(const Fonts& fonts, const skin::Skin& design, float dpi, const EngineSnapshot& state,
                        ImVec2 min, float width, float height) {
     const auto s = skin::ScaleGeometry(design, dpi);
@@ -2003,7 +1848,7 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
             // The page is the engine's; opening it is the panel's, because
             // a test engine must never launch a browser.
             const auto opened = reinterpret_cast<INT_PTR>(ShellExecuteW(hwnd, L"open", state->sheetSaved.c_str(), nullptr, nullptr, SW_SHOWNORMAL));
-            sheetStatus_ = opened > 32 ? "Opened the coloured sheet in your browser."
+            sheetStatus_ = opened > 32 ? "Opened the sheet editor in your browser."
                                        : "Could not open a browser. The page is at " + Utf8(state->sheetSaved) + ".";
         }
         else if (state->sheetText->empty() || state->sheetNotes == 0) sheetStatus_ = "No mapped notes to copy.";
@@ -2221,8 +2066,6 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     ImGui::SetCursorScreenPos(ImVec2(content.x + contentWidth - sheetButtonWidth, content.y));
     ImGui::BeginDisabled(state->loaded.empty() || state->rows.empty() || state->busy);
     if (TransportButton("##export", Icon::Down, sheetLabel, s, dpi)) ImGui::OpenPopup("Export MIDI");
-    bool styleRequested = openSheetStyle;
-    openSheetStyle = false;
     if (ImGui::BeginPopup("Export MIDI")) {
         const auto request = [&](ShellEngine::Action action, const char* status) {
             send(action);
@@ -2230,36 +2073,16 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
             sheetStatus_ = status;
             sheetPending_ = true;
         };
-        if (ImGui::MenuItem("Copy as sheet")) request(ShellEngine::Action::CopySheet, "Preparing sheet...");
-        // midi-converter's notation: braces for spread chords, out-of-range
-        // notes kept, tempo comments and a line per bar. The coloured page
-        // is the same sheet with its rhythm colours, and it prints and
-        // screenshots from the browser, which is how an image is exported.
-        if (ImGui::MenuItem("Copy styled sheet")) request(ShellEngine::Action::CopyStyledSheet, "Preparing styled sheet...");
-        // The coloured page opens in the browser with every setting beside
-        // the sheet, redrawn as they change, as midi-converter's own page
-        // does; it is written to the temp folder and saves itself from
-        // there, so nothing lands in the MIDI folder.
-        if (ImGui::MenuItem("Open coloured sheet")) request(ShellEngine::Action::SaveSheetHtml, "Opening coloured sheet...");
-        ImGui::Separator();
-        if (ImGui::MenuItem("Sheet style...")) styleRequested = true;
+        // Two things only. Copy sheet is the quick text for a chat. The
+        // editor is midi-converter's page in the browser: the coloured
+        // sheet with every setting beside it, redrawn as they change, its
+        // own Copy, Save and Print. All customising happens there, where
+        // the result is visible; the app keeps no sheet settings of its own.
+        if (ImGui::MenuItem("Copy sheet")) request(ShellEngine::Action::CopySheet, "Preparing sheet...");
+        if (ImGui::MenuItem("Open sheet editor")) request(ShellEngine::Action::OpenSheetEditor, "Opening the sheet editor...");
         ImGui::EndPopup();
     }
     ImGui::EndDisabled();
-    // Opened out here so it is a sibling of the menu, not a child that
-    // closes with it, as the Convert popover does.
-    if (styleRequested) ImGui::OpenPopup("Sheet style");
-    // Under the Export button, right-aligned to it, as Settings hangs under
-    // its own button; the mouse position would put it wherever the menu
-    // item happened to be. Tall enough to reach the window's bottom pad.
-    const ImVec2 stylePosition(content.x + contentWidth - 360 * dpi, content.y + titleHeight + 4 * dpi);
-    ImGui::SetNextWindowPos(stylePosition);
-    ImGui::SetNextWindowSizeConstraints(ImVec2(360 * dpi, 0),
-                                        ImVec2(360 * dpi, std::max(120 * dpi, ImGui::GetMainViewport()->Size.y - stylePosition.y - 28 * dpi - s.spacing.windowPad)));
-    if (ImGui::BeginPopup("Sheet style")) {
-        DrawSheetStyle(fonts, design, dpi, engine);
-        ImGui::EndPopup();
-    }
     std::string sheetNote = sheetStatus_;
     if (state->sheetReady && state->sheetMerged)
         sheetNote += " " + std::to_string(state->sheetMerged) + " shared notes merged.";

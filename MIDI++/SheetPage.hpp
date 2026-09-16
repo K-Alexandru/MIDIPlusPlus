@@ -493,12 +493,19 @@ return {defaults, applyRegions, style, toHtml, escapeHtml};
 inline constexpr const char* kPageUi = R"js(
 (() => {
 const data = JSON.parse(document.getElementById("sheet-data").textContent);
-const options = Object.assign(SheetCore.defaults(), data.options);
+// The settings are the page's alone. A page the app just wrote starts from
+// what the user last chose in this browser; a page saved from here starts
+// from the settings it was saved with.
+const STORE = "midipp.sheet.style";
+const remembered = () => { try { return JSON.parse(localStorage.getItem(STORE) || "null"); } catch (e) { return null; } };
+const stored = data.saved ? null : remembered();
+const options = Object.assign(SheetCore.defaults(), data.options, stored && stored.options || {});
+const page = Object.assign({fontSize: 10, lineHeight: 135}, data.page || {}, stored && stored.page || {});
+function remember() { try { localStorage.setItem(STORE, JSON.stringify({options, page})); } catch (e) {} }
 let regions = data.regions.map(r => ({from: r[0], to: r[1], semitones: r[2]}));
 const notes = data.notes.map(n => ({seconds: n[0], midi: n[1]}));
 const tempos = data.tempos.map(t => ({seconds: t[0], bpm: t[1]}));
 const meters = data.meters.map(m => ({seconds: m[0], numerator: m[1]}));
-const page = {fontSize: 10, lineHeight: 135};
 const $ = id => document.getElementById(id);
 let result = null;
 const time = seconds => {
@@ -553,9 +560,17 @@ function control(el) {
     if (out) out.textContent = el.dataset.format ? el.dataset.format.replace("%", target[key]) : target[key];
   };
   show();
-  el.addEventListener("input", () => { target[key] = read(); show(); draw(); });
+  el._show = show;
+  el.addEventListener("input", () => { target[key] = read(); show(); remember(); draw(); });
 }
 document.querySelectorAll("[data-key]").forEach(control);
+$("reset").onclick = () => {
+  try { localStorage.removeItem(STORE); } catch (e) {}
+  Object.assign(options, SheetCore.defaults());
+  Object.assign(page, {fontSize: 10, lineHeight: 135});
+  document.querySelectorAll("[data-key]").forEach(el => el._show());
+  draw();
+};
 // A selection over the sheet names a section: from the first chord's onset to
 // the last chord's last note, so every note in the chords selected moves.
 const toolbar = $("selection");
@@ -616,7 +631,7 @@ $("copy").onclick = () => copyText(result.text).then(ok => {
   setTimeout(() => { button.textContent = "Copy sheet"; }, 1500);
 });
 $("save").onclick = () => {
-  const saved = Object.assign({}, data, {options, regions: regions.map(r => [r.from, r.to, r.semitones]), expected: result.text});
+  const saved = Object.assign({}, data, {saved: true, options, page, regions: regions.map(r => [r.from, r.to, r.semitones]), expected: result.text});
   const element = $("sheet-data");
   const before = element.textContent;
   element.textContent = JSON.stringify(saved).replace(/<\//g, "<\\/");
@@ -631,11 +646,16 @@ $("save").onclick = () => {
 };
 $("print").onclick = () => window.print();
 draw();
-// The app wrote its own text of this sheet into the page. A difference means
-// the two translations of midi-converter have drifted, which is a bug here.
-if (typeof data.expected === "string" && data.expected !== result.text) {
-  console.error("The page's sheet differs from the app's. Expected:\n" + data.expected + "\nGot:\n" + result.text);
-  $("parity").classList.add("shown");
+// The app wrote its own text of this sheet into the page, drawn with the
+// settings it embedded. A difference means the two translations of
+// midi-converter have drifted, which is a bug here.
+if (typeof data.expected === "string") {
+  const check = SheetCore.style(SheetCore.applyRegions(notes, data.regions.map(r => ({from: r[0], to: r[1], semitones: r[2]}))),
+                                data.mapping, tempos, meters, Object.assign(SheetCore.defaults(), data.options)).text;
+  if (check !== data.expected) {
+    console.error("The page's sheet differs from the app's. Expected:\n" + data.expected + "\nGot:\n" + check);
+    $("parity").classList.add("shown");
+  }
 }
 })();
 )js";
@@ -643,13 +663,15 @@ if (typeof data.expected === "string" && data.expected !== result.text) {
 } // namespace detail
 
 // The editable page. The initial sheet is the app's own rendering, which the
-// script replaces with its own on load and checks against.
-inline std::string ToEditorHtml(const PageInput& in) {
+// script replaces with its own on load and checks against; rendered, when
+// given, receives that rendering so the caller has its counts.
+inline std::string ToEditorHtml(const PageInput& in, StyledResult* rendered = nullptr) {
     std::vector<TimedNote> notes = in.notes;
     for (auto& note : notes)
         for (const auto& region : in.regions)
             if (note.seconds >= region.from && note.seconds <= region.to) note.midi += region.semitones;
     const auto initial = Style(std::move(notes), in.mapping, in.tempos, in.meters, in.options);
+    if (rendered) *rendered = initial;
     std::string html = "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><title>" + detail::EscapeHtml(in.title) +
         "</title><style>" + detail::kPageCss + "</style></head><body>\n"
         "<header><h1>" + detail::EscapeHtml(in.title) + "</h1><span class=\"count\" id=\"count\"></span>"
@@ -687,6 +709,7 @@ inline std::string ToEditorHtml(const PageInput& in) {
         "<label class=\"col\"><span>Text size</span><div class=\"range\"><input type=\"range\" min=\"6\" max=\"24\" step=\"1\" data-key=\"fontSize\" data-page=\"1\" data-format=\"% pt\"><output></output></div></label>"
         "<label class=\"col\"><span>Line height</span><div class=\"range\"><input type=\"range\" min=\"100\" max=\"250\" step=\"5\" data-key=\"lineHeight\" data-page=\"1\" data-format=\"%%\"><output></output></div></label>"
         "<p class=\"note\">Print, or a screenshot, is the image of this sheet.</p>"
+        "<p class=\"note\">Settings are remembered in this browser.</p><button id=\"reset\">Reset settings</button>"
         "</aside>\n<main><p id=\"parity\">The page's sheet differs from the app's. Copy styled sheet in the app gives the app's version.</p>"
         "<div id=\"sheet\">";
     // The app's own rendering, so the sheet is there before the script runs.

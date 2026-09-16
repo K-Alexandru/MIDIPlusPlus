@@ -31,10 +31,11 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - MP3 to MIDI is a Python sidecar, never in process, bundled with a release.
   YouTube links use a signed-in session from `signin.py`; the app never reads
   a browser's cookies itself.
-- The coloured sheet is a page in the browser, never a file beside the MIDI:
-  `%TEMP%\MIDI++ sheets\<stem>.html`, opened by the panel, saved from the
-  page. Its script is a translation of `sheet::Style`; the parity test holds
-  the two together, so a change to one is a change to both.
+- Sheet settings live in one place, the editor page in the browser, and the
+  app stores none: Export is Copy sheet and Open sheet editor, nothing else.
+  The page is `%TEMP%\MIDI++ sheets\<stem>.html`, opened by the panel, saved
+  from the page, never a file beside the MIDI. Its script is a translation of
+  `sheet::Style`; the parity test holds the two together.
 - The velocity graph carries a grid, one hairline for the unchanged
   response, the step fill, the histogram and the curve. No dashed lines, no
   markers at rest; the played-velocity guides show only while an anchor drags.
@@ -48,8 +49,8 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - `MIDI++/SheetPage.hpp`: `ToEditorHtml`, the page's CSS, its script in two
   halves (`SHEET-CORE` is DOM-free for node), `PageJson`.
 - `tests/sheet-page-parity.js`: run by `run-shell-tests.ps1` when node exists.
-- `ui/Panels.cpp`: `SettingRadio`, `SettingCheck`, `DrawVelocity`,
-  `DrawSheetStyle`; the Export menu and the browser launch in `Draw`.
+- `ui/Panels.cpp`: `SettingRadio`, `SettingCheck`, `DrawVelocity`; the
+  Export menu and the browser launch in `Draw`.
 
 ## Verified facts
 
@@ -65,10 +66,12 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 
 ## Work completed, 2026-09-16
 
-- Open coloured sheet replaces Save coloured sheet: the editable page, with
-  every style setting, selection transposition, Copy, Save page and Print.
-  `SheetMenuTests` requires the temp path and no file beside the MIDI;
-  the parity fixture covers nine sheets.
+- Export is two entries: Copy sheet and Open sheet editor. The editor page
+  holds every style setting, remembered in the browser, with selection
+  transposition, Copy, Save page, Print and Reset settings. The in-app Sheet
+  style popover, `SHELL_SHEET_STYLE` and the region actions are removed.
+  `SheetMenuTests` requires the temp path and no file beside the MIDI; the
+  parity fixture covers nine sheets.
 - Settings: the Keystrokes/MIDI radios no longer draw a hover box around the
   label; Midi2Key, Measure keyboard timing and Whole playlist are
   `SettingCheck`, a rounded square with the Lucide check, green when on.

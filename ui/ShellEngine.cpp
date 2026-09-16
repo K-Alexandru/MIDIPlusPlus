@@ -11,74 +11,6 @@
 #include <random>
 
 namespace {
-// midi-converter's settings live in config.json as SHELL_SHEET_STYLE. Every
-// value is clamped on the way in, from the file or from the panel, so a
-// hand-edited file cannot put an enum out of range or a window below zero.
-sheet::StyleOptions ClampSheetStyle(sheet::StyleOptions o) {
-    const sheet::StyleOptions defaults;
-    o.quantizeMs = std::isfinite(o.quantizeMs) ? std::clamp(o.quantizeMs, 0.0, 500.0) : defaults.quantizeMs;
-    o.shifts = static_cast<sheet::Place>(std::clamp(static_cast<int>(o.shifts), 0, 2));
-    o.outOfRangePlace = static_cast<sheet::Place>(std::clamp(static_cast<int>(o.outOfRangePlace), 0, 2));
-    o.bpmStyle = static_cast<sheet::BpmStyle>(std::clamp(static_cast<int>(o.bpmStyle), 0, 1));
-    o.breaks = static_cast<sheet::Breaks>(std::clamp(static_cast<int>(o.breaks), 0, 2));
-    o.minSpeedChange = std::clamp(o.minSpeedChange, 0, 100);
-    o.beats = std::clamp(o.beats, 1, 32);
-    o.missingBpm = std::isfinite(o.missingBpm) ? std::clamp(o.missingBpm, 20.0, 400.0) : defaults.missingBpm;
-    o.transpose = std::clamp(o.transpose, -24, 24);
-    o.resilience = std::clamp(o.resilience, 0, 20);
-    // At most four bytes, cut on a character boundary: a cut through a
-    // multibyte character leaves invalid UTF-8, which json::dump refuses,
-    // and that would stop every later config save.
-    if (o.outOfRangeSeparator.size() > 4) {
-        size_t end = 4;
-        while (end > 0 && (static_cast<unsigned char>(o.outOfRangeSeparator[end]) & 0xC0) == 0x80) --end;
-        o.outOfRangeSeparator.resize(end);
-    }
-    return o;
-}
-
-nlohmann::json SheetStyleToJson(const sheet::StyleOptions& o) {
-    return {{"quantizeMs", o.quantizeMs}, {"sequentialQuantize", o.sequentialQuantize},
-            {"curlyQuantizes", o.curlyQuantizes}, {"classicChordOrder", o.classicChordOrder},
-            {"shifts", static_cast<int>(o.shifts)}, {"outOfRangePlace", static_cast<int>(o.outOfRangePlace)},
-            {"showOutOfRange", o.showOutOfRange}, {"outOfRangeMarks", o.outOfRangeMarks},
-            {"outOfRangeSeparator", o.outOfRangeSeparator}, {"tempoMarks", o.tempoMarks},
-            {"bpmChanges", o.bpmChanges}, {"bpmStyle", static_cast<int>(o.bpmStyle)},
-            {"minSpeedChange", o.minSpeedChange}, {"breaks", static_cast<int>(o.breaks)}, {"beats", o.beats},
-            {"missingBpm", o.missingBpm}, {"transpose", o.transpose}, {"autoTranspose", o.autoTranspose},
-            {"resilience", o.resilience}};
-}
-
-sheet::StyleOptions SheetStyleFromJson(const nlohmann::json& j) {
-    sheet::StyleOptions o;
-    if (!j.is_object()) return o;
-    try {
-        o.quantizeMs = j.value("quantizeMs", o.quantizeMs);
-        o.sequentialQuantize = j.value("sequentialQuantize", o.sequentialQuantize);
-        o.curlyQuantizes = j.value("curlyQuantizes", o.curlyQuantizes);
-        o.classicChordOrder = j.value("classicChordOrder", o.classicChordOrder);
-        o.shifts = static_cast<sheet::Place>(j.value("shifts", static_cast<int>(o.shifts)));
-        o.outOfRangePlace = static_cast<sheet::Place>(j.value("outOfRangePlace", static_cast<int>(o.outOfRangePlace)));
-        o.showOutOfRange = j.value("showOutOfRange", o.showOutOfRange);
-        o.outOfRangeMarks = j.value("outOfRangeMarks", o.outOfRangeMarks);
-        o.outOfRangeSeparator = j.value("outOfRangeSeparator", o.outOfRangeSeparator);
-        o.tempoMarks = j.value("tempoMarks", o.tempoMarks);
-        o.bpmChanges = j.value("bpmChanges", o.bpmChanges);
-        o.bpmStyle = static_cast<sheet::BpmStyle>(j.value("bpmStyle", static_cast<int>(o.bpmStyle)));
-        o.minSpeedChange = j.value("minSpeedChange", o.minSpeedChange);
-        o.breaks = static_cast<sheet::Breaks>(j.value("breaks", static_cast<int>(o.breaks)));
-        o.beats = j.value("beats", o.beats);
-        o.missingBpm = j.value("missingBpm", o.missingBpm);
-        o.transpose = j.value("transpose", o.transpose);
-        o.autoTranspose = j.value("autoTranspose", o.autoTranspose);
-        o.resilience = j.value("resilience", o.resilience);
-    } catch (const nlohmann::json::exception&) {
-        // A key of the wrong type: the rest of the file is still good, and
-        // the defaults read the same as midi-converter's own.
-        return ClampSheetStyle(sheet::StyleOptions{});
-    }
-    return ClampSheetStyle(o);
-}
 } // namespace
 
 // The engine's legacy host hooks. The shell owns its own UI and commands.
@@ -220,7 +152,6 @@ void ShellEngine::Run(std::stop_token stop) {
         state.shuffle = configJson.value("SHELL_SHUFFLE", false);
         if (configJson.contains("MIDI_SETTINGS")) state.detectDrums = configJson["MIDI_SETTINGS"].value("DETECT_DRUMS", true);
         if (configJson.contains("AUTO_TRANSPOSE")) state.autoTranspose = configJson["AUTO_TRANSPOSE"].value("ENABLED", false);
-        if (configJson.contains("SHELL_SHEET_STYLE")) state.sheetStyle = SheetStyleFromJson(configJson["SHELL_SHEET_STYLE"]);
         state.fileSort = static_cast<FileSort>(std::clamp(configJson.value("SHELL_FILE_SORT", 0), 0, 2));
         state.descendingFiles = configJson.value("SHELL_FILE_DESCENDING", false);
         if (configJson.contains("LEGIT_MODE_SETTINGS"))
@@ -502,8 +433,7 @@ void ShellEngine::Run(std::stop_token stop) {
                      command.action == Action::WootingTriggerThreshold ||
                      command.action == Action::WootingShiftAmount ||
                      command.action == Action::WootingVelocityScale ||
-                     command.action == Action::CopySheet || command.action == Action::CopyStyledSheet ||
-                     command.action == Action::SaveSheetHtml) &&
+                     command.action == Action::CopySheet || command.action == Action::OpenSheetEditor) &&
                     std::any_of(commands_.begin(), commands_.end(),
                                 [&](const Command& queued) { return queued.action == command.action; });
                 if (overtaken) continue;
@@ -519,7 +449,7 @@ void ShellEngine::Run(std::stop_token stop) {
                     command.action != Action::LiveOpen && command.action != Action::LiveActive &&
                     command.action != Action::LiveChannel && command.action != Action::OutputTarget &&
                     command.action != Action::OutputScan && command.action != Action::OutputOpen &&
-                    command.action != Action::VelocityModifier && command.action != Action::SheetStyle &&
+                    command.action != Action::VelocityModifier &&
                     command.action < Action::CurveSelect;
                 if (scoreCommand && command.generation != state.generation) continue;
                 if (!state.typingAcknowledged &&
@@ -748,7 +678,6 @@ void ShellEngine::Run(std::stop_token stop) {
                     state.rows.clear();
                     state.duration = state.position = 0;
                     invalidateSheet();
-                    state.sheetRegions.clear();   // timed against the file being replaced
                     ++state.generation;
                     // Drum detection only labels tracks, as it does in the
                     // original window: drum_flags never removed a note. A
@@ -1136,8 +1065,7 @@ void ShellEngine::Run(std::stop_token stop) {
                     ++state.sheetRevision;
                     break;
                 }
-                case Action::CopyStyledSheet:
-                case Action::SaveSheetHtml: {
+                case Action::OpenSheetEditor: {
                     if (!player || state.loaded.empty()) break;
                     const bool anySolo = AnySolo(state.rows);
                     const auto audible = [&](int track) {
@@ -1145,52 +1073,40 @@ void ShellEngine::Run(std::stop_token stop) {
                             [&](const TrackRow& candidate) { return candidate.index == static_cast<size_t>(track); });
                         return row != state.rows.end() && TrackAudible(*row, anySolo);
                     };
-                    // The same audible note-ons CopySheet collects, as numbers,
-                    // with each section transposition applied to the notes
-                    // inside its times before the notation sees them.
-                    std::vector<sheet::TimedNote> notes;
-                    notes.reserve(player->note_events.size() / 2);
+                    // The same audible note-ons CopySheet collects, as
+                    // numbers, with the file's tempo and meter marks. Every
+                    // setting is the page's: it starts from midi-converter's
+                    // defaults, remembers what the user last chose, and
+                    // draws itself. The page goes to the user's temp folder
+                    // under the file's name, the panel opens it, and it
+                    // saves itself wherever the user says. Nothing is
+                    // written into the MIDI folder.
+                    sheet::PageInput page;
+                    page.title = Utf8(state.loaded.stem());
+                    page.mapping = state.keyMappings;
+                    page.notes.reserve(player->note_events.size() / 2);
                     for (const auto& event : player->note_events) {
                         if (event.action != EventType::Press || event.note_or_control == "sustain" || !audible(event.trackIndex)) continue;
                         const int midi = MidiNumberForNoteName(std::string(event.note_or_control).c_str());
-                        if (midi < 0) continue;
-                        sheet::TimedNote note{static_cast<double>(event.time.count()) / 1e9, midi};
-                        for (const auto& region : state.sheetRegions)
-                            if (note.seconds >= region.from && note.seconds <= region.to) note.midi += region.semitones;
-                        notes.push_back(note);
+                        if (midi >= 0) page.notes.push_back({static_cast<double>(event.time.count()) / 1e9, midi});
                     }
                     std::vector<sheet::TickTempo> tempos;
                     for (const auto& change : player->midi_file.tempoChanges) tempos.push_back({change.tick, change.microsecondsPerQuarter});
                     std::vector<sheet::TickMeter> meters;
                     for (const auto& signature : player->midi_file.timeSignatures) meters.push_back({signature.tick, signature.numerator});
                     const uint16_t division = player->midi_file.division;
-                    auto result = sheet::Style(std::move(notes), state.keyMappings,
-                                               sheet::TempoMarksFromTicks(tempos, division),
-                                               sheet::MeterMarksFromTicks(meters, tempos, division), state.sheetStyle);
+                    page.tempos = sheet::TempoMarksFromTicks(tempos, division);
+                    page.meters = sheet::MeterMarksFromTicks(meters, tempos, division);
+                    sheet::StyledResult result;
+                    const auto html = sheet::ToEditorHtml(page, &result);
                     state.sheetSaved.clear();
-                    if (command.action == Action::SaveSheetHtml && result.notes > 0) {
-                        // The editable page, in the user's temp folder under
-                        // the file's name: the panel opens it in the browser,
-                        // and the page saves itself wherever the user says.
-                        // Nothing is written into the MIDI folder.
-                        sheet::PageInput page;
-                        page.title = Utf8(state.loaded.stem());
-                        page.mapping = state.keyMappings;
-                        page.tempos = sheet::TempoMarksFromTicks(tempos, division);
-                        page.meters = sheet::MeterMarksFromTicks(meters, tempos, division);
-                        page.options = state.sheetStyle;
-                        for (const auto& region : state.sheetRegions) page.regions.push_back({region.from, region.to, region.semitones});
-                        for (const auto& event : player->note_events) {
-                            if (event.action != EventType::Press || event.note_or_control == "sustain" || !audible(event.trackIndex)) continue;
-                            const int midi = MidiNumberForNoteName(std::string(event.note_or_control).c_str());
-                            if (midi >= 0) page.notes.push_back({static_cast<double>(event.time.count()) / 1e9, midi});
-                        }
+                    if (result.notes > 0) {
                         std::error_code ignored;
                         const auto folder = std::filesystem::temp_directory_path(ignored) / L"MIDI++ sheets";
                         std::filesystem::create_directories(folder, ignored);
                         auto path = folder / state.loaded.filename(); path.replace_extension(L".html");
                         std::ofstream output(path, std::ios::binary);
-                        output << sheet::ToEditorHtml(page);
+                        output << html;
                         output.flush();
                         if (!output) throw std::runtime_error("Cannot write " + Utf8(path) + ".");
                         state.sheetSaved = path;
@@ -1204,21 +1120,6 @@ void ShellEngine::Run(std::stop_token stop) {
                     ++state.sheetRevision;
                     break;
                 }
-                case Action::SheetStyle:
-                    state.sheetStyle = ClampSheetStyle(command.style);
-                    configJson["SHELL_SHEET_STYLE"] = SheetStyleToJson(state.sheetStyle);
-                    touchConfig();
-                    break;
-                case Action::SheetRegionAdd: {
-                    auto region = command.region;
-                    if (!std::isfinite(region.from) || !std::isfinite(region.to)) break;
-                    if (region.to < region.from) std::swap(region.from, region.to);
-                    region.semitones = std::clamp(region.semitones, -24, 24);
-                    if (region.semitones == 0) break;
-                    state.sheetRegions.push_back(region);
-                    break;
-                }
-                case Action::SheetRegionClear: state.sheetRegions.clear(); break;
                 case Action::CurveSelect:
                 case Action::CurveAdjust:
                 case Action::CurveEdit:

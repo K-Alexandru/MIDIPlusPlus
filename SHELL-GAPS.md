@@ -400,21 +400,25 @@ sheet of its own. Credited in About. Held by `SheetMenuTests`, the
 `sheet-style` render scenario and the `section-transpose-ignored` and
 `sheet-style-unsaved` mutations.
 
-**Reworked 2026-09-16 at the owner's request.** The page wrote itself beside
-the MIDI file without asking, and the popover changed settings nobody could
-see. Now Save coloured sheet is Open coloured sheet: `Action::SaveSheetHtml`
-writes `sheet::ToEditorHtml` (`MIDI++/SheetPage.hpp`) to `%TEMP%\MIDI++
+**Reworked 2026-09-16 at the owner's request, twice.** The page wrote
+itself beside the MIDI file without asking, and the popover changed settings
+nobody could see; then the popover and the page were two places to set the
+same thing. Now Export has two entries. Copy sheet is the plain text for a
+chat. Open sheet editor (`Action::OpenSheetEditor`) writes
+`sheet::ToEditorHtml` (`MIDI++/SheetPage.hpp`) to `%TEMP%\MIDI++
 sheets\<stem>.html` and the panel hands it to the default browser. The page
 is midi-converter's own shape: every `StyleOptions` field beside the sheet,
 redrawn on each change, a selection over the sheet transposed from a
 floating bar, Copy sheet, Save page (the page with its settings, wherever
-the browser saves) and Print. It draws with a JavaScript translation of
-`sheet::Style`, checks its first render against the app's text embedded in
-the page, and `tests/sheet-page-parity.js` (run by `run-shell-tests.ps1`
-when node is present) holds that translation to the app's over the fixture
-`SheetMenuTests` writes. The app's Sheet style popover stays as the saved
-defaults the page and Copy styled sheet start from. Nothing is written into
-the MIDI folder.
+the browser saves), Print, and Reset settings. The settings are the page's
+alone: it remembers them in the browser's localStorage, a saved page keeps
+its own, and the app stores none (`SHELL_SHEET_STYLE`, `Action::SheetStyle`,
+the region actions and the popover are gone). The page draws with a
+JavaScript translation of `sheet::Style`, checks its first render against
+the app's text embedded in the page, and `tests/sheet-page-parity.js` (run
+by `run-shell-tests.ps1` when node is present) holds that translation to the
+app's over the fixture `SheetMenuTests` writes. Nothing is written into the
+MIDI folder.
 
 ## Also owed, from elsewhere
 
