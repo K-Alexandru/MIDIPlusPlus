@@ -44,8 +44,7 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 
 ## Relevant files
 
-- `tools/make-release.ps1`: builds, stages `converter\` beside the exe, zips;
-  `tools/release-README.txt` is the tester README inside the zip.
+- `tools/make-release.ps1`: builds, stages `converter\` beside the exe, zips.
 - `ui/Panels.cpp`: `DrawSettings`, `DrawSheetStyle`, `DrawConvert`, `DrawLog`;
   `ui/ShellEngine.cpp`: the switches fall into `Load`, `SheetStyle*` helpers.
 
@@ -91,8 +90,8 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - `9e5910a`: `ShellTests.exe` all PASS; `RenderTests.exe` 360 PASS over 18
   scenarios; every new capture inspected at 100%, the pencil at 200%.
 - `run-shell-parity-mutations.ps1` at `6f026c4`: 24 of 24 killed.
-- `make-release.ps1` at `9e5910a`: converter check passed; the asset matches the zip.
-- Not run: native and latency tests, `signin.py`, the shell live.
+- `make-release.ps1` at `9e5910a`: converter check passed. Not run: native and
+  latency tests, `signin.py`, the shell live.
 
 ## Build and test
 
