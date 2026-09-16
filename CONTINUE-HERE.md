@@ -16,9 +16,8 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - Panel seat owns `ui/`, including `ShellEngine::Action` and `EngineSnapshot`.
 - Claude owns `MIDI++/`, `tests/`, `tools/`, specs, and engine seams in `ui/`.
 - Owner-approved exceptions on 2026-09-15, not precedents: the Convert
-  popover, `SettingRadio`, the transport title row, the collapsed velocity
-  row, the Settings trims, the window floor, and the whole of
-  `PROMPT-S-CURVE-AND-SWITCHES.md` (S-Curve, two switches, the Export menu).
+  popover, the Settings trims, the window floor, the UI review fixes, and
+  everything in `PROMPT-S-CURVE-AND-SWITCHES.md`.
 
 ## Decisions made, do not reopen
 
@@ -73,22 +72,23 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - A review pass at `6f026c4`: a switch reload keeps its place, the config
   save guard is a parse flag, the separator is cut on a UTF-8 boundary, all
   six presets fit the list, the log window is skinned, Clear has an eraser.
+- `ade7326` adds key-mapping and autovol render scenarios; `9e5910a` titles
+  the coloured page. A zip at `9e5910a` is staged in `build\release` for
+  `v0.2.4-test` with `notes-v0.2.4-test.md` beside it; the upload waits.
 
 ## Unresolved
 
 - **Owner to look at live:** S-Curve in game (R5 played its inverse);
   Settings length; the smallest window; Convert; the Sheet style popover.
-- **Answered 2026-09-15:** S-Curve is "radiant grand"; the R5 config's
-  "s_curve smoth" is a different curve and stays out.
+- **Answered 2026-09-15:** S-Curve is "radiant grand", not R5's "s_curve smoth".
 - **Needs the owner at the keyboard:** delivery into a game, Wooting feel,
   two devices, MIDI output into a synth, live curve reconnection, a mixed-DPI
   move. The Wikimedia 403 is fixed by a user-agent retry in `convert.py`.
 
 ## Validation actually run
 
-- This commit: `ShellTests.exe` all PASS; `RenderTests.exe` 320 PASS across
-  16 scenarios, 4 skins, 5 DPI passes; captures for `sheet-style`,
-  `settings-switches` and `export` inspected at 100%, the pencil at 200%.
+- `9e5910a`: `ShellTests.exe` all PASS; `RenderTests.exe` 360 PASS over 18
+  scenarios; every new capture inspected at 100%, the pencil at 200%.
 - `run-shell-parity-mutations.ps1`: 24 of 24 killed, baselines passed.
 - Not run: native and latency tests, `signin.py`, the shell live.
 
