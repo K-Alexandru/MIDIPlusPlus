@@ -43,11 +43,10 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 
 ## Relevant files
 
-- `tools/make-release.ps1`: builds, stages `converter\` beside the exe, zips.
-- `tools/release-README.txt`: the tester README inside the zip.
+- `tools/make-release.ps1`: builds, stages `converter\` beside the exe, zips;
+  `tools/release-README.txt` is the tester README inside the zip.
 - `ui/Panels.cpp`: `DrawSettings`, `DrawSheetStyle`, `DrawConvert`, `DrawLog`.
 - `ui/ShellEngine.cpp`: the switches fall into `Load`; `SheetStyle*` helpers.
-- `tests/RenderTests.cpp`: 18 scenarios at 4 skins and 5 DPI passes.
 
 ## Verified facts
 
@@ -59,8 +58,6 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - Actions before `CurveSelect` in the enum are dropped unless
   `Command::generation` matches, apart from the listed exemptions; a new
   engine's first snapshot is blank, so tests `Await` the parsed config.
-- Tests that save through the engine need their own config copy: the
-  mutation sweep shares one test directory across cases.
 - Run MSBuild from PowerShell: Git Bash rewrites `/p:` switches as paths.
 
 ## Work completed, 2026-09-15 and 16
@@ -74,8 +71,7 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
   open file in place.
 - Export menu: Copy styled sheet, Save coloured sheet, Sheet style popover
   with every `sheet::StyleOptions` field and per-section transposition.
-- A direct media link that a host refuses is retried under the app's own
-  user agent (the Wikimedia 403).
+- The Wikimedia 403: a refused direct link is retried under the app's user agent.
 - Review fixes: config save guard is a parse flag, separator cut on a UTF-8
   boundary, all six presets fit the list, log window skinned with an eraser
   for Clear, key-mapping and autovol render scenarios, page titled after
@@ -88,15 +84,13 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - **Needs the owner at the keyboard:** delivery into a game, Wooting feel,
   two devices, MIDI output into a synth, live curve reconnection, a mixed-DPI
   move, the 900 x 610 clamp on a real window.
-- No tester issues are open as of 2026-09-16.
 
 ## Validation actually run
 
 - `9e5910a`: `ShellTests.exe` all PASS; `RenderTests.exe` 360 PASS over 18
   scenarios; every new capture inspected at 100%, the pencil at 200%.
 - `run-shell-parity-mutations.ps1` at `6f026c4`: 24 of 24 killed.
-- `make-release.ps1` at `9e5910a`: converter imported and converted an mp3
-  on a bare PATH; the uploaded asset matches the zip byte for byte.
+- `make-release.ps1` at `9e5910a`: converter check passed; the asset matches the zip.
 - Not run: native and latency tests, `signin.py`, the shell live.
 
 ## Build and test
