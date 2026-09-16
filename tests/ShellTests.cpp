@@ -736,6 +736,121 @@ void SheetMenuTests(const std::filesystem::path& directory) {
     std::cout << "PASS export menu: plain copy, editor page in temp and not beside the file, parity fixture\n";
 }
 
+// Sheet files: the open file's sheet, and the whole library's, written under
+// the sheets folder in the MIDI folder's own sub-folders, as image, text and
+// editor page, styled by a page saved from the editor. Nothing lands beside
+// a MIDI file, and a file that will not parse is counted, not fatal.
+void SheetFilesTests(const std::filesystem::path& directory) {
+    using A = shell::ShellEngine::Action;
+    const auto library = directory / L"sheet-library";
+    const auto out = directory / L"sheet-out";
+    const auto stylePage = directory / L"sheet-style.html";
+    std::filesystem::remove_all(library);
+    std::filesystem::remove_all(out);
+    std::filesystem::create_directories(library / L"Artist A" / L"Live");
+    WriteTrackFixture(library / L"Artist A" / L"one.mid");
+    WriteTrackFixture(library / L"Artist A" / L"Live" / L"two.mid");
+    WriteTrackFixture(library / L"three.mid");
+    { std::ofstream broken(library / L"broken.mid", std::ios::binary); broken << "not a midi file"; }
+    // A page the editor saved: Transpose at 2, rhythm separators, larger text.
+    { sheet::PageInput in;
+      in.title = "style";
+      in.mapping = {{"C4", "t"}};
+      in.notes = {{0.0, 60}};
+      in.options.transpose = 2;
+      in.options.tempoMarks = true;
+      in.look.fontSizePt = 14;
+      std::ofstream page(stylePage, std::ios::binary); page << sheet::ToEditorHtml(in); }
+    const auto pngSize = [](const std::filesystem::path& file) {
+        std::ifstream in(file, std::ios::binary);
+        unsigned char header[24]{};
+        in.read(reinterpret_cast<char*>(header), sizeof(header));
+        if (!in || header[0] != 0x89 || header[1] != 'P' || header[2] != 'N' || header[3] != 'G') return std::pair<unsigned, unsigned>{0, 0};
+        const auto read = [&](int at) { return (unsigned{header[at]} << 24) | (unsigned{header[at + 1]} << 16) | (unsigned{header[at + 2]} << 8) | header[at + 3]; };
+        return std::pair<unsigned, unsigned>{read(16), read(20)};
+    };
+    const auto text = [](const std::filesystem::path& file) {
+        std::ifstream in(file, std::ios::binary);
+        return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    };
+    {
+        shell::ShellEngine engine(directory / L"config.json");
+        Await([&] { return !engine.Snapshot()->keyMappings.empty(); }, "config did not load");
+        engine.Send({A::Scan, library});
+        Await([&] { const auto s = engine.Snapshot(); return !s->busy && s->files->size() == 4; }, "the library did not scan");
+        engine.Send({A::SheetsFolder, out});
+        engine.Send({A::SheetStylePage, stylePage});
+        Await([&] { const auto s = engine.Snapshot(); return s->sheetsFolder == out && s->sheetStylePage == stylePage; }, "the sheet settings were not taken");
+        Require(engine.Snapshot()->error.empty(), "the style page was refused");
+        const auto one = library / L"Artist A" / L"one.mid";
+        const auto before = engine.Snapshot()->generation;
+        engine.Send({A::Load, one});
+        Await([&] { const auto s = engine.Snapshot(); return !s->busy && s->generation != before && s->loaded == one; }, "the fixture did not load");
+        const auto save = [&](A action) {
+            const auto revision = engine.Snapshot()->sheetRevision;
+            engine.Send({action, {}, engine.Snapshot()->generation});
+            Await([&] { const auto s = engine.Snapshot(); return s->sheetRevision != revision || !s->error.empty(); }, "the sheet files were not written");
+            const auto state = engine.Snapshot();
+            if (!state->error.empty()) throw std::runtime_error(state->error);
+            return state;
+        };
+        const auto saved = save(A::SaveSheetFiles);
+        const auto stem = out / L"Artist A" / L"one";
+        Require(saved->sheetFilesSaved == stem.parent_path() && saved->sheetNotes > 0, "sheet files mirror the MIDI folder");
+        Require(std::filesystem::exists(stem.wstring() + L".png") && std::filesystem::exists(stem.wstring() + L".txt") &&
+                std::filesystem::exists(stem.wstring() + L".html"), "the image, the text and the page are written");
+        Require(!std::filesystem::exists(library / L"Artist A" / L"one.png") && !std::filesystem::exists(library / L"Artist A" / L"one.txt"),
+                "nothing was written beside the MIDI file");
+        const auto size = pngSize(stem.wstring() + L".png");
+        Require(size.first > 100 && size.second > 40, "the sheet image is a PNG with a picture in it");
+        Require(text(stem.wstring() + L".txt").starts_with("Transpose by: -2\n"), "the style page's settings are used");
+        Require(text(stem.wstring() + L".html").find("\"fontSize\":14") != std::string::npos, "the style page's look is carried into the saved page");
+        // Only the files chosen are written.
+        engine.Send({A::SheetFiles, {}, 0, 0, false, 0, "image"});
+        Await([&] { return !engine.Snapshot()->sheetImage; }, "the image switch was not taken");
+        std::filesystem::remove(stem.wstring() + L".png");
+        save(A::SaveSheetFiles);
+        Require(!std::filesystem::exists(stem.wstring() + L".png") && std::filesystem::exists(stem.wstring() + L".txt"), "an output switched off is not written");
+        engine.Send({A::SheetFiles, {}, 0, 0, true, 0, "image"});
+        Await([&] { return engine.Snapshot()->sheetImage; }, "the image switch was not restored");
+        // The whole library, on its own thread, mirrored, with the broken
+        // file counted and the rest still written.
+        engine.Send({A::SaveLibrarySheets});
+        Await([&] { const auto s = engine.Snapshot(); return !s->sheetBatchRunning && s->sheetBatchDone == 4; }, "the library save did not finish");
+        const auto batch = engine.Snapshot();
+        Require(batch->error.empty(), "the library save raised an error");
+        Require(batch->sheetBatchFailed == 1 && batch->sheetBatchTotal == 4, "a file that will not parse is counted as failed");
+        Require(batch->sheetBatchStatus.find("3 of 4") != std::string::npos && batch->sheetBatchStatus.find("1 failed") != std::string::npos,
+                "the status says how many were saved and how many failed");
+        Require(std::filesystem::exists(out / L"Artist A" / L"Live" / L"two.png") && std::filesystem::exists(out / L"three.txt") &&
+                std::filesystem::exists(out / L"Artist A" / L"one.html"), "the library's sheets mirror its folders");
+        Require(!std::filesystem::exists(out / L"broken.png") && !std::filesystem::exists(out / L"broken.txt"), "a broken file leaves no sheet");
+        Require(text(out / L"three.txt").starts_with("Transpose by: -2\n"), "the library run uses the style page");
+        Require(pngSize(out / L"Artist A" / L"Live" / L"two.png").first > 100, "the library run draws images");
+        // Forgetting the style page returns to the editor's defaults.
+        engine.Send({A::SheetStylePage, {}});
+        Await([&] { return engine.Snapshot()->sheetStylePage.empty(); }, "the style page was not forgotten");
+        save(A::SaveSheetFiles);
+        Require(!text(stem.wstring() + L".txt").starts_with("Transpose by:"), "without a style page the defaults are used");
+        // A page that is not a saved sheet is refused and not kept.
+        engine.Send({A::SheetStylePage, library / L"broken.mid"});
+        Await([&] { return !engine.Snapshot()->error.empty(); }, "a file that is not a sheet page was accepted as the style");
+        Require(engine.Snapshot()->sheetStylePage.empty(), "a refused style page was not kept");
+    }
+    {
+        // The folder and the outputs are saved with the configuration.
+        shell::ShellEngine engine(directory / L"config.json");
+        Await([&] { return !engine.Snapshot()->keyMappings.empty(); }, "config did not load");
+        const auto state = engine.Snapshot();
+        Require(state->sheetsFolder == out && state->sheetStylePage.empty() && state->sheetImage && state->sheetTextFile && state->sheetPageFile,
+                "the sheets folder and outputs are saved with the configuration");
+    }
+    std::filesystem::remove_all(library);
+    std::filesystem::remove_all(out);
+    std::filesystem::remove(stylePage);
+    std::cout << "PASS sheet files: mirrored folders, image, text and page, style from a saved page, the whole library with a broken file counted\n";
+}
+
 // The original window's editor presets. Every threshold must be one an input
 // can select: at least 1, and above the one before it. The presets used to
 // start at 0, and Exponential at 0, 0, 0, so the quietest steps were dead.
@@ -2949,7 +3064,7 @@ int wmain(int argc, wchar_t** argv) {
             else if (group == L"connect") ConnectAndWarningTests(directory);
             else if (group == L"curve") { VelocityCurveDrawingTests(directory / L"config.json"); BuiltinCurveTests(directory); VelocityCurveEditorModelTests(); VelocityPresetTests(); }
             else if (group == L"drums") DrumDetectionTests(directory);
-            else if (group == L"sheet") { SheetExportTests(); SheetStyleTests(); SheetSectionTests(); SheetMenuTests(directory); }
+            else if (group == L"sheet") { SheetExportTests(); SheetStyleTests(); SheetSectionTests(); SheetMenuTests(directory); SheetFilesTests(directory); }
             else if (group == L"audio") AudioToMidiTests(directory);
             else if (group == L"midi-out") MidiOutputTests(directory / L"config.json");
             else if (group == L"vel-mod") VelocityModifierTests(directory / L"config.json");
@@ -2968,6 +3083,7 @@ int wmain(int argc, wchar_t** argv) {
         SheetStyleTests();
         SheetSectionTests();
         SheetMenuTests(directory);
+        SheetFilesTests(directory);
         AudioToMidiTests(directory);
         TwoDeviceTests();
         ModelTests(fixture);

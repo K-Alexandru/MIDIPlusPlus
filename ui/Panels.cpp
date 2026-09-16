@@ -386,7 +386,8 @@ void BeginPanel(const char* id, ImVec2 min, ImVec2 max, const skin::Skin& s, ImG
 // common dialog, and under this window -- layered for the opacity setting, and
 // topmost whenever Always on top is on -- it returned without ever showing.
 // The click reached here; nothing appeared. The two pickers now share an API.
-std::filesystem::path PickFile(HWND hwnd, bool audio = false) {
+enum class PickKind { Midi, Audio, Page };
+std::filesystem::path PickFile(HWND hwnd, PickKind kind = PickKind::Midi) {
     IFileOpenDialog* dialog = nullptr;
     if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))) return {};
     DWORD options = 0;
@@ -394,7 +395,8 @@ std::filesystem::path PickFile(HWND hwnd, bool audio = false) {
     dialog->SetOptions(options | FOS_FILEMUSTEXIST | FOS_PATHMUSTEXIST | FOS_FORCEFILESYSTEM | FOS_NOCHANGEDIR);
     const COMDLG_FILTERSPEC midi[]{{L"MIDI files", L"*.mid;*.midi"}, {L"All files", L"*.*"}};
     const COMDLG_FILTERSPEC sound[]{{L"Audio files", L"*.mp3;*.wav;*.flac;*.ogg;*.oga;*.opus;*.m4a;*.aac"}, {L"All files", L"*.*"}};
-    dialog->SetFileTypes(2, audio ? sound : midi);
+    const COMDLG_FILTERSPEC page[]{{L"Saved sheet pages", L"*.html;*.htm"}, {L"All files", L"*.*"}};
+    dialog->SetFileTypes(2, kind == PickKind::Audio ? sound : kind == PickKind::Page ? page : midi);
     std::filesystem::path path;
     if (SUCCEEDED(dialog->Show(hwnd))) {
         IShellItem* item = nullptr;
@@ -1547,7 +1549,7 @@ void Panels::DrawConvert(HWND hwnd, const Fonts& fonts, const skin::Skin& design
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("Every video in turn. Cancel keeps the files made so far.");
     }
     if (TransportButton("##convert-file", Icon::Open, "Choose an audio file", s, dpi)) {
-        const auto path = PickFile(hwnd, true);
+        const auto path = PickFile(hwnd, PickKind::Audio);
         if (!path.empty()) engine.Send({ShellEngine::Action::ConvertAudio, path});
     }
     ImGui::EndDisabled();
@@ -1851,6 +1853,7 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
             sheetStatus_ = opened > 32 ? "Opened the sheet editor in your browser."
                                        : "Could not open a browser. The page is at " + Utf8(state->sheetSaved) + ".";
         }
+        else if (!state->sheetFilesSaved.empty()) sheetStatus_ = "Saved the sheet in " + Utf8(state->sheetFilesSaved) + ".";
         else if (state->sheetText->empty() || state->sheetNotes == 0) sheetStatus_ = "No mapped notes to copy.";
         else if (CopyUtf8ToClipboard(hwnd, *state->sheetText))
             sheetStatus_ = "Copied " + std::to_string(state->sheetNotes) + " notes.";
@@ -2064,7 +2067,8 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
       DrawEllipsis(state->loaded.empty() ? "Playback" : Utf8(state->loaded.stem()),
                    contentWidth - sheetButtonWidth - hintsWidth - s.spacing.s2, ImVec2(content.x, content.y + (titleHeight - ImGui::GetTextLineHeight()) / 2)); }
     ImGui::SetCursorScreenPos(ImVec2(content.x + contentWidth - sheetButtonWidth, content.y));
-    ImGui::BeginDisabled(state->loaded.empty() || state->rows.empty() || state->busy);
+    const bool haveFile = !state->loaded.empty() && !state->rows.empty();
+    ImGui::BeginDisabled(state->busy || (!haveFile && state->files->empty()));
     if (TransportButton("##export", Icon::Down, sheetLabel, s, dpi)) ImGui::OpenPopup("Export MIDI");
     if (ImGui::BeginPopup("Export MIDI")) {
         const auto request = [&](ShellEngine::Action action, const char* status) {
@@ -2073,17 +2077,49 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
             sheetStatus_ = status;
             sheetPending_ = true;
         };
-        // Two things only. Copy sheet is the quick text for a chat. The
-        // editor is midi-converter's page in the browser: the coloured
-        // sheet with every setting beside it, redrawn as they change, its
-        // own Copy, Save and Print. All customising happens there, where
-        // the result is visible; the app keeps no sheet settings of its own.
+        // Copy sheet is the quick text for a chat. The editor is
+        // midi-converter's page in the browser: the coloured sheet with every
+        // setting beside it, redrawn as they change, its own Copy, Save and
+        // Print. All customising happens there, where the result is visible;
+        // the app keeps no sheet settings of its own. Files are the same
+        // sheet written where it can be kept: under the sheets folder, in the
+        // MIDI folder's own sub-folders, styled by a page saved from the
+        // editor, for the open file or the whole list.
+        ImGui::BeginDisabled(!haveFile);
         if (ImGui::MenuItem("Copy sheet")) request(ShellEngine::Action::CopySheet, "Preparing sheet...");
         if (ImGui::MenuItem("Open sheet editor")) request(ShellEngine::Action::OpenSheetEditor, "Opening the sheet editor...");
+        if (ImGui::MenuItem("Save sheet files")) request(ShellEngine::Action::SaveSheetFiles, "Saving sheet files...");
+        ImGui::EndDisabled();
+        if (state->sheetBatchRunning) {
+            if (ImGui::MenuItem("Stop saving the library")) engine.Send({ShellEngine::Action::SheetBatchCancel});
+        } else if (ImGui::MenuItem("Save sheets for the whole library", nullptr, false, !state->files->empty())) {
+            engine.Send({ShellEngine::Action::SaveLibrarySheets});
+        }
+        ImGui::Separator();
+        const auto output = [&](const char* label, bool on, const char* key) {
+            if (ImGui::MenuItem(label, nullptr, on)) engine.Send({ShellEngine::Action::SheetFiles, {}, 0, 0, !on, 0, key});
+        };
+        output("Image", state->sheetImage, "image");
+        output("Text", state->sheetTextFile, "text");
+        output("Editor page", state->sheetPageFile, "page");
+        ImGui::Separator();
+        const auto sheetsFolder = state->sheetsFolder.empty() ? DefaultSheetsFolder(state->folder) : state->sheetsFolder;
+        if (ImGui::MenuItem(("Sheets folder: " + Utf8(sheetsFolder) + "...").c_str())) {
+            const auto path = PickFolder(hwnd);
+            if (!path.empty()) engine.Send({ShellEngine::Action::SheetsFolder, path});
+        }
+        const std::string styleLabel = state->sheetStylePage.empty() ? "Style from a saved page..."
+                                                                       : "Style: " + Utf8(state->sheetStylePage.filename()) + "...";
+        if (ImGui::MenuItem(styleLabel.c_str())) {
+            const auto path = PickFile(hwnd, PickKind::Page);
+            if (!path.empty()) engine.Send({ShellEngine::Action::SheetStylePage, path});
+        }
+        if (!state->sheetStylePage.empty() && ImGui::MenuItem("Use the editor's defaults")) engine.Send({ShellEngine::Action::SheetStylePage, {}});
         ImGui::EndPopup();
     }
     ImGui::EndDisabled();
     std::string sheetNote = sheetStatus_;
+    if (sheetNote.empty()) sheetNote = state->sheetBatchStatus;
     if (state->sheetReady && state->sheetMerged)
         sheetNote += " " + std::to_string(state->sheetMerged) + " shared notes merged.";
     if (state->sheetReady && state->sheetUnmapped)

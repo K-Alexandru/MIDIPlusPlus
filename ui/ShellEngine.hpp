@@ -90,6 +90,25 @@ struct EngineSnapshot {
     bool sheetReady = false;
     // Set when the sheet went to the editor page rather than the clipboard.
     std::filesystem::path sheetSaved;
+    // Sheet files. Everything the app writes goes under sheetsFolder, in the
+    // MIDI folder's own sub-folders, so a library sorted by artist stays
+    // sorted; empty means a "<MIDI folder> sheets" folder beside the library.
+    // The style is a page saved from the editor, the one place sheet settings
+    // live; empty means midi-converter's defaults.
+    std::filesystem::path sheetsFolder;
+    std::filesystem::path sheetStylePage;
+    bool sheetImage = true;
+    bool sheetTextFile = true;
+    bool sheetPageFile = true;
+    // Set, with the sheet counts, when the sheet went to files: the folder
+    // they went to. Empty for the clipboard and the editor.
+    std::filesystem::path sheetFilesSaved;
+    // The whole library, on its own thread, reporting through the status.
+    bool sheetBatchRunning = false;
+    size_t sheetBatchDone = 0;
+    size_t sheetBatchTotal = 0;
+    size_t sheetBatchFailed = 0;
+    std::string sheetBatchStatus;
     std::vector<VelocityPreset> curves;
     VelocityEdit curve;
     VelocityEdit previousCurve;
@@ -131,6 +150,9 @@ public:
                         // the engine writes it to the temp folder and the
                         // panel opens it. The app keeps no sheet settings.
                         OpenSheetEditor,
+                        // The open file's sheet as files under the sheets
+                        // folder: image, text and editor page as chosen.
+                        SaveSheetFiles,
                         CurveSelect, CurveAdjust, CurveEdit, CurveUndo, CurveRedo, CurveCompare, CurveNew,
                         CurveDuplicate, CurveRename, SustainCutoff, VelocityModifier,
                         WootingTriggerThreshold, WootingShiftAmount, WootingVelocityScale, EightyEightKeys,
@@ -140,6 +162,14 @@ public:
                         // value is the switch. Each saves its config key and
                         // reloads the open file so the track list matches.
                         DetectDrums, AutoTranspose,
+                        // Sheet files: path is the folder, or the style page
+                        // (empty forgets it); SheetFiles sets the output named
+                        // by key (image, text, page) to value. SaveLibrarySheets
+                        // writes every file in the list on its own thread,
+                        // SheetBatchCancel stops it, and SheetBatchProgress is
+                        // that thread reporting: track done, amount failed,
+                        // key the status, value whether it has finished.
+                        SheetsFolder, SheetStylePage, SheetFiles, SaveLibrarySheets, SheetBatchCancel, SheetBatchProgress,
                         // path is an audio file, or key is a link. ConvertProgress is
                         // the converter's own thread reporting back: key is the
                         // text and track an audio_to_midi::Status::Kind.
@@ -178,5 +208,7 @@ private:
 };
 
 std::string Utf8(const std::filesystem::path& path);
+// Where sheet files go when no sheets folder has been chosen.
+std::filesystem::path DefaultSheetsFolder(const std::filesystem::path& midiFolder);
 std::string NoteName(int note);
 }

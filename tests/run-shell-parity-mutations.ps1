@@ -43,6 +43,12 @@ $cases = @(
     @{Name='switch-cost-ignored'; File='MIDI++\SheetExport.hpp'; Group='sheet'; Find='open[i][t] = other - cost;'; Replace='open[i][t] = other;'; Failure='a switch that does not earn its cost is not made'},
     # And a search that never tells the reader where the change is has made a
     # sheet that sounds wrong from that chord on.
+    # A library sorted by artist must come out sorted the same way. A target
+    # that drops the file's own sub-folders puts every sheet in one heap.
+    @{Name='sheets-not-mirrored'; File='ui\ShellEngine.cpp'; Group='sheet'; Find='if (relative.empty() || *relative.begin() == L"..") relative = midi.filename();'; Replace='relative = midi.filename();'; Failure='sheet files mirror the MIDI folder'},
+    # The style page is the one place sheet settings live. A save that draws
+    # with the defaults instead makes every tuned setting silently vanish.
+    @{Name='style-page-ignored'; File='ui\ShellEngine.cpp'; Group='sheet'; Start='case Action::SaveSheetFiles: {'; End='case Action::SheetsFolder:'; Find='page.options = style.options;'; Replace='/* style ignored */'; Failure='the style page''s settings are used'},
     @{Name='section-change-untold'; File='MIDI++\SheetExport.hpp'; Group='sheet'; Find='if (k > 0 && shifts[k] != shifts[k - 1]) comment("Transpose by: " + std::to_string(-shifts[k]));'; Replace='/* change untold */'; Failure='the change is told to the reader where it happens'},
     # Out-of-range notes are the notation's main difference from ours, which
     # drops them. Dropping them here too loses the feature silently.

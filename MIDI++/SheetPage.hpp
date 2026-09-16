@@ -15,6 +15,7 @@
 // Header only, like SheetExport.hpp, and free of project references.
 
 #include "SheetExport.hpp"
+#include "SheetImage.hpp"
 
 #include <cstdio>
 #include <map>
@@ -39,6 +40,7 @@ struct PageInput {
     std::vector<MeterMark> meters;
     StyleOptions options;
     std::vector<Region> regions;
+    Look look;                                     // the page's text size and line height
 };
 
 namespace detail {
@@ -122,7 +124,8 @@ inline std::string PageJson(const PageInput& in, const std::string& expectedText
     for (size_t i = 0; i < in.regions.size(); ++i)
         j += (i ? "," : "") + std::string("[") + JsonNumber(in.regions[i].from) + "," + JsonNumber(in.regions[i].to) + "," +
              std::to_string(in.regions[i].semitones) + "," + std::to_string(static_cast<int>(in.regions[i].kind)) + "]";
-    j += "],\"options\":" + JsonOptions(in.options) + ",\"expected\":" + JsonString(expectedText) + "}";
+    j += "],\"options\":" + JsonOptions(in.options) + ",\"page\":{\"fontSize\":" + JsonNumber(in.look.fontSizePt) +
+         ",\"lineHeight\":" + JsonNumber(in.look.lineHeightPercent) + "},\"expected\":" + JsonString(expectedText) + "}";
     return j;
 }
 
@@ -795,6 +798,31 @@ $("copy").onclick = () => copyText(result.text).then(ok => {
   button.textContent = ok ? "Copied" : "Clipboard is busy";
   setTimeout(() => { button.textContent = "Copy sheet"; }, 1500);
 });
+// A save asks where, in a browser that can, and opens in the folder the
+// last sheet went to; elsewhere it is a download. Cancelling saves nothing.
+async function saveBlob(blob, name, description, accept) {
+  if (window.showSaveFilePicker) {
+    try {
+      const handle = await window.showSaveFilePicker({id: "midipp-sheets", suggestedName: name, types: [{description, accept}]});
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      return true;
+    } catch (e) {
+      if (e && e.name === "AbortError") return false;
+    }
+  }
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = name;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  return true;
+}
+function report(button, promise, label) {
+  promise.then(ok => { button.textContent = ok ? "Saved" : label; }, e => { button.textContent = "Could not save"; console.error(e); })
+    .then(() => setTimeout(() => { button.textContent = label; }, 1500));
+}
 $("save").onclick = () => {
   const saved = Object.assign({}, data, {saved: true, options, page, regions: regions.map(r => [r.from, r.to, r.semitones, r.kind]), expected: result.text});
   const element = $("sheet-data");
@@ -803,11 +831,46 @@ $("save").onclick = () => {
   toolbar.style.display = "none";
   const html = "<!doctype html>\n" + document.documentElement.outerHTML;
   element.textContent = before;
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(new Blob([html], {type: "text/html"}));
-  link.download = (data.title || "Sheet") + ".html";
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  report($("save"), saveBlob(new Blob([html], {type: "text/html"}), (data.title || "Sheet") + ".html", "Sheet page", {"text/html": [".html"]}), "Save page");
+};
+// The sheet as a picture: the sheet's own markup, drawn by the browser
+// inside an SVG image and copied to a canvas at twice the size so the text
+// stays sharp. The title goes on top, as Print shows it.
+function sheetImage() {
+  const sheet = $("sheet");
+  const width = Math.ceil(sheet.getBoundingClientRect().width);
+  const css = "font-family:Verdana,sans-serif;font-size:" + page.fontSize + "pt;line-height:" + page.lineHeight + "%;color:#fff;" +
+    "white-space:pre-wrap;background:#2D2A32;padding:16px;box-sizing:border-box;width:" + (width + 32) + "px;margin:0";
+  const rules = ".oor{display:inline-flex;justify-content:center;min-width:.6em;border-bottom:2px solid;font-weight:900}.comment{color:#c8c4cc}";
+  const body = '<div style="color:#aaa4b3;margin-bottom:1.35em">' + SheetCore.escapeHtml(data.title || "") + "</div>" + sheet.innerHTML.replace(/<br>/g, "<br/>");
+  const probe = document.createElement("div");
+  probe.setAttribute("style", css + ";position:absolute;left:-100000px;top:0");
+  probe.innerHTML = "<style>" + rules + "</style>" + body;
+  document.body.appendChild(probe);
+  const height = Math.ceil(probe.getBoundingClientRect().height);
+  probe.remove();
+  const html = '<div xmlns="http://www.w3.org/1999/xhtml" style="' + css + '"><style>' + rules + "</style>" + body + "</div>";
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + (width + 32) + '" height="' + height + '">' +
+    '<foreignObject width="100%" height="100%">' + html + "</foreignObject></svg>";
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = (width + 32) * 2;
+      canvas.height = height * 2;
+      const context = canvas.getContext("2d");
+      context.scale(2, 2);
+      context.drawImage(image, 0, 0);
+      try { canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error("The browser gave no image.")), "image/png"); }
+      catch (e) { reject(e); }
+    };
+    image.onerror = () => reject(new Error("The browser could not draw the sheet."));
+    image.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+  });
+}
+$("image").onclick = () => {
+  toolbar.style.display = "none";
+  report($("image"), sheetImage().then(blob => saveBlob(blob, (data.title || "Sheet") + ".png", "Sheet image", {"image/png": [".png"]})), "Save image");
 };
 $("print").onclick = () => window.print();
 draw();
@@ -853,7 +916,7 @@ inline std::string ToEditorHtml(const PageInput& in, StyledResult* rendered = nu
     std::string html = "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><title>" + detail::EscapeHtml(in.title) +
         "</title><style>" + detail::kPageCss + "</style></head><body>\n"
         "<header><h1>" + detail::EscapeHtml(in.title) + "</h1><span class=\"count\" id=\"count\"></span>"
-        "<button id=\"copy\" class=\"primary\">Copy sheet</button><button id=\"save\">Save page</button><button id=\"print\">Print</button></header>\n"
+        "<button id=\"copy\" class=\"primary\">Copy sheet</button><button id=\"image\">Save image</button><button id=\"save\">Save page</button><button id=\"print\">Print</button></header>\n"
         "<div id=\"layout\"><aside>\n"
         "<h2>Chords</h2>"
         "<label class=\"col\"><span>Chord window</span><div class=\"range\"><input type=\"range\" min=\"0\" max=\"200\" step=\"1\" data-key=\"quantizeMs\" data-format=\"% ms\"><output></output></div></label>"

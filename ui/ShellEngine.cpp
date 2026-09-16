@@ -5,6 +5,9 @@
 #include "MidiOutput.hpp"
 #include "WootingAnalog.hpp"
 #include "../MIDI++/SheetPage.hpp"
+#include <shlobj.h>
+#pragma comment(lib, "shell32.lib")
+#pragma comment(lib, "ole32.lib")
 #include <fstream>
 #include <cmath>
 #include <intrin.h>
@@ -66,6 +69,138 @@ std::string Utf8(const std::filesystem::path& path) {
     const auto text = path.u8string();
     return {reinterpret_cast<const char*>(text.data()), text.size()};
 }
+
+// Beside the MIDI folder, named after it, so the two trees sit together; with
+// no folder chosen yet, under Documents.
+std::filesystem::path DefaultSheetsFolder(const std::filesystem::path& midiFolder) {
+    if (!midiFolder.empty()) {
+        auto folder = midiFolder;
+        if (folder.filename().empty()) folder = folder.parent_path();
+        return folder.parent_path() / (folder.filename().wstring() + L" sheets");
+    }
+    std::filesystem::path documents;
+    PWSTR text = nullptr;
+    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Documents, 0, nullptr, &text))) { documents = text; CoTaskMemFree(text); }
+    return documents / L"MIDI++ sheets";
+}
+
+namespace {
+// Sheet files. The style comes from a page saved by the sheet editor, the one
+// place sheet settings live: its data element carries the options and the
+// page's own look, and the app reads them back rather than keeping its own.
+struct SheetStyle { sheet::StyleOptions options; sheet::Look look; };
+struct SheetOutputs { bool image = true; bool text = true; bool page = true; };
+
+std::filesystem::path PathFromJson(const nlohmann::json& json, const char* key) {
+    const auto text = json.value(key, std::string());
+    return std::filesystem::path(std::u8string(text.begin(), text.end()));
+}
+
+SheetStyle StyleFromPage(const std::filesystem::path& page) {
+    std::ifstream file(page, std::ios::binary);
+    if (!file) throw std::runtime_error("Cannot read the style page " + Utf8(page) + ".");
+    const std::string html((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    const std::string open = "<script id=\"sheet-data\" type=\"application/json\">";
+    const auto start = html.find(open);
+    const auto end = start == std::string::npos ? start : html.find("</script>", start);
+    if (end == std::string::npos) throw std::runtime_error(Utf8(page.filename()) + " is not a page saved from the sheet editor.");
+    nlohmann::json data;
+    try { data = nlohmann::json::parse(html.substr(start + open.size(), end - start - open.size())); }
+    catch (const std::exception&) { throw std::runtime_error(Utf8(page.filename()) + " is not a page saved from the sheet editor."); }
+    SheetStyle style;
+    auto& s = style.options;
+    const auto o = data.value("options", nlohmann::json::object());
+    if (!o.is_object()) return style;
+    s.quantizeMs = o.value("quantizeMs", s.quantizeMs);
+    s.sequentialQuantize = o.value("sequentialQuantize", s.sequentialQuantize);
+    s.curlyQuantizes = o.value("curlyQuantizes", s.curlyQuantizes);
+    s.classicChordOrder = o.value("classicChordOrder", s.classicChordOrder);
+    s.shifts = static_cast<sheet::Place>(std::clamp(o.value("shifts", static_cast<int>(s.shifts)), 0, 2));
+    s.outOfRangePlace = static_cast<sheet::Place>(std::clamp(o.value("outOfRangePlace", static_cast<int>(s.outOfRangePlace)), 0, 2));
+    s.showOutOfRange = o.value("showOutOfRange", s.showOutOfRange);
+    s.outOfRangeMarks = o.value("outOfRangeMarks", s.outOfRangeMarks);
+    s.outOfRangeSeparator = o.value("outOfRangeSeparator", s.outOfRangeSeparator);
+    s.tempoMarks = o.value("tempoMarks", s.tempoMarks);
+    s.bpmChanges = o.value("bpmChanges", s.bpmChanges);
+    s.bpmStyle = static_cast<sheet::BpmStyle>(std::clamp(o.value("bpmStyle", static_cast<int>(s.bpmStyle)), 0, 1));
+    s.minSpeedChange = o.value("minSpeedChange", s.minSpeedChange);
+    s.breaks = static_cast<sheet::Breaks>(std::clamp(o.value("breaks", static_cast<int>(s.breaks)), 0, 2));
+    s.beats = o.value("beats", s.beats);
+    s.missingBpm = o.value("missingBpm", s.missingBpm);
+    s.transpose = o.value("transpose", s.transpose);
+    s.autoTranspose = o.value("autoTranspose", s.autoTranspose);
+    s.resilience = o.value("resilience", s.resilience);
+    s.autoSections = o.value("autoSections", s.autoSections);
+    s.sectionSwitchCost = o.value("sectionSwitchCost", s.sectionSwitchCost);
+    s.sectionMinSeconds = o.value("sectionMinSeconds", s.sectionMinSeconds);
+    s.sectionRestMs = o.value("sectionRestMs", s.sectionRestMs);
+    s.sectionRange = o.value("sectionRange", s.sectionRange);
+    const auto p = data.value("page", nlohmann::json::object());
+    if (p.is_object()) {
+        style.look.fontSizePt = std::clamp(p.value("fontSize", style.look.fontSizePt), 4.0, 48.0);
+        style.look.lineHeightPercent = std::clamp(p.value("lineHeight", style.look.lineHeightPercent), 80.0, 400.0);
+    }
+    return style;
+}
+
+// Where a MIDI file's sheets go, without their extension: the sheets folder,
+// then the file's own sub-folders under the MIDI folder, then its name. A file
+// from outside the MIDI folder goes straight under the sheets folder.
+std::filesystem::path SheetTarget(const std::filesystem::path& root, const std::filesystem::path& midiFolder, const std::filesystem::path& midi) {
+    std::error_code ignored;
+    auto relative = midiFolder.empty() ? std::filesystem::path() : std::filesystem::relative(midi, midiFolder, ignored);
+    if (relative.empty() || *relative.begin() == L"..") relative = midi.filename();
+    auto target = root / relative;
+    target.replace_extension();
+    return target;
+}
+
+// The chosen files for one score, beside each other; returns the sheet so the
+// caller has its counts. The page is rendered once and gives the text.
+sheet::StyledResult WriteSheetFiles(const sheet::PageInput& in, const SheetOutputs& outputs, const std::filesystem::path& stem) {
+    std::error_code ignored;
+    std::filesystem::create_directories(stem.parent_path(), ignored);
+    sheet::StyledResult result;
+    const auto html = sheet::ToEditorHtml(in, &result);
+    const auto write = [&](const wchar_t* extension, const std::string& text) {
+        auto path = stem; path += extension;
+        std::ofstream output(path, std::ios::binary);
+        output << text;
+        output.flush();
+        if (!output) throw std::runtime_error("Cannot write " + Utf8(path) + ".");
+    };
+    if (outputs.page) write(L".html", html);
+    if (outputs.text) write(L".txt", result.text);
+    if (outputs.image) { auto path = stem; path += L".png"; sheet::SavePng(result, in.title, in.look, path); }
+    return result;
+}
+
+// A file's notes as the editor would see them from the player: every note-on
+// of every track that is not drums, timed by the file's tempo map. For the
+// library run, which never loads a file.
+sheet::PageInput PageForFile(const MidiFile& file, const std::string& title, const std::map<std::string, std::string>& mapping, const SheetStyle& style) {
+    sheet::PageInput page;
+    page.title = title;
+    page.mapping = mapping;
+    page.options = style.options;
+    page.look = style.look;
+    std::vector<sheet::TickTempo> tempos;
+    for (const auto& change : file.tempoChanges) tempos.push_back({change.tick, change.microsecondsPerQuarter});
+    std::stable_sort(tempos.begin(), tempos.end(), [](const auto& a, const auto& b) { return a.tick < b.tick; });
+    std::vector<sheet::TickMeter> meters;
+    for (const auto& signature : file.timeSignatures) meters.push_back({signature.tick, signature.numerator});
+    for (const auto& row : DescribeTracks(file)) {
+        if (row.drums || row.index >= file.tracks.size()) continue;
+        for (const auto& event : file.tracks[row.index].events) {
+            if ((event.status & 0xF0) != 0x90 || event.data2 == 0) continue;
+            page.notes.push_back({sheet::SecondsAtTick(event.absoluteTick, tempos, file.division), event.data1});
+        }
+    }
+    page.tempos = sheet::TempoMarksFromTicks(tempos, file.division);
+    page.meters = sheet::MeterMarksFromTicks(meters, tempos, file.division);
+    return page;
+}
+} // namespace
 
 ShellEngine::ShellEngine(std::filesystem::path config, std::shared_ptr<AutoVolumeHost> volumeHost,
                          bool requireTypingAcknowledgement, ConnectFactory connectFactory)
@@ -150,6 +285,14 @@ void ShellEngine::Run(std::stop_token stop) {
         state.playbackDelay = std::clamp(configJson.value("SHELL_PLAYBACK_DELAY", 3), 0, 10);
         state.seekStep = std::clamp(configJson.value("SHELL_SEEK_STEP", 10), 1, 60);
         state.shuffle = configJson.value("SHELL_SHUFFLE", false);
+        state.sheetsFolder = PathFromJson(configJson, "SHELL_SHEETS_FOLDER");
+        state.sheetStylePage = PathFromJson(configJson, "SHELL_SHEET_STYLE_PAGE");
+        if (configJson.contains("SHELL_SHEET_FILES") && configJson["SHELL_SHEET_FILES"].is_object()) {
+            const auto& files = configJson["SHELL_SHEET_FILES"];
+            state.sheetImage = files.value("image", true);
+            state.sheetTextFile = files.value("text", true);
+            state.sheetPageFile = files.value("page", true);
+        }
         if (configJson.contains("MIDI_SETTINGS")) state.detectDrums = configJson["MIDI_SETTINGS"].value("DETECT_DRUMS", true);
         if (configJson.contains("AUTO_TRANSPOSE")) state.autoTranspose = configJson["AUTO_TRANSPOSE"].value("ENABLED", false);
         state.fileSort = static_cast<FileSort>(std::clamp(configJson.value("SHELL_FILE_SORT", 0), 0, 2));
@@ -407,7 +550,42 @@ void ShellEngine::Run(std::stop_token stop) {
         state.sheetNotes = state.sheetGroups = state.sheetMerged = state.sheetUnmapped = 0;
         state.sheetReady = false;
         state.sheetSaved.clear();
+        state.sheetFilesSaved.clear();
+        if (!state.sheetBatchRunning) state.sheetBatchStatus.clear();
     };
+    // The open file's audible note-ons as numbers, with its tempo and meter
+    // marks: what the editor page and the sheet files are drawn from.
+    const auto playerPage = [&] {
+        const bool anySolo = AnySolo(state.rows);
+        const auto audible = [&](int track) {
+            const auto row = std::find_if(state.rows.begin(), state.rows.end(),
+                [&](const TrackRow& candidate) { return candidate.index == static_cast<size_t>(track); });
+            return row != state.rows.end() && TrackAudible(*row, anySolo);
+        };
+        sheet::PageInput page;
+        page.title = Utf8(state.loaded.stem());
+        page.mapping = state.keyMappings;
+        page.notes.reserve(player->note_events.size() / 2);
+        for (const auto& event : player->note_events) {
+            if (event.action != EventType::Press || event.note_or_control == "sustain" || !audible(event.trackIndex)) continue;
+            const int midi = MidiNumberForNoteName(std::string(event.note_or_control).c_str());
+            if (midi >= 0) page.notes.push_back({static_cast<double>(event.time.count()) / 1e9, midi});
+        }
+        std::vector<sheet::TickTempo> tempos;
+        for (const auto& change : player->midi_file.tempoChanges) tempos.push_back({change.tick, change.microsecondsPerQuarter});
+        std::vector<sheet::TickMeter> meters;
+        for (const auto& signature : player->midi_file.timeSignatures) meters.push_back({signature.tick, signature.numerator});
+        const uint16_t division = player->midi_file.division;
+        page.tempos = sheet::TempoMarksFromTicks(tempos, division);
+        page.meters = sheet::MeterMarksFromTicks(meters, tempos, division);
+        return page;
+    };
+    const auto sheetsRoot = [&] { return state.sheetsFolder.empty() ? DefaultSheetsFolder(state.folder) : state.sheetsFolder; };
+    const auto sheetStyle = [&] { return state.sheetStylePage.empty() ? SheetStyle{} : StyleFromPage(state.sheetStylePage); };
+    const auto sheetOutputs = [&] { return SheetOutputs{state.sheetImage, state.sheetTextFile, state.sheetPageFile}; };
+    // The library run. Its thread reports through Send, like the converter's,
+    // and is stopped and joined when this function ends.
+    std::jthread sheetBatch;
     while (!stop.stop_requested()) {
         Command command{Action::Stop};
         bool hasCommand = false;
@@ -463,7 +641,7 @@ void ShellEngine::Run(std::stop_token stop) {
                 // not permission to send keys; only Calibrate starts a sweep.
                 // A converter status is not something the user did, so it
                 // neither cancels a calibration nor clears an error on screen.
-                const bool fromConverter = command.action == Action::ConvertProgress;
+                const bool fromConverter = command.action == Action::ConvertProgress || command.action == Action::SheetBatchProgress;
                 if (volumePending && command.action != Action::AutoVolumeCalibrate &&
                     command.action != Action::AutoVolumeScan && command.action != Action::Scan && !fromConverter)
                     cancelVolume();
@@ -1061,18 +1239,13 @@ void ShellEngine::Run(std::stop_token stop) {
                     state.sheetMerged = result.merged;
                     state.sheetUnmapped = result.unmapped;
                     state.sheetSaved.clear();
+                    state.sheetFilesSaved.clear();
                     state.sheetReady = true;
                     ++state.sheetRevision;
                     break;
                 }
                 case Action::OpenSheetEditor: {
                     if (!player || state.loaded.empty()) break;
-                    const bool anySolo = AnySolo(state.rows);
-                    const auto audible = [&](int track) {
-                        const auto row = std::find_if(state.rows.begin(), state.rows.end(),
-                            [&](const TrackRow& candidate) { return candidate.index == static_cast<size_t>(track); });
-                        return row != state.rows.end() && TrackAudible(*row, anySolo);
-                    };
                     // The same audible note-ons CopySheet collects, as
                     // numbers, with the file's tempo and meter marks. Every
                     // setting is the page's: it starts from midi-converter's
@@ -1081,25 +1254,11 @@ void ShellEngine::Run(std::stop_token stop) {
                     // under the file's name, the panel opens it, and it
                     // saves itself wherever the user says. Nothing is
                     // written into the MIDI folder.
-                    sheet::PageInput page;
-                    page.title = Utf8(state.loaded.stem());
-                    page.mapping = state.keyMappings;
-                    page.notes.reserve(player->note_events.size() / 2);
-                    for (const auto& event : player->note_events) {
-                        if (event.action != EventType::Press || event.note_or_control == "sustain" || !audible(event.trackIndex)) continue;
-                        const int midi = MidiNumberForNoteName(std::string(event.note_or_control).c_str());
-                        if (midi >= 0) page.notes.push_back({static_cast<double>(event.time.count()) / 1e9, midi});
-                    }
-                    std::vector<sheet::TickTempo> tempos;
-                    for (const auto& change : player->midi_file.tempoChanges) tempos.push_back({change.tick, change.microsecondsPerQuarter});
-                    std::vector<sheet::TickMeter> meters;
-                    for (const auto& signature : player->midi_file.timeSignatures) meters.push_back({signature.tick, signature.numerator});
-                    const uint16_t division = player->midi_file.division;
-                    page.tempos = sheet::TempoMarksFromTicks(tempos, division);
-                    page.meters = sheet::MeterMarksFromTicks(meters, tempos, division);
+                    const auto page = playerPage();
                     sheet::StyledResult result;
                     const auto html = sheet::ToEditorHtml(page, &result);
                     state.sheetSaved.clear();
+                    state.sheetFilesSaved.clear();
                     if (result.notes > 0) {
                         std::error_code ignored;
                         const auto folder = std::filesystem::temp_directory_path(ignored) / L"MIDI++ sheets";
@@ -1118,6 +1277,113 @@ void ShellEngine::Run(std::stop_token stop) {
                     state.sheetUnmapped = result.unmapped;
                     state.sheetReady = true;
                     ++state.sheetRevision;
+                    break;
+                }
+                case Action::SaveSheetFiles: {
+                    if (!player || state.loaded.empty()) break;
+                    // The open file's sheet, drawn with the style page's
+                    // settings, into the sheets folder under the file's own
+                    // sub-folder of the MIDI folder.
+                    const auto style = sheetStyle();
+                    auto page = playerPage();
+                    page.options = style.options;
+                    page.look = style.look;
+                    const auto stem = SheetTarget(sheetsRoot(), state.folder, state.loaded);
+                    const auto result = WriteSheetFiles(page, sheetOutputs(), stem);
+                    state.sheetSaved.clear();
+                    state.sheetFilesSaved = stem.parent_path();
+                    state.sheetText = std::make_shared<const std::string>(result.text);
+                    state.sheetNotes = result.notes;
+                    state.sheetGroups = result.groups;
+                    state.sheetMerged = result.merged;
+                    state.sheetUnmapped = result.unmapped;
+                    state.sheetReady = true;
+                    ++state.sheetRevision;
+                    break;
+                }
+                case Action::SheetsFolder:
+                    state.sheetsFolder = command.path;
+                    configJson["SHELL_SHEETS_FOLDER"] = Utf8(command.path);
+                    touchConfig();
+                    flushConfig();
+                    break;
+                case Action::SheetStylePage:
+                    // Read once now, so a page that is not a saved sheet is
+                    // refused here rather than at every save.
+                    if (!command.path.empty()) StyleFromPage(command.path);
+                    state.sheetStylePage = command.path;
+                    configJson["SHELL_SHEET_STYLE_PAGE"] = Utf8(command.path);
+                    touchConfig();
+                    flushConfig();
+                    break;
+                case Action::SheetFiles:
+                    if (command.key == "image") state.sheetImage = command.value;
+                    else if (command.key == "text") state.sheetTextFile = command.value;
+                    else if (command.key == "page") state.sheetPageFile = command.value;
+                    else throw std::runtime_error("No sheet file is called " + command.key + ".");
+                    configJson["SHELL_SHEET_FILES"] = {{"image", state.sheetImage}, {"text", state.sheetTextFile}, {"page", state.sheetPageFile}};
+                    touchConfig();
+                    flushConfig();
+                    break;
+                case Action::SaveLibrarySheets: {
+                    if (state.sheetBatchRunning) throw std::runtime_error("The library is already being saved. Stop that first.");
+                    if (state.files->empty()) throw std::runtime_error("Choose a MIDI folder first.");
+                    // Every file in the list, each under its own sub-folder,
+                    // on its own thread so the app stays usable. Nothing here
+                    // touches the player: the notes come from the file.
+                    const auto style = sheetStyle();
+                    const auto files = state.files;
+                    const auto folder = state.folder;
+                    const auto root = sheetsRoot();
+                    const auto mapping = state.keyMappings;
+                    const auto outputs = sheetOutputs();
+                    state.sheetBatchRunning = true;
+                    state.sheetBatchDone = state.sheetBatchFailed = 0;
+                    state.sheetBatchTotal = files->size();
+                    state.sheetBatchStatus = "Saving sheets: 0 of " + std::to_string(files->size()) + ".";
+                    sheetBatch = std::jthread([this, style, files, folder, root, mapping, outputs](std::stop_token stopBatch) {
+                        size_t done = 0, failed = 0;
+                        for (const auto& entry : *files) {
+                            if (stopBatch.stop_requested()) break;
+                            std::filesystem::path failedFile;
+                            std::string why;
+                            try {
+                                MidiParser parser;
+                                const auto file = parser.parse(Utf8(std::filesystem::absolute(entry.path)));
+                                if (file.format == 2) throw std::runtime_error("MIDI format 2 contains independent sequences.");
+                                WriteSheetFiles(PageForFile(file, Utf8(entry.path.stem()), mapping, style), outputs, SheetTarget(root, folder, entry.path));
+                            } catch (const std::exception& error) {
+                                ++failed;
+                                failedFile = entry.path;
+                                why = error.what();
+                            }
+                            ++done;
+                            Send({Action::SheetBatchProgress, failedFile, 0, done, false, static_cast<double>(failed), why});
+                        }
+                        Send({Action::SheetBatchProgress, {}, 0, done, true, static_cast<double>(failed), stopBatch.stop_requested() ? "stopped" : ""});
+                    });
+                    break;
+                }
+                case Action::SheetBatchCancel:
+                    sheetBatch.request_stop();
+                    break;
+                case Action::SheetBatchProgress: {
+                    if (!state.sheetBatchRunning) break;
+                    state.sheetBatchDone = command.track;
+                    state.sheetBatchFailed = static_cast<size_t>(command.amount);
+                    if (!command.path.empty())
+                        ShellLog::Instance().Append("[sheets] " + Utf8(command.path) + ": " + command.key + "\n");
+                    const auto total = std::to_string(state.sheetBatchTotal);
+                    if (!command.value) {
+                        state.sheetBatchStatus = "Saving sheets: " + std::to_string(state.sheetBatchDone) + " of " + total + ".";
+                        break;
+                    }
+                    state.sheetBatchRunning = false;
+                    state.sheetBatchStatus = std::string(command.key == "stopped" ? "Stopped. " : "") + "Saved sheets for " +
+                        std::to_string(state.sheetBatchDone - state.sheetBatchFailed) + " of " + total + " files";
+                    if (state.sheetBatchFailed)
+                        state.sheetBatchStatus += ", " + std::to_string(state.sheetBatchFailed) + " failed (the log says why)";
+                    state.sheetBatchStatus += " in " + Utf8(sheetsRoot()) + ".";
                     break;
                 }
                 case Action::CurveSelect:
