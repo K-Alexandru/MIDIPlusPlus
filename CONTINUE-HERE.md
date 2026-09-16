@@ -1,6 +1,6 @@
 # Start here
 
-Updated 2026-09-15 on `claude/consolidate-2026-09-15`, the one branch every
+Updated 2026-09-16 on `claude/consolidate-2026-09-15`, the one branch every
 earlier branch was folded into. Then read `HANDOFF.md` only where this file
 points, `SHELL-GAPS.md` (what the shell owes) and `SEATS.md` (who does what).
 
@@ -28,10 +28,10 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - Timing numbers stop at the keyboard hook; never call them end-to-end latency.
 - A skin chooses colour only; every skin is 1090 x 635 collapsed.
 - The window floor is 900 x 610, the design height. Fit the width, not the height.
-- Six built-in velocity curves, the sixth being S-Curve. Its table is the
-  inverse of the R5 "radiant grand" values, because the R5 editor drew a
-  table as output per step while the engine reads thresholds; the shell now
-  draws the S the owner tuned (`SHELL-GAPS.md`, "Pro, now S-Curve").
+- Six built-in velocity curves, the sixth being S-Curve: the R5 "radiant
+  grand" values read as a response, so the engine table is their inverse
+  and the shell draws the S the owner tuned (`SHELL-GAPS.md`, "Pro, now
+  S-Curve"). Owner confirmed 2026-09-15; R5's "s_curve smoth" stays out.
 - MP3 to MIDI is a Python sidecar, never in process, bundled with a release.
 - YouTube links use a signed-in session from `signin.py`; no third-party
   download service. The app never reads a browser's cookies itself.
@@ -44,8 +44,10 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 ## Relevant files
 
 - `tools/make-release.ps1`: builds, stages `converter\` beside the exe, zips.
-- `ui/Panels.cpp`: `DrawSettings`, `DrawSheetStyle`, `DrawConvert`.
+- `tools/release-README.txt`: the tester README inside the zip.
+- `ui/Panels.cpp`: `DrawSettings`, `DrawSheetStyle`, `DrawConvert`, `DrawLog`.
 - `ui/ShellEngine.cpp`: the switches fall into `Load`; `SheetStyle*` helpers.
+- `tests/RenderTests.cpp`: 18 scenarios at 4 skins and 5 DPI passes.
 
 ## Verified facts
 
@@ -57,39 +59,44 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - Actions before `CurveSelect` in the enum are dropped unless
   `Command::generation` matches, apart from the listed exemptions; a new
   engine's first snapshot is blank, so tests `Await` the parsed config.
+- Tests that save through the engine need their own config copy: the
+  mutation sweep shares one test directory across cases.
 - Run MSBuild from PowerShell: Git Bash rewrites `/p:` switches as paths.
 
-## Work completed, 2026-09-15
+## Work completed, 2026-09-15 and 16
 
-- `v0.2.3-test` published on K-Alexandru/MIDIPlusPlus-testing from `b8281cb`,
-  zip 426 MB, SHA256 `10B781C430C0D868C4DAFE35338CB13D509EC25C85AEED7979E5798589C93428`.
-- S-Curve inverted so it draws and plays as the S the owner tuned; pencil
-  shadow fixed at the generator; mockup renamed Pro to S-Curve, recaptured.
-- Settings switches for drum detection and auto-transpose, with reload.
+- `v0.2.3-test` (`b8281cb`) and `v0.2.4-test` (`9e5910a`) published on
+  K-Alexandru/MIDIPlusPlus-testing. The latter's zip is 426 MB, SHA256
+  `2389B27EC39C0ABF570881D363524AFBC7A909D34D7E9CCDDAFF9F3ECB32EDF2`.
+- S-Curve inverted so it draws and plays as tuned; pencil shadow fixed at
+  the icon generator; mockup says S-Curve and `docs/design` is recaptured.
+- Settings switches for drum detection and auto-transpose, reloading the
+  open file in place.
 - Export menu: Copy styled sheet, Save coloured sheet, Sheet style popover
-  with every `sheet::StyleOptions` field and per-section transposition,
-  About credit for midi-converter. All under the "sheet" test group.
-- A review pass at `6f026c4`: a switch reload keeps its place, the config
-  save guard is a parse flag, the separator is cut on a UTF-8 boundary, all
-  six presets fit the list, the log window is skinned, Clear has an eraser.
-- `ade7326` adds key-mapping and autovol render scenarios; `9e5910a` titles
-  the coloured page. A zip at `9e5910a` is staged in `build\release` for
-  `v0.2.4-test` with `notes-v0.2.4-test.md` beside it; the upload waits.
+  with every `sheet::StyleOptions` field and per-section transposition.
+- A direct media link that a host refuses is retried under the app's own
+  user agent (the Wikimedia 403).
+- Review fixes: config save guard is a parse flag, separator cut on a UTF-8
+  boundary, all six presets fit the list, log window skinned with an eraser
+  for Clear, key-mapping and autovol render scenarios, page titled after
+  its file. The owner's 2026-09-07 UI pass is closed in `SHELL-GAPS.md`.
 
 ## Unresolved
 
-- **Owner to look at live:** S-Curve in game (R5 played its inverse);
-  Settings length; the smallest window; Convert; the Sheet style popover.
-- **Answered 2026-09-15:** S-Curve is "radiant grand", not R5's "s_curve smoth".
+- **Owner to look at live on `v0.2.4-test`:** S-Curve in game (R5 played its
+  inverse); Settings length; the smallest window; Convert; Sheet style.
 - **Needs the owner at the keyboard:** delivery into a game, Wooting feel,
   two devices, MIDI output into a synth, live curve reconnection, a mixed-DPI
-  move. The Wikimedia 403 is fixed by a user-agent retry in `convert.py`.
+  move, the 900 x 610 clamp on a real window.
+- No tester issues are open as of 2026-09-16.
 
 ## Validation actually run
 
 - `9e5910a`: `ShellTests.exe` all PASS; `RenderTests.exe` 360 PASS over 18
   scenarios; every new capture inspected at 100%, the pencil at 200%.
-- `run-shell-parity-mutations.ps1`: 24 of 24 killed, baselines passed.
+- `run-shell-parity-mutations.ps1` at `6f026c4`: 24 of 24 killed.
+- `make-release.ps1` at `9e5910a`: converter imported and converted an mp3
+  on a bare PATH; the uploaded asset matches the zip byte for byte.
 - Not run: native and latency tests, `signin.py`, the shell live.
 
 ## Build and test
@@ -114,6 +121,6 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 ## Next action
 
 Run `gh issue list --repo K-Alexandru/MIDIPlusPlus-testing` and work the
-first tester report on `v0.2.3-test` in a worktree off this branch. With no
+first tester report on `v0.2.4-test` in a worktree off this branch. With no
 reports, ask the owner for the cursor and run `tests\run-native-tests.ps1`
 to prove the 900 x 610 clamp on the real window.
