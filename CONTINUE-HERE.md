@@ -48,7 +48,6 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 
 - `MIDI++/SheetPage.hpp`: `ToEditorHtml`, the page's CSS, its script in two
   halves (`SHEET-CORE` is DOM-free for node), `PageJson`.
-- `tests/sheet-page-parity.js`: run by `run-shell-tests.ps1` when node exists.
 - `ui/Panels.cpp`: `SettingRadio`, `SettingCheck`, `DrawVelocity`; the
   Export menu and the browser launch in `Draw`.
 
@@ -81,8 +80,7 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 
 ## Unresolved
 
-- **Owner to look at live:** the sheet page from a real file, in their
-  browser; the checkboxes and radios in Settings; the graph at each skin.
+- **Owner to look at live:** the sheet editor from a real file; Settings; the graph.
 - **Needs the owner at the keyboard:** game delivery, Wooting, two devices,
   MIDI out to a synth, live curve reconnection, mixed DPI, the 900 x 610 clamp.
 
@@ -91,8 +89,8 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - `ShellTests.exe` all PASS; sheet page parity 9 of 9; `RenderTests.exe`
   every scenario PASS at 100 to 200%; the page opened in the built-in browser
   with live transposition and a section from a selection, no console errors.
-- Not run: native and latency tests, `signin.py`, the shell live, mutations.
-  `make-release.ps1` stopped at staging: the owner's shell was running.
+- Mutations 23 of 23 killed; `make-release.ps1` zipped `ef4aad6` to `build\release\`.
+- Not run: native and latency tests, `signin.py`, the shell live.
 
 ## Build and test
 

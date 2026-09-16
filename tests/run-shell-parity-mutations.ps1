@@ -43,7 +43,7 @@ $cases = @(
     @{Name='out-of-range-dropped'; File='MIDI++\SheetExport.hpp'; Group='sheet'; Find='const bool drawOor = n.outOfRange && o.showOutOfRange;'; Replace='const bool drawOor = false;'; Failure='an out-of-range note is kept and marked'},
     # The editor page must carry the notes it draws from; a page without them
     # opens as an empty sheet with every control doing nothing.
-    @{Name='sheet-page-no-notes'; File='ui\ShellEngine.cpp'; Group='sheet'; Find='if (midi >= 0) page.notes.push_back'; Replace='if (false) page.notes.push_back'; Failure='the coloured sheet was not written to the temp folder'},
+    @{Name='sheet-page-no-notes'; File='ui\ShellEngine.cpp'; Group='sheet'; Find='if (midi >= 0) page.notes.push_back'; Replace='if (false) page.notes.push_back'; Failure='the editor page carried no sheet'},
     # Detection only ever labelled tracks. Dropping the label leaves a drum
     # part that is not on channel 10 looking like piano to Solo Piano.
     @{Name='drum-flags-ignored'; File='ui\ShellEngine.cpp'; Group='drums'; Find='row.drums = true; row.piano = false;'; Replace='/* heuristic ignored */'; Failure='the heuristic''s drum track is not shown as drums'},
