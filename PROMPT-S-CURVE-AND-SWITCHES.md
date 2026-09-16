@@ -1,5 +1,9 @@
 # S-Curve in the mockup, and two Settings switches
 
+**Done 2026-09-15 by Claude at the owner's request, all three pieces, on
+`claude/consolidate-2026-09-15`.** `SHELL-GAPS.md` records each under its
+own heading. Kept as the record of what was asked.
+
 Addressed to the panel seat. Everything below is the prompt, with nothing
 addressed to the owner mixed in.
 

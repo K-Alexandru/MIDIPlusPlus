@@ -286,9 +286,21 @@ def main():
             raise SystemExit(file + ": no geometry parsed")
         first = len(paths)
         for points, closed in subpaths:
-            paths.append((len(coordinates) // 2, len(points), closed))
+            # Rounding to sixteenths collapses the tiny segments of a small
+            # arc onto one point. ImGui averages the normals either side of a
+            # zero-length segment and then rescales, which doubled the stroke
+            # width at four points of the pencil and read as a shadow, so
+            # repeated points go, including a closed path's return to start.
+            rounded = []
             for x, y in points:
-                coordinates.extend((round(x * UNIT), round(y * UNIT)))
+                point = (round(x * UNIT), round(y * UNIT))
+                if not rounded or rounded[-1] != point:
+                    rounded.append(point)
+            if closed and len(rounded) > 1 and rounded[0] == rounded[-1]:
+                rounded.pop()
+            paths.append((len(coordinates) // 2, len(rounded), closed))
+            for x, y in rounded:
+                coordinates.extend((x, y))
         glyphs.append((name, file, first, len(paths) - first))
     if missing:
         raise SystemExit("missing SVGs: " + ", ".join(missing))

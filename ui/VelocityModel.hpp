@@ -44,12 +44,20 @@ inline int VelocityBucket(const std::array<int, 32>& thresholds, int input) {
 // y = i/31. Read that way the drawing is the table. In particular, do not
 // resample this onto a uniform 32-point input grid: 127/31 does not line up
 // with the integer threshold table, and that made Linear Fine's tail flat.
+//
+// A threshold of 0 names a bucket no input reaches either, since inputs run
+// 1 to 127, so a table that starts with zeros starts at its first reachable
+// step: S-Curve's softest touch is step 6, and the curve is drawn from there
+// rather than climbing from the origin to get there.
 inline float VelocityCurveAt(const VelocityPreset& preset, float x) {
     const float input = std::clamp(x, 0.f, 1.f) * 127;
     float previousInput = 0, previousOutput = 0;
     for (int i = 0; i < 32; ++i) {
         const float edge = static_cast<float>(preset.thresholds[i]);
-        if (i > 0 && edge <= previousInput) continue;
+        if (edge <= previousInput) {
+            if (previousInput == 0) previousOutput = (i + 1) / 31.f;
+            continue;
+        }
         if (input <= edge) {
             const float span = edge - previousInput;
             const float t = span > 0 ? (input - previousInput) / span : 1.f;

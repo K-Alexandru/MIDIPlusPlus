@@ -7,6 +7,15 @@ sounds like, so it is the owner's call.
 **Decided 2026-09-11: option 2, implemented** with the tables below, and held by
 `BuiltinCurveTests` and the `logarithmic-capped-again` mutation.
 
+**S-Curve corrected 2026-09-15.** The sixth built-in was first copied in as
+the R5 custom curve "radiant grand" verbatim, which fell into the trap this
+page describes below: the R5 editor draws a table as output per step, the
+engine reads it as input thresholds, so the shell drew the inverse of the S
+the owner tuned. The table is now the inverse of those 32 values, so the
+response passes through step i / 31 -> radiant[i] / 127. Steps 0 to 5 are
+unreachable by design, because the owner's curve starts at 25, and the top
+step is reached from input 113. `SHELL-GAPS.md`, "Pro, now S-Curve".
+
 **Linear Coarse and Linear Fine are still open.** The owner asked for them to
 be fixed. The R5 release's own executable was checked on 2026-09-11: its
 built-in tables are byte-identical to these, so the original shipped the same

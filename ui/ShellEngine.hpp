@@ -7,6 +7,7 @@
 #include "ConnectInput.hpp"
 #include "DeviceModel.hpp"
 #include "../MIDI++/VelocityTelemetry.hpp"
+#include "../MIDI++/SheetExport.hpp"
 #include <condition_variable>
 #include <deque>
 #include <filesystem>
@@ -16,6 +17,17 @@
 #include <map>
 
 namespace shell {
+// A run of the sheet transposed on its own: every note whose onset falls in
+// [from, to] seconds moves by semitones before the styled sheet is written.
+// midi-converter does this from a selection in its rendered sheet; here the
+// run is named by time, which the transport shows.
+struct SheetRegion {
+    double from = 0;
+    double to = 0;
+    int semitones = 0;
+    bool operator==(const SheetRegion&) const = default;
+};
+
 struct EngineSnapshot {
     std::shared_ptr<const std::vector<MidiEntry>> files = std::make_shared<const std::vector<MidiEntry>>();
     std::vector<TrackRow> rows;
@@ -33,6 +45,11 @@ struct EngineSnapshot {
     bool typingAcknowledged = true;
     bool legitMode = false;
     bool shuffle = false;
+    // Config-only in the original. Drum detection labels a kit that is not on
+    // channel 10 so Solo Piano leaves it out; auto-transpose sets Transpose to
+    // the file's best fit at load. Both take effect when a file loads.
+    bool detectDrums = true;
+    bool autoTranspose = false;
     FileSort fileSort = FileSort::Name;
     bool descendingFiles = false;
     // Off, which is what VirtualPianoPlayer itself defaults to. The shell used
@@ -81,6 +98,12 @@ struct EngineSnapshot {
     size_t sheetUnmapped = 0;
     uint64_t sheetRevision = 0;
     bool sheetReady = false;
+    // Set when the sheet went to a file rather than the clipboard.
+    std::filesystem::path sheetSaved;
+    // midi-converter's notation settings, saved as SHELL_SHEET_STYLE, and the
+    // open file's section transpositions, which are dropped at the next Load.
+    sheet::StyleOptions sheetStyle;
+    std::vector<SheetRegion> sheetRegions;
     std::vector<VelocityPreset> curves;
     VelocityEdit curve;
     VelocityEdit previousCurve;
@@ -117,12 +140,21 @@ public:
                         Pause, TogglePlayPause, Restart, Back10, Forward10, Seek, Speed, Transpose, Remap,
                         LiveScan, LiveOpen, LiveActive, LiveChannel, OutputTarget, OutputScan, OutputOpen,
                         CopySheet,
+                        // The styled sheet is midi-converter's notation.
+                        // CopyStyledSheet puts its text on the clipboard,
+                        // SaveSheetHtml writes its coloured page beside the
+                        // MIDI file. SheetStyle carries style; SheetRegionAdd
+                        // carries region, SheetRegionClear drops them all.
+                        CopyStyledSheet, SaveSheetHtml, SheetStyle, SheetRegionAdd, SheetRegionClear,
                         CurveSelect, CurveAdjust, CurveEdit, CurveUndo, CurveRedo, CurveCompare, CurveNew,
                         CurveDuplicate, CurveRename, SustainCutoff, VelocityModifier,
                         WootingTriggerThreshold, WootingShiftAmount, WootingVelocityScale, EightyEightKeys,
                         AutoVolumeScan, AutoVolumeCalibrate, AutoVolumeOff, AutoVolumeCancel, ClearLog,
                         PlayCountdown, PlaybackDelay, AcknowledgeTyping,
                         LegitMode, Shuffle, Previous, Next, SortFiles, MidiConnect, OutRange, SeekStep,
+                        // value is the switch. Each saves its config key and
+                        // reloads the open file so the track list matches.
+                        DetectDrums, AutoTranspose,
                         // path is an audio file, or key is a link. ConvertProgress is
                         // the converter's own thread reporting back: key is the
                         // text and track an audio_to_midi::Status::Kind.
@@ -140,6 +172,8 @@ public:
         std::wstring device;
         std::vector<VelocityPoint> anchors;
         GameWindow window;
+        sheet::StyleOptions style;
+        SheetRegion region;
     };
     explicit ShellEngine(std::filesystem::path config, std::shared_ptr<AutoVolumeHost> volumeHost = {},
                          bool requireTypingAcknowledgement = false, ConnectFactory connectFactory = {});

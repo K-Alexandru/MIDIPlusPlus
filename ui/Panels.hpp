@@ -36,6 +36,11 @@ public:
     // next Draw. The menu that normally opens it needs a click a render test
     // cannot place reliably, so the test asks here instead.
     bool openConvert = false;
+    // The same, for the Sheet style popover under the Export menu.
+    bool openSheetStyle = false;
+    // Scrolls the open Settings popover to the drum and auto-transpose
+    // switches, which sit below the fold; a render scenario captures them.
+    bool revealSettingsSwitches = false;
     ~Panels();
     ImVec2 DesiredSize() const;
     void LoadPreferences(const std::filesystem::path& path);
@@ -68,6 +73,14 @@ private:
     void DrawVelocity(const Fonts&, const skin::Skin&, float, ShellEngine&, ImVec2, ImVec2);
     void DrawSettings(const Fonts&, const skin::Skin&, float, ShellEngine&);
     void DrawConvert(HWND, const Fonts&, const skin::Skin&, float, ShellEngine&);
+    void DrawSheetStyle(const Fonts&, const skin::Skin&, float, ShellEngine&);
+    // The popover edits this copy and sends the whole thing on each change;
+    // it is taken from the snapshot when the popover opens.
+    sheet::StyleOptions styleDraft_;
+    char styleSeparator_[8]{};
+    float regionFrom_ = 0;
+    float regionTo_ = 0;
+    int regionSemitones_ = 0;
     void DrawAutoVolume(const Fonts&, const skin::Skin&, float, ShellEngine&);
     void DrawLog(HWND, const Fonts&, const skin::Skin&, float, ShellEngine&);
     std::string TransportHints(int seekStep) const;

@@ -1214,16 +1214,23 @@ std::string VirtualPianoPlayer::getVelocityKey(int targetVelocity) {
     // them. VELOCITY-CURVES.md, option 2. The two linear tables are the R5
     // tables unchanged.
     //
-    // S-Curve is the owner's own tuning, copied from the R5 config where it was
-    // the custom curve "radiant grand". It is deliberately not stretched: its
-    // top three entries are 127 as tuned, so it tops out at step 29.
+    // S-Curve is the owner's own tuning, the custom curve "radiant grand" in
+    // the R5 release's config.json. The R5 editor showed that curve as output
+    // velocity per step, an S rising from 25 to 127, but this lookup reads a
+    // table as input thresholds, so R5 played the inverse of what its editor
+    // drew. This table is that S read the way the owner drew it: the
+    // response passes through step i / 31 -> radiant[i] / 127, and each entry
+    // is the loudest input that still lands in its step. Steps 0 to 5 are
+    // therefore unreachable: the softest touch plays step 6, which is where
+    // the drawn curve starts. Derived in tests/ShellTests.cpp,
+    // BuiltinCurveTests, from the 32 values in the R5 config.
     static constexpr std::array<int, 32> builtinCurves[midi::kBuiltinVelocityCurves] = {
         {4,8,12,16,20,24,28,32,36,40,44,48,52,56,60,64,68,72,76,80,84,88,92,96,100,104,108,112,116,120,124,127},
         {2,6,10,14,18,22,26,30,34,38,42,46,50,54,58,62,66,70,74,78,82,86,90,94,98,102,106,110,114,118,122,127},
         {1,2,4,5,7,9,11,14,16,19,22,25,29,32,36,41,45,50,55,61,67,73,79,86,92,99,107,114,119,122,124,127},
         {1,2,3,4,5,6,7,8,9,10,12,14,17,20,23,27,30,35,39,44,49,55,61,67,74,81,89,96,105,113,120,127},
         {1,2,3,4,7,11,17,22,27,33,38,44,49,54,60,65,71,76,82,87,92,98,103,107,111,115,118,121,124,125,126,127},
-        {25,26,27,28,30,32,35,39,43,48,53,58,63,68,73,78,83,88,92,96,100,104,108,112,116,119,122,124,126,127,127,127}
+        {0,0,0,0,0,0,6,17,24,28,32,36,39,42,46,49,52,56,59,62,66,69,73,78,82,86,90,94,99,104,112,127}
     };
     static constexpr char velocityKeys[] = "1234567890qwertyuiopasdfghjklzxc";
     const auto& config = midi::Config::getInstance();

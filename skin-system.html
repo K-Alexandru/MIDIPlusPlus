@@ -1066,7 +1066,7 @@ body.only-keys #winFull{display:none!important;}
         <tr><td>Speed numbers are uneven</td><td><span class="mono">.num</span> was right-aligned with a min-width, so the gap after the value was smaller than the gap before it.</td><td>The value is a fixed-width centred cell between two icon buttons, on tabular figures, so the group stays symmetrical at any value.</td></tr>
         <tr><td>Why is Mute a letter M?</td><td>Single letters are only readable to someone who already knows the convention from a DAW.</td><td>Speaker and headphone icons with real labels for assistive tech. Muted shows a crossed speaker, not just a tint, so state does not depend on colour.</td></tr>
         <tr><td>Cut the flavour text</td><td>Preset descriptions, macro help lines and the live preview note all restated what the control already showed.</td><td>Removed. The preset list is thumbnail plus name; the macros are name plus current value.</td></tr>
-        <tr><td>Controlled Top End should not be the default</td><td>It was chosen because it sounds best, which is a biased default.</td><td>Default is <b>Linear Fine</b>, the neutral response. The tuned curve is named <b>Pro</b> and carries a "recommended" tag one click away.</td></tr>
+        <tr><td>Controlled Top End should not be the default</td><td>It was chosen because it sounds best, which is a biased default.</td><td>Default is <b>Linear Fine</b>, the neutral response. The tuned curve is named <b>S-Curve</b> and carries a "recommended" tag one click away.</td></tr>
         <tr><td>Random velocity animation</td><td>The dot wandered on a timer, which demonstrated nothing and drew the eye away.</td><td>Gone. The dot follows the pointer across the graph, and in the real app it follows the notes you play.</td></tr>
         <tr><td>No blue fills in MIDI++</td><td class="mono">Theme::ACCENT is used only at MIDI++.cpp:797–798, as a hover/press border.</td><td>Still no accent-filled buttons. Accent is selection, focus rings, slider fills and the curve line, which is roughly the 10 percent the rules allow.</td></tr>
         <tr><td>Why is Classic boxy?</td><td class="mono">CornerRadius() = 6, CardCornerRadius() = 8, drawn with GpRoundRect.</td><td>Classic keeps 8px cards and 6px controls, with 4px for elements nested inside them.</td></tr>
@@ -1094,10 +1094,10 @@ body.only-keys #winFull{display:none!important;}
     {n:"Logarithmic",f:function(x){return Math.log(1+x*9)/Math.log(10);},tag:"",s:0,c:8},
     {n:"Improved Low Volume",f:function(x){return Math.pow(x,0.62);},tag:"",s:4,c:14},
     {n:"Exponential",f:function(x){return x*x;},tag:"",s:0,c:6},
-    {n:"Pro",f:function(x){return x*x*(3-2*x);},tag:"recommended",s:18,c:58}
+    {n:"S-Curve",f:function(x){return x*x*(3-2*x);},tag:"recommended",s:18,c:58}
   ];
   /* Linear Fine is the default: the neutral choice, not the best-sounding one.
-     Pro is marked recommended and is one click away. */
+     S-Curve is marked recommended and is one click away. */
   var DEFAULT_PRESET=1;
   var current={preset:DEFAULT_PRESET,sensitivity:0,contrast:0,steps:null};
   var previous={preset:5,sensitivity:18,contrast:58,steps:null};

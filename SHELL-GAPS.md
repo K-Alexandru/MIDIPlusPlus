@@ -55,8 +55,13 @@ difference. The original types the game's arrow keys at play start into
 whatever has focus; the shell applies the suggestion through its own Transpose
 at load, where the user can see and change it, and never sends an arrow.
 
-Both are config-only. Settings switches for them are an `EngineSnapshot` field
-and an `Action` each, which belong to the panel seat.
+**Switches added 2026-09-15.** Settings carries "Detect drum tracks" and
+"Auto-transpose on load", `Action::DetectDrums` and `Action::AutoTranspose`.
+Each writes its config key, flushes the file, sets the `Config` singleton
+where `process_tracks` reads it, and reloads the open file so the track list
+matches at once, resuming if it was playing. Held by `DrumDetectionTests`,
+the `settings-switches` render scenario and the `drum-switch-skips-singleton`
+and `auto-transpose-switch-unsaved` mutations.
 
 ## Absent outright
 
@@ -255,12 +260,21 @@ change those is the owner's call, because it changes what the app sounds like.
 
 The numbers were on this machine all along, in `D:\MIDI++ 1.0.4.R5 Release\config.json`
 as the custom curve "radiant grand". It is now the sixth built-in in
-`PlaybackCore.cpp` with exactly those 32 values, so it cannot be deleted. The
-owner renamed it from Pro to S-Curve the same day, because that describes its
-shape. Custom curves are numbered after it, and `SHELL_VELOCITY` records a
-`builtins` count so a file saved with five built-ins reopens on the same
-custom curve rather than on S-Curve. It tops out at step 29 of 31 because its
-last three values are 127 as tuned; it was not stretched.
+`PlaybackCore.cpp`, so it cannot be deleted. The owner renamed it from Pro to
+S-Curve the same day, because that describes its shape. Custom curves are
+numbered after it, and `SHELL_VELOCITY` records a `builtins` count so a file
+saved with five built-ins reopens on the same custom curve rather than on
+S-Curve.
+
+**Corrected 2026-09-15.** The 32 values were first copied in as the engine
+table, which made the shell draw the inverse of the S the owner had tuned:
+flat until input 25, a jump, then a vertical tail. The R5 editor shows a
+table as output velocity per step, but the engine reads a table as input
+thresholds, so R5 itself played the inverse of what its editor drew. The
+built-in is now the inverse table, derived in `BuiltinCurveTests` from the
+R5 values as a response, so the shell draws the S the owner drew and the
+game plays it. Its softest touch is step 6, where the drawn curve starts,
+and it reaches step 31.
 
 The rest of this section is the report as filed.
 
@@ -359,9 +373,21 @@ behaviour, and the `quantize-not-chained` and `out-of-range-dropped` mutations
 guard the two that matter most. The notice is in
 `third_party/midi-converter/LICENSE`.
 
-Nothing reaches a user yet. The menu `Copy as sheet` becomes, its entries and
-their settings are an `Action` and `EngineSnapshot` fields, which belong to the
-panel seat; `PROMPT-S-CURVE-AND-SWITCHES.md` piece three has them.
+**The menu shipped 2026-09-15.** Export in Playback is a menu: Copy as
+sheet, Copy styled sheet (`Action::CopyStyledSheet`, `sheet::Style` text to
+the clipboard), Save coloured sheet (`Action::SaveSheetHtml`, `sheet::ToHtml`
+written beside the MIDI file under its name, and the panel says where), and
+Sheet style, a popover with a control for every field of
+`sheet::StyleOptions`, saved as `SHELL_SHEET_STYLE` through
+`Action::SheetStyle`. Tempo and meter come from `tempoChanges`,
+`timeSignatures` and `division` through the `FromTicks` helpers. Per-region
+transposition is "Transpose a section" in the same popover: a run named by
+its start and end in seconds, as the transport shows them, held per file in
+`sheetRegions` and dropped at Load. Image export is left to the coloured
+page, which prints and screenshots from the browser; the shell renders no
+sheet of its own. Credited in About. Held by `SheetMenuTests`, the
+`sheet-style` render scenario and the `section-transpose-ignored` and
+`sheet-style-unsaved` mutations.
 
 ## Also owed, from elsewhere
 

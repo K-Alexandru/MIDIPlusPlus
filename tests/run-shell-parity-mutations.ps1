@@ -41,9 +41,23 @@ $cases = @(
     # Out-of-range notes are the notation's main difference from ours, which
     # drops them. Dropping them here too loses the feature silently.
     @{Name='out-of-range-dropped'; File='MIDI++\SheetExport.hpp'; Group='sheet'; Find='const bool drawOor = n.outOfRange && o.showOutOfRange;'; Replace='const bool drawOor = false;'; Failure='an out-of-range note is kept and marked'},
+    # A section transposition that is accepted and listed but never applied
+    # looks done in the popover and changes nothing in the sheet.
+    # Only the addition is replaced: the for loop above it has no braces, so
+    # removing the whole statement would make the next line its body.
+    @{Name='section-transpose-ignored'; File='ui\ShellEngine.cpp'; Group='sheet'; Find='note.midi += region.semitones;'; Replace='note.midi += 0; /* section ignored */'; Failure='a section transposition did not change the sheet'},
+    # And a style that is applied but not written is back to the defaults at
+    # the next start, which every setting midi-converter exposes must not be.
+    @{Name='sheet-style-unsaved'; File='ui\ShellEngine.cpp'; Group='sheet'; Find='configJson["SHELL_SHEET_STYLE"] = SheetStyleToJson(state.sheetStyle);'; Replace='/* not saved */'; Failure='the sheet style was not saved'},
     # Detection only ever labelled tracks. Dropping the label leaves a drum
     # part that is not on channel 10 looking like piano to Solo Piano.
     @{Name='drum-flags-ignored'; File='ui\ShellEngine.cpp'; Group='drums'; Find='row.drums = true; row.piano = false;'; Replace='/* heuristic ignored */'; Failure='the heuristic''s drum track is not shown as drums'},
+    # process_tracks reads the Config singleton, so a switch that only writes
+    # the file and the snapshot leaves detection running as before.
+    @{Name='drum-switch-skips-singleton'; File='ui\ShellEngine.cpp'; Group='drums'; Find='midi::Config::getInstance().midi.DETECT_DRUMS = command.value;'; Replace='/* singleton left as loaded */'; Failure='drum detection stayed on after the switch'},
+    # And a switch that is not written to config.json is forgotten at the next
+    # start, which is the config-only reachability this replaces.
+    @{Name='auto-transpose-switch-unsaved'; File='ui\ShellEngine.cpp'; Group='drums'; Find='configJson["AUTO_TRANSPOSE"]["ENABLED"] = command.value;'; Replace='/* not saved */'; Failure='the auto-transpose switch was not saved'},
     # The ordering MIDI-OUTPUT.md says will be got wrong if it is not written
     # down: a switch that stores the new target without stopping the old one
     # leaves a note sounding on the synth with nothing left to address it.

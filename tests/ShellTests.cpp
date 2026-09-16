@@ -434,8 +434,9 @@ void VelocityCurveDrawingTests(const std::filesystem::path& config) {
         for (int i = 0; i < 32; ++i) {
             // A repeated threshold names a bucket VelocityBucket can never
             // return, so it is not a point on the curve and nothing is
-            // promised about it.
-            if (i > 0 && preset.thresholds[i] == preset.thresholds[i - 1]) continue;
+            // promised about it. A threshold of 0 is the same thing at the
+            // bottom: no input is 0, so S-Curve's first six steps are empty.
+            if ((i > 0 && preset.thresholds[i] == preset.thresholds[i - 1]) || preset.thresholds[i] == 0) continue;
             const float y = shell::VelocityCurveAt(preset, preset.thresholds[i] / 127.f);
             Require(std::abs(y - i / 31.f) < 1e-4f,
                     "the drawn curve misses a point the threshold table names");
@@ -447,6 +448,11 @@ void VelocityCurveDrawingTests(const std::filesystem::path& config) {
         Require(std::abs(shell::VelocityCurveAt(preset, 1.f) -
                          shell::VelocityBucket(preset.thresholds, 127) / 31.f) < 1e-4f,
                 "the curve does not end where the table saturates");
+        // And it starts where the softest input lands, which for S-Curve is
+        // step 6, not a climb from the origin to get there.
+        Require(std::abs(shell::VelocityCurveAt(preset, 0.f) -
+                         shell::VelocityBucket(preset.thresholds, 1) / 31.f) < 1e-4f,
+                "the curve does not start where the softest input lands");
         float previous = -1;
         for (int i = 0; i <= 1270; ++i) {
             const float y = shell::VelocityCurveAt(preset, i / 1270.f);
@@ -473,28 +479,39 @@ void VelocityCurveDrawingTests(const std::filesystem::path& config) {
     std::cout << "PASS velocity curve drawing: every table point hit, saturation, monotonic, Linear Fine tail\n";
 }
 
-// Every built-in but S-Curve reaches the loudest step. Three of them could not
-// before: the R5 tables repeat 127 and stop at steps 23, 17 and 21. S-Curve is the
-// owner's R5 tuning copied as it was, so it is checked against that instead.
+// Every built-in reaches the loudest step. Three of them could not before: the
+// R5 tables repeat 127 and stop at steps 23, 17 and 21. S-Curve is the owner's
+// R5 tuning read the way the R5 editor drew it, output per step, so it is
+// checked as a response rather than as a table.
 void BuiltinCurveTests(const std::filesystem::path& directory) {
     const std::string keys = "1234567890qwertyuiopasdfghjklzxc";
     {
         VirtualPianoPlayer player(false, directory / L"config.json");
         for (size_t curve = 0; curve < midi::kBuiltinVelocityCurves; ++curve) {
-            if (static_cast<midi::VelocityCurveType>(curve) == midi::VelocityCurveType::SCurve) continue;
             player.setVelocityCurveIndex(curve);
             Require(player.getVelocityKey(127) == "c", "a built-in curve cannot reach the loudest step");
         }
-        // The custom curve "radiant grand" in the R5 release's config.json.
+        // The custom curve "radiant grand" in the R5 release's config.json,
+        // as its editor showed it: the output velocity at each of 32 steps
+        // across the input range, an S from 25 to 127. The engine table is
+        // the inverse of this curve, which is what makes the shell draw it
+        // as the S the owner tuned.
         const std::array<int, 32> radiantGrand{25,26,27,28,30,32,35,39,43,48,53,58,63,68,73,78,83,88,92,96,100,104,108,112,116,119,122,124,126,127,127,127};
         Require(player.getVelocityCurveName(midi::VelocityCurveType::SCurve) == "S-Curve", "S-Curve is not named S-Curve");
         player.setVelocityCurveIndex(static_cast<size_t>(midi::VelocityCurveType::SCurve));
+        std::string previous = "1";
         for (int input = 1; input <= 127; ++input) {
-            size_t step = 0;
-            while (step < 32 && radiantGrand[step] < input) ++step;
-            Require(player.getVelocityKey(input) == std::string(1, keys[std::min<size_t>(step, 31)]),
-                    "S-Curve is not the R5 radiant grand tuning");
+            const double position = input / 127.0 * 31;
+            const int low = std::min(31, static_cast<int>(position));
+            const double output = low == 31 ? radiantGrand[31]
+                : radiantGrand[low] + (radiantGrand[low + 1] - radiantGrand[low]) * (position - low);
+            const int step = std::clamp(static_cast<int>(std::lround(output * 31 / 127)), 0, 31);
+            const std::string key = player.getVelocityKey(input);
+            Require(key == std::string(1, keys[step]), "S-Curve does not play the curve the R5 editor drew");
+            Require(keys.find(key) >= keys.find(previous), "S-Curve is not monotonic");
+            previous = key;
         }
+        Require(player.getVelocityKey(1) == "7", "S-Curve's softest touch is not step 6, where the drawn curve starts");
     }
     // A config saved before S-Curve existed stores its first custom curve as
     // preset 5, which is S-Curve's index now.
@@ -524,8 +541,19 @@ void DrumDetectionTests(const std::filesystem::path& directory) {
     using A = shell::ShellEngine::Action;
     const auto fixture = directory / L"drums-on-channel-1.mid";
     WriteTrackFixture(fixture, 0);
+    // The switches below are saved by the engine, so this test runs on its
+    // own copy of the config with both keys set: a run that stops halfway,
+    // as a mutant's does, must not leave detection off for the next one.
+    const auto switches = directory / L"switches.json";
     {
-        shell::ShellEngine engine(directory / L"config.json");
+        nlohmann::json settings;
+        { std::ifstream file(directory / L"config.json"); file >> settings; }
+        settings["MIDI_SETTINGS"]["DETECT_DRUMS"] = true;
+        settings["AUTO_TRANSPOSE"]["ENABLED"] = false;
+        std::ofstream file(switches); file << settings;
+    }
+    {
+        shell::ShellEngine engine(switches);
         engine.Send({A::Load, fixture, 0, 0, true});
         Await([&] { const auto s = engine.Snapshot(); return !s->busy && (!s->loaded.empty() || !s->error.empty()); }, "drum fixture did not load");
         const auto state = engine.Snapshot();
@@ -535,6 +563,37 @@ void DrumDetectionTests(const std::filesystem::path& directory) {
                 "the heuristic's drum track is not shown as drums");
         Require(!state->rows[0].drums && !state->rows[1].drums, "a piano part was flagged as drums");
         Require(shell::SilentTracks(state->rows) == 3, "a detected drum track survived Solo Piano");
+        Require(state->detectDrums && !state->autoTranspose, "the switches do not show the config's defaults");
+
+        // The Settings switches. Each saves its key and reloads the open file,
+        // so the track list describes the new setting at once.
+        const auto reloaded = [&](uint64_t generation) {
+            Await([&] { const auto s = engine.Snapshot(); return s->generation != generation && !s->busy; }, "the switch did not reload the file");
+            return engine.Snapshot();
+        };
+        const auto saved = [&](const char* group, const char* key) {
+            nlohmann::json file;
+            { std::ifstream stream(switches); stream >> file; }
+            return file.at(group).at(key).get<bool>();
+        };
+        engine.Send({A::DetectDrums, {}, 0, 0, false});
+        auto off = reloaded(state->generation);
+        Require(!off->detectDrums, "the drum switch did not turn off");
+        for (const auto& row : off->rows) Require(!row.drums, "drum detection stayed on after the switch");
+        Require(!saved("MIDI_SETTINGS", "DETECT_DRUMS"), "the drum switch was not saved");
+        engine.Send({A::DetectDrums, {}, 0, 0, true});
+        auto on = reloaded(off->generation);
+        Require(on->detectDrums && on->rows.back().drums, "drum detection did not come back with the switch");
+        Require(saved("MIDI_SETTINGS", "DETECT_DRUMS"), "the drum switch was not saved on");
+
+        engine.Send({A::AutoTranspose, {}, 0, 0, true});
+        auto fitted = reloaded(on->generation);
+        Require(fitted->autoTranspose, "the auto-transpose switch did not turn on");
+        Require(fitted->transpose >= -12 && fitted->transpose <= 12, "auto-transpose left the Transpose range");
+        Require(saved("AUTO_TRANSPOSE", "ENABLED"), "the auto-transpose switch was not saved");
+        engine.Send({A::AutoTranspose, {}, 0, 0, false});
+        auto unfitted = reloaded(fitted->generation);
+        Require(!unfitted->autoTranspose && !saved("AUTO_TRANSPOSE", "ENABLED"), "the auto-transpose switch was not saved off");
     }
     // Auto-transpose goes through the shell's Transpose. The original typed the
     // game's arrow keys at play start, into whatever had focus.
@@ -558,8 +617,94 @@ void DrumDetectionTests(const std::filesystem::path& directory) {
             Require(event.input.ki.wScan != 0x48 && event.input.ki.wScan != 0x50, "auto-transpose typed an arrow key");
     }
     std::filesystem::remove(config);
+    std::filesystem::remove(switches);
     std::filesystem::remove(fixture);
-    std::cout << "PASS drum detection labels a non-channel-10 kit and Solo Piano mutes it; auto-transpose types no arrows\n";
+    std::cout << "PASS drum detection labels a non-channel-10 kit and Solo Piano mutes it; the switches save and reload; auto-transpose types no arrows\n";
+}
+
+// The Export menu's styled entries. midi-converter's notation goes to the
+// clipboard as text or beside the MIDI file as a coloured page, the style is
+// saved and reopened, and a section transposition moves only the notes inside
+// its times and is dropped with the file it was timed against.
+void SheetMenuTests(const std::filesystem::path& directory) {
+    using A = shell::ShellEngine::Action;
+    const auto fixture = directory / L"sheet-menu.mid";
+    WriteTrackFixture(fixture);
+    const auto load = [&](shell::ShellEngine& engine) {
+        const auto before = engine.Snapshot()->generation;
+        engine.Send({A::Load, fixture, 0, 0, false});
+        Await([&] { const auto s = engine.Snapshot(); return !s->busy && (s->generation != before || !s->error.empty()); }, "sheet fixture did not load");
+        if (!engine.Snapshot()->error.empty()) throw std::runtime_error(engine.Snapshot()->error);
+    };
+    const auto produce = [&](shell::ShellEngine& engine, A action) {
+        const auto before = engine.Snapshot()->sheetRevision;
+        engine.Send({action, {}, engine.Snapshot()->generation});
+        Await([&] { return engine.Snapshot()->sheetRevision != before || !engine.Snapshot()->error.empty(); }, "the sheet was not produced");
+        const auto state = engine.Snapshot();
+        if (!state->error.empty()) throw std::runtime_error(state->error);
+        return state;
+    };
+    auto page = fixture; page.replace_extension(L".html");
+    {
+        shell::ShellEngine engine(directory / L"config.json");
+        load(engine);
+        const auto plain = produce(engine, A::CopySheet);
+        Require(plain->sheetSaved.empty() && !plain->sheetText->empty(), "the plain sheet did not take the clipboard path");
+        const auto styled = produce(engine, A::CopyStyledSheet);
+        Require(styled->sheetSaved.empty() && styled->sheetNotes > 0 && !styled->sheetText->empty(), "the styled sheet is empty");
+        const std::string styledText = *styled->sheetText;
+
+        const auto saved = produce(engine, A::SaveSheetHtml);
+        Require(saved->sheetSaved == page && std::filesystem::exists(page), "the coloured sheet was not written beside the MIDI file");
+        { std::ifstream file(page, std::ios::binary);
+          const std::string html((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+          Require(html.starts_with("<!doctype html") && html.find("<span style=\"color:") != std::string::npos,
+                  "the coloured sheet is not the HTML page"); }
+        const auto again = produce(engine, A::CopyStyledSheet);
+        Require(again->sheetSaved.empty(), "a copy after a save still points at the file");
+
+        // A section transposition moves only the notes inside its times. The
+        // fixture's notes are all at the start, so a region over them changes
+        // the sheet and a region after them does not.
+        // Sections are timed against the open file, so they carry its
+        // generation like every other score command.
+        const auto generation = engine.Snapshot()->generation;
+        shell::ShellEngine::Command over{A::SheetRegionAdd, {}, generation}; over.region = {0, 1000, 12};
+        engine.Send(over);
+        Await([&] { return engine.Snapshot()->sheetRegions.size() == 1; }, "the section was not added");
+        Require(*produce(engine, A::CopyStyledSheet)->sheetText != styledText, "a section transposition did not change the sheet");
+        engine.Send({A::SheetRegionClear, {}, generation});
+        shell::ShellEngine::Command after{A::SheetRegionAdd, {}, generation}; after.region = {500, 1000, 12};
+        engine.Send(after);
+        Await([&] { const auto s = engine.Snapshot(); return s->sheetRegions.size() == 1 && s->sheetRegions[0].from == 500; }, "the second section was not added");
+        Require(*produce(engine, A::CopyStyledSheet)->sheetText == styledText, "a section transposition moved notes outside its times");
+        shell::ShellEngine::Command silent{A::SheetRegionAdd, {}, generation}; silent.region = {0, 1, 0};
+        engine.Send(silent);
+        load(engine);
+        Require(engine.Snapshot()->sheetRegions.empty(), "section transpositions survived a Load");
+
+        // The style reaches the sheet and the file.
+        shell::ShellEngine::Command style{A::SheetStyle};
+        style.style.transpose = 3; style.style.tempoMarks = true; style.style.breaks = sheet::Breaks::None; style.style.beats = 99;
+        engine.Send(style);
+        Await([&] { return engine.Snapshot()->sheetStyle.transpose == 3; }, "the sheet style was not applied");
+        Require(engine.Snapshot()->sheetStyle.beats == 32, "the sheet style was not clamped");
+        Require(produce(engine, A::CopyStyledSheet)->sheetText->find("Transpose by: -3") != std::string::npos,
+                "the sheet style did not reach the styled sheet");
+    }
+    {
+        shell::ShellEngine engine(directory / L"config.json");
+        // The worker publishes the parsed config; the first snapshot is blank.
+        Await([&] { return engine.Snapshot()->sheetStyle.transpose == 3 || !engine.Snapshot()->error.empty(); }, "the sheet style was not saved");
+        const auto state = engine.Snapshot();
+        Require(state->sheetStyle.transpose == 3, "the sheet style was not saved");
+        Require(state->sheetStyle.tempoMarks && state->sheetStyle.breaks == sheet::Breaks::None, "the sheet style was saved incomplete");
+        engine.Send({A::SheetStyle});   // back to the defaults for the next test
+        Await([&] { return engine.Snapshot()->sheetStyle.transpose == 0; }, "the sheet style was not reset");
+    }
+    std::filesystem::remove(page);
+    std::filesystem::remove(fixture);
+    std::cout << "PASS export menu: styled copy, coloured page beside the file, section transpositions, saved style\n";
 }
 
 // The original window's editor presets. Every threshold must be one an input
@@ -2695,7 +2840,7 @@ int wmain(int argc, wchar_t** argv) {
             else if (group == L"connect") ConnectAndWarningTests(directory);
             else if (group == L"curve") { VelocityCurveDrawingTests(directory / L"config.json"); BuiltinCurveTests(directory); VelocityCurveEditorModelTests(); VelocityPresetTests(); }
             else if (group == L"drums") DrumDetectionTests(directory);
-            else if (group == L"sheet") { SheetExportTests(); SheetStyleTests(); }
+            else if (group == L"sheet") { SheetExportTests(); SheetStyleTests(); SheetMenuTests(directory); }
             else if (group == L"audio") AudioToMidiTests(directory);
             else if (group == L"midi-out") MidiOutputTests(directory / L"config.json");
             else if (group == L"vel-mod") VelocityModifierTests(directory / L"config.json");
@@ -2712,6 +2857,7 @@ int wmain(int argc, wchar_t** argv) {
         PortResolutionTests();
         SheetExportTests();
         SheetStyleTests();
+        SheetMenuTests(directory);
         AudioToMidiTests(directory);
         TwoDeviceTests();
         ModelTests(fixture);
