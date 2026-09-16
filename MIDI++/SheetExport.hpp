@@ -189,7 +189,18 @@ struct StyleOptions {
     int transpose = 0;               // semitones, applied before mapping
     bool autoTranspose = false;      // search around transpose for the best fit
     int resilience = 2;              // how much better a transposition must score to win
+    // The search may change transposition part-way and tell the reader where.
+    // Not in the original, which transposes a sheet once.
+    bool autoSections = false;       // let the search split the sheet into sections
+    int sectionSwitchCost = 12;      // notes a change must bring onto keys to be worth making
+    double sectionMinSeconds = 8;    // a section shorter than this is not made
+    int sectionRestMs = 250;         // a change needs a rest at least this long before it
+    int sectionRange = 12;           // semitones either side of transpose the search tries
 };
+
+// A stretch of the sheet under one transposition, in seconds, both ends
+// inclusive. The reader is told "Transpose by" where each one starts.
+struct Section { double from = 0; double to = 0; int semitones = 0; };
 
 struct Segment { std::string text; bool outOfRange = false; };
 
@@ -201,6 +212,7 @@ struct StyledItem {
     std::string separator;           // what follows a chord
     Rhythm rhythm = Rhythm::Long;
     double ms = 0;                   // onset of the chord's first note
+    double msEnd = 0;                // onset of its last note
     double beatMs = 500;             // length of a beat at that onset
 };
 
@@ -212,7 +224,8 @@ struct StyledResult {
     size_t merged = 0;     // a pitch repeated inside one struck chord, written once
     size_t unmapped = 0;   // outside A0 to C8, or missing from the mapping; written as _
     size_t hidden = 0;     // out-of-range notes left out because showOutOfRange is off
-    int transposition = 0;
+    int transposition = 0; // of the first section
+    std::vector<Section> sections;   // every run of one transposition, in order; one for a plain sheet
     bool hasTempo = false;
 };
 // notes + merged + unmapped + hidden == the number of notes handed in.
@@ -407,6 +420,100 @@ inline int BestTransposition(const std::vector<TimedNote>& notes, const std::map
     return bests.front();
 }
 
+// A chord as the section search sees it: its notes, and its first and last
+// onsets in milliseconds.
+struct SearchChord { std::vector<TimedNote> notes; double ms = 0; double msEnd = 0; };
+
+// Which chord each note joins, for notes sorted by onset. The window is
+// chained, as in Style: a note is measured against the one before it.
+inline std::vector<size_t> ChordIndices(const std::vector<TimedNote>& notes, double quantizeMs) {
+    std::vector<size_t> indices(notes.size(), 0);
+    size_t chord = 0;
+    double last = 0;
+    for (size_t i = 0; i < notes.size(); ++i) {
+        const double ms = notes[i].seconds * 1000;
+        if (i > 0 && !(std::abs(ms - last) < quantizeMs)) ++chord;
+        indices[i] = chord;
+        last = ms;
+    }
+    return indices;
+}
+
+// The transposition of each chord, chosen so that the sheet scores highest
+// as the original scores a sheet, chord by chord, less a cost for every
+// change. A section shorter than sectionMinSeconds is not made, unless it is
+// the whole sheet, and a change needs a rest of sectionRestMs before it.
+// Candidates are tried nearest transpose first, lower before higher, and a
+// tie keeps the earlier one, so the answer is the same in the page's script.
+inline std::vector<int> BestSections(const std::vector<SearchChord>& chords, const std::map<std::string, std::string>& mapping, const StyleOptions& o) {
+    const size_t n = chords.size();
+    std::vector<int> candidates{o.transpose};
+    for (int d = 1; d <= o.sectionRange; ++d) { candidates.push_back(o.transpose - d); candidates.push_back(o.transpose + d); }
+    const size_t T = candidates.size();
+    const long long cost = 2LL * o.sectionSwitchCost;
+    const double minMs = o.sectionMinSeconds * 1000, restMs = o.sectionRestMs;
+    constexpr long long NONE = -(1LL << 60);
+    // prefix[t][k]: the score of chords 0 to k - 1 under candidate t.
+    std::vector<std::vector<long long>> prefix(T, std::vector<long long>(n + 1, 0));
+    for (size_t t = 0; t < T; ++t)
+        for (size_t k = 0; k < n; ++k) prefix[t][k + 1] = prefix[t][k] + TranspositionScore(chords[k].notes, candidates[t], mapping);
+    // closed[i][t]: the best score of chords 0 to i with the last section under
+    // t and long enough to end at i; from[i][t] is that section's first chord.
+    // open[j][t]: the best score before a section starting at chord j under t,
+    // the change paid; before[j][t] is the candidate of the section before.
+    std::vector<std::vector<long long>> closed(n, std::vector<long long>(T, NONE)), open(n, std::vector<long long>(T, NONE));
+    std::vector<std::vector<size_t>> from(n, std::vector<size_t>(T, 0)), before(n, std::vector<size_t>(T, 0));
+    std::vector<long long> running(T, NONE);
+    std::vector<size_t> runningFrom(T, 0);
+    size_t admit = 0;   // the next start the running best has not taken in
+    for (size_t i = 0; i < n; ++i) {
+        if (i == 0) {
+            for (size_t t = 0; t < T; ++t) open[0][t] = 0;
+        } else if (chords[i].ms - chords[i - 1].msEnd >= restMs) {
+            size_t bestAt = 0, secondAt = 0; long long best = NONE, second = NONE;
+            for (size_t t = 0; t < T; ++t) {
+                const long long value = closed[i - 1][t];
+                if (value > best) { second = best; secondAt = bestAt; best = value; bestAt = t; }
+                else if (value > second) { second = value; secondAt = t; }
+            }
+            for (size_t t = 0; t < T; ++t) {
+                const long long other = t == bestAt ? second : best;
+                if (other == NONE) continue;
+                open[i][t] = other - cost;
+                before[i][t] = t == bestAt ? secondAt : bestAt;
+            }
+        }
+        while (admit <= i && chords[i].ms - chords[admit].ms >= minMs) {
+            for (size_t t = 0; t < T; ++t) {
+                if (open[admit][t] == NONE) continue;
+                const long long value = open[admit][t] - prefix[t][admit];
+                if (value > running[t]) { running[t] = value; runningFrom[t] = admit; }
+            }
+            ++admit;
+        }
+        for (size_t t = 0; t < T; ++t) {
+            if (running[t] == NONE) continue;
+            closed[i][t] = prefix[t][i + 1] + running[t];
+            from[i][t] = runningFrom[t];
+        }
+        // The whole sheet as one section is always allowed, however short.
+        if (i + 1 == n && admit == 0)
+            for (size_t t = 0; t < T; ++t) { closed[i][t] = prefix[t][n]; from[i][t] = 0; }
+    }
+    std::vector<int> shifts(n, o.transpose);
+    if (n == 0) return shifts;
+    size_t t = 0;
+    for (size_t u = 1; u < T; ++u) if (closed[n - 1][u] > closed[n - 1][t]) t = u;
+    for (size_t end = n; end > 0;) {
+        const size_t start = from[end - 1][t];
+        for (size_t k = start; k < end; ++k) shifts[k] = candidates[t];
+        if (start == 0) break;
+        t = before[start][t];
+        end = start;
+    }
+    return shifts;
+}
+
 inline std::optional<std::string> BpmComment(long previous, long next, BpmStyle style, int minimum) {
     const bool faster = next > previous;
     const double larger = static_cast<double>(faster ? next : previous);
@@ -481,9 +588,11 @@ inline std::string EscapeHtml(const std::string& text) {
 
 } // namespace detail
 
+// sections override the transposition, searched or not, wherever a chord
+// starts inside one.
 inline StyledResult Style(std::vector<TimedNote> notes, const std::map<std::string, std::string>& mapping,
                           std::vector<TempoMark> tempos = {}, std::vector<MeterMark> meters = {},
-                          const StyleOptions& o = {}) {
+                          const StyleOptions& o = {}, const std::vector<Section>& sections = {}) {
     using Kind = StyledItem::Kind;
     StyledResult r;
     const auto bySeconds = [](const auto& a, const auto& b) { return a.seconds < b.seconds; };
@@ -491,8 +600,27 @@ inline StyledResult Style(std::vector<TimedNote> notes, const std::map<std::stri
     std::stable_sort(tempos.begin(), tempos.end(), bySeconds);
     std::stable_sort(meters.begin(), meters.end(), bySeconds);
     r.hasTempo = !tempos.empty();
-    r.transposition = o.autoTranspose && !notes.empty()
-        ? detail::BestTransposition(notes, mapping, o.transpose, o.resilience) : o.transpose;
+
+    // Chords first, then one transposition per chord: the sheet's, the
+    // search's, or a section's.
+    const auto chordOf = detail::ChordIndices(notes, o.quantizeMs);
+    std::vector<detail::SearchChord> chords;
+    for (size_t i = 0; i < notes.size(); ++i) {
+        if (chordOf[i] == chords.size()) chords.push_back({{}, notes[i].seconds * 1000, notes[i].seconds * 1000});
+        chords.back().notes.push_back(notes[i]);
+        chords.back().msEnd = notes[i].seconds * 1000;
+    }
+    const int base = o.autoTranspose && !notes.empty() ? detail::BestTransposition(notes, mapping, o.transpose, o.resilience) : o.transpose;
+    std::vector<int> shifts(chords.size(), base);
+    if (o.autoTranspose && o.autoSections && !chords.empty()) shifts = detail::BestSections(chords, mapping, o);
+    for (size_t k = 0; k < chords.size(); ++k)
+        for (const auto& section : sections)
+            if (chords[k].ms / 1000 >= section.from && chords[k].ms / 1000 <= section.to) shifts[k] = section.semitones;
+    r.transposition = chords.empty() ? base : shifts[0];
+    for (size_t k = 0; k < chords.size(); ++k) {
+        if (k == 0 || shifts[k] != shifts[k - 1]) r.sections.push_back({chords[k].ms / 1000, chords[k].msEnd / 1000, shifts[k]});
+        else r.sections.back().to = chords[k].msEnd / 1000;
+    }
 
     const auto comment = [&](std::string text) {
         StyledItem item; item.kind = Kind::Comment; item.text = std::move(text);
@@ -531,8 +659,7 @@ inline StyledResult Style(std::vector<TimedNote> notes, const std::map<std::stri
     enum class Next { Start, Unset, Set } next = Next::Start;
     double nextBar = 0, penalty = 0;
     std::vector<detail::Placed> current;
-    bool haveLast = false;
-    double last = 0;
+    size_t currentChord = 0;
 
     const auto flush = [&] {
         if (current.empty()) return;
@@ -555,6 +682,8 @@ inline StyledResult Style(std::vector<TimedNote> notes, const std::map<std::stri
         auto item = detail::RenderChord(chord, quantized, o, r);
         item.ms = chord.front().ms;
         item.beatMs = chord.front().beatMs;
+        item.msEnd = chord.front().ms;
+        for (const auto& n : chord) item.msEnd = (std::max)(item.msEnd, n.ms);
         r.items.push_back(std::move(item));
         current.clear();
     };
@@ -596,13 +725,18 @@ inline StyledResult Style(std::vector<TimedNote> notes, const std::map<std::stri
             continue;
         }
         const auto& note = notes[event.index];
-        auto placed = detail::Locate(note.seconds * 1000, note.midi + r.transposition, mapping, o);
+        // The chords were grouped above, with the chained window: each note
+        // measured against the one before it, not the chord's first note. A
+        // chord that changes transposition says so before it.
+        const size_t k = chordOf[event.index];
+        if (!current.empty() && k != currentChord) flush();
+        if (current.empty()) {
+            currentChord = k;
+            if (k > 0 && shifts[k] != shifts[k - 1]) comment("Transpose by: " + std::to_string(-shifts[k]));
+        }
+        auto placed = detail::Locate(note.seconds * 1000, note.midi + shifts[k], mapping, o);
         placed.beatMs = bpm > 0 ? 60000 / bpm : 500;
-        if (!haveLast) { haveLast = true; last = placed.ms; }
-        // Chained: each note is measured against the one before it, not
-        // against the chord's first note.
-        if (std::abs(placed.ms - last) < o.quantizeMs) { current.push_back(placed); last = placed.ms; }
-        else { flush(); current.push_back(placed); last = placed.ms; }
+        current.push_back(placed);
         checkBreak(current.front());
     }
     flush();
@@ -617,15 +751,15 @@ inline StyledResult Style(std::vector<TimedNote> notes, const std::map<std::stri
     while (!kept.empty() && kept.back().kind == Kind::Break) kept.pop_back();
     r.items = std::move(kept);
 
-    std::vector<size_t> chords;
+    std::vector<size_t> written;
     for (size_t i = 0; i < r.items.size(); ++i)
-        if (r.items[i].kind == Kind::Chord) chords.push_back(i);
-    for (size_t c = 0; c < chords.size(); ++c) {
-        auto& item = r.items[chords[c]];
+        if (r.items[i].kind == Kind::Chord) written.push_back(i);
+    for (size_t c = 0; c < written.size(); ++c) {
+        auto& item = r.items[written[c]];
         // The last chord has nothing after it, so no separator. The original
         // writes its longest one there.
-        if (c + 1 == chords.size()) { item.rhythm = Rhythm::Long; item.separator.clear(); continue; }
-        const double difference = r.items[chords[c + 1]].ms - item.ms - 0.5;
+        if (c + 1 == written.size()) { item.rhythm = Rhythm::Long; item.separator.clear(); continue; }
+        const double difference = r.items[written[c + 1]].ms - item.ms - 0.5;
         // The original takes the half millisecond off twice on the way to the
         // colour, and once for the separator.
         item.rhythm = detail::RhythmFor(item.beatMs, difference - 0.5);

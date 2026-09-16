@@ -23,8 +23,13 @@
 
 namespace sheet {
 
-// A run transposed on its own, in seconds, both ends inclusive.
-struct Region { double from = 0; double to = 0; int semitones = 0; };
+// A run the user marked, in seconds, both ends inclusive. Notes shifted
+// rewrites the notes and the reader sees only different keys; Transpose
+// sets the reader's transposition there and the sheet says so.
+struct Region {
+    enum class Kind { NotesShifted, Transpose };
+    double from = 0; double to = 0; int semitones = 0; Kind kind = Kind::NotesShifted;
+};
 
 struct PageInput {
     std::string title;                             // the MIDI file's stem
@@ -87,6 +92,11 @@ inline std::string JsonOptions(const StyleOptions& o) {
     field("transpose", std::to_string(o.transpose));
     field("autoTranspose", flag(o.autoTranspose));
     field("resilience", std::to_string(o.resilience));
+    field("autoSections", flag(o.autoSections));
+    field("sectionSwitchCost", std::to_string(o.sectionSwitchCost));
+    field("sectionMinSeconds", JsonNumber(o.sectionMinSeconds));
+    field("sectionRestMs", std::to_string(o.sectionRestMs));
+    field("sectionRange", std::to_string(o.sectionRange));
     return j + "}";
 }
 
@@ -110,7 +120,8 @@ inline std::string PageJson(const PageInput& in, const std::string& expectedText
         j += (i ? "," : "") + std::string("[") + JsonNumber(in.meters[i].seconds) + "," + std::to_string(in.meters[i].numerator) + "]";
     j += "],\"regions\":[";
     for (size_t i = 0; i < in.regions.size(); ++i)
-        j += (i ? "," : "") + std::string("[") + JsonNumber(in.regions[i].from) + "," + JsonNumber(in.regions[i].to) + "," + std::to_string(in.regions[i].semitones) + "]";
+        j += (i ? "," : "") + std::string("[") + JsonNumber(in.regions[i].from) + "," + JsonNumber(in.regions[i].to) + "," +
+             std::to_string(in.regions[i].semitones) + "," + std::to_string(static_cast<int>(in.regions[i].kind)) + "]";
     j += "],\"options\":" + JsonOptions(in.options) + ",\"expected\":" + JsonString(expectedText) + "}";
     return j;
 }
@@ -173,7 +184,8 @@ function defaults() {
   return {quantizeMs: 35, sequentialQuantize: true, curlyQuantizes: true, classicChordOrder: false, shifts: 0,
           outOfRangePlace: 2, showOutOfRange: true, outOfRangeMarks: false, outOfRangeSeparator: ":", tempoMarks: false,
           bpmChanges: true, bpmStyle: 0, minSpeedChange: 10, breaks: 0, beats: 4, missingBpm: 120, transpose: 0,
-          autoTranspose: false, resilience: 2};
+          autoTranspose: false, resilience: 2, autoSections: false, sectionSwitchCost: 12, sectionMinSeconds: 8,
+          sectionRestMs: 250, sectionRange: 12};
 }
 function noteName(midi) { return NAMES[midi % 12] + (Math.floor(midi / 12) - 1); }
 function oneOf(character, set) { return character.length === 1 && set.indexOf(character) >= 0; }
@@ -280,6 +292,78 @@ function bestTransposition(notes, mapping, stickTo, resilience) {
   for (let i = stickTo; i <= stickTo + 11; ++i) { consider(i); consider(-i); }
   return bests[0];
 }
+function chordIndices(notes, quantizeMs) {
+  const indices = new Array(notes.length).fill(0);
+  let chord = 0, last = 0;
+  for (let i = 0; i < notes.length; ++i) {
+    const ms = notes[i].seconds * 1000;
+    if (i > 0 && !(Math.abs(ms - last) < quantizeMs)) ++chord;
+    indices[i] = chord;
+    last = ms;
+  }
+  return indices;
+}
+function bestSections(chords, mapping, o) {
+  const n = chords.length;
+  const candidates = [o.transpose];
+  for (let d = 1; d <= o.sectionRange; ++d) { candidates.push(o.transpose - d); candidates.push(o.transpose + d); }
+  const T = candidates.length;
+  const cost = 2 * o.sectionSwitchCost;
+  const minMs = o.sectionMinSeconds * 1000, restMs = o.sectionRestMs;
+  const NONE = -Infinity;
+  const prefix = candidates.map(() => new Array(n + 1).fill(0));
+  for (let t = 0; t < T; ++t)
+    for (let k = 0; k < n; ++k) prefix[t][k + 1] = prefix[t][k] + transpositionScore(chords[k].notes, candidates[t], mapping);
+  const closed = [], open = [], from = [], before = [];
+  for (let i = 0; i < n; ++i) { closed.push(new Array(T).fill(NONE)); open.push(new Array(T).fill(NONE)); from.push(new Array(T).fill(0)); before.push(new Array(T).fill(0)); }
+  const running = new Array(T).fill(NONE), runningFrom = new Array(T).fill(0);
+  let admit = 0;
+  for (let i = 0; i < n; ++i) {
+    if (i === 0) {
+      for (let t = 0; t < T; ++t) open[0][t] = 0;
+    } else if (chords[i].ms - chords[i - 1].msEnd >= restMs) {
+      let bestAt = 0, secondAt = 0, best = NONE, second = NONE;
+      for (let t = 0; t < T; ++t) {
+        const value = closed[i - 1][t];
+        if (value > best) { second = best; secondAt = bestAt; best = value; bestAt = t; }
+        else if (value > second) { second = value; secondAt = t; }
+      }
+      for (let t = 0; t < T; ++t) {
+        const other = t === bestAt ? second : best;
+        if (other === NONE) continue;
+        open[i][t] = other - cost;
+        before[i][t] = t === bestAt ? secondAt : bestAt;
+      }
+    }
+    while (admit <= i && chords[i].ms - chords[admit].ms >= minMs) {
+      for (let t = 0; t < T; ++t) {
+        if (open[admit][t] === NONE) continue;
+        const value = open[admit][t] - prefix[t][admit];
+        if (value > running[t]) { running[t] = value; runningFrom[t] = admit; }
+      }
+      ++admit;
+    }
+    for (let t = 0; t < T; ++t) {
+      if (running[t] === NONE) continue;
+      closed[i][t] = prefix[t][i + 1] + running[t];
+      from[i][t] = runningFrom[t];
+    }
+    if (i + 1 === n && admit === 0)
+      for (let t = 0; t < T; ++t) { closed[i][t] = prefix[t][n]; from[i][t] = 0; }
+  }
+  const shifts = new Array(n).fill(o.transpose);
+  if (n === 0) return shifts;
+  let t = 0;
+  for (let u = 1; u < T; ++u) if (closed[n - 1][u] > closed[n - 1][t]) t = u;
+  for (let end = n; end > 0;) {
+    const start = from[end - 1][t];
+    for (let k = start; k < end; ++k) shifts[k] = candidates[t];
+    if (start === 0) break;
+    t = before[start][t];
+    end = start;
+  }
+  return shifts;
+}
 function bpmComment(previous, next, style, minimum) {
   const faster = next > previous;
   const larger = faster ? next : previous, smaller = faster ? previous : next;
@@ -329,21 +413,41 @@ function tidyLines(text) {
 }
 )js"
 R"js(
+const NOTES_SHIFTED = 0, TRANSPOSE = 1;
 function applyRegions(notes, regions) {
   return notes.map(n => {
     let midi = n.midi;
-    for (const region of regions) if (n.seconds >= region.from && n.seconds <= region.to) midi += region.semitones;
+    for (const region of regions) if (region.kind !== TRANSPOSE && n.seconds >= region.from && n.seconds <= region.to) midi += region.semitones;
     return {seconds: n.seconds, midi};
   });
 }
-function style(notesIn, mapping, temposIn, metersIn, o) {
-  const r = {items: [], text: "", notes: 0, groups: 0, merged: 0, unmapped: 0, hidden: 0, transposition: 0, hasTempo: false};
+function transposeSections(regions) { return regions.filter(r => r.kind === TRANSPOSE); }
+function style(notesIn, mapping, temposIn, metersIn, o, sections) {
+  sections = sections || [];
+  const r = {items: [], text: "", notes: 0, groups: 0, merged: 0, unmapped: 0, hidden: 0, transposition: 0, sections: [], hasTempo: false};
   const bySeconds = (a, b) => a.seconds - b.seconds;
   const notes = notesIn.slice().sort(bySeconds);
   const tempos = temposIn.slice().sort(bySeconds);
   const meters = metersIn.slice().sort(bySeconds);
   r.hasTempo = tempos.length > 0;
-  r.transposition = o.autoTranspose && notes.length ? bestTransposition(notes, mapping, o.transpose, o.resilience) : o.transpose;
+  const chordOf = chordIndices(notes, o.quantizeMs);
+  const chords = [];
+  for (let i = 0; i < notes.length; ++i) {
+    if (chordOf[i] === chords.length) chords.push({notes: [], ms: notes[i].seconds * 1000, msEnd: notes[i].seconds * 1000});
+    chords[chords.length - 1].notes.push(notes[i]);
+    chords[chords.length - 1].msEnd = notes[i].seconds * 1000;
+  }
+  const base = o.autoTranspose && notes.length ? bestTransposition(notes, mapping, o.transpose, o.resilience) : o.transpose;
+  let shifts = new Array(chords.length).fill(base);
+  if (o.autoTranspose && o.autoSections && chords.length) shifts = bestSections(chords, mapping, o);
+  for (let k = 0; k < chords.length; ++k)
+    for (const section of sections)
+      if (chords[k].ms / 1000 >= section.from && chords[k].ms / 1000 <= section.to) shifts[k] = section.semitones;
+  r.transposition = chords.length ? shifts[0] : base;
+  for (let k = 0; k < chords.length; ++k) {
+    if (k === 0 || shifts[k] !== shifts[k - 1]) r.sections.push({from: chords[k].ms / 1000, to: chords[k].msEnd / 1000, semitones: shifts[k]});
+    else r.sections[r.sections.length - 1].to = chords[k].msEnd / 1000;
+  }
   const comment = text => { const it = item(COMMENT); it.text = text; r.items.push(it); };
   const lineBreak = () => r.items.push(item(BREAK));
   if (r.transposition !== 0) comment("Transpose by: " + (-r.transposition));
@@ -364,7 +468,7 @@ function style(notesIn, mapping, temposIn, metersIn, o) {
   events.sort((a, b) => a.seconds !== b.seconds ? a.seconds - b.seconds : a.order - b.order);
   let bpm = o.missingBpm, previousBpm = 0, haveTempo = false, scheduled = false, numerator = 4;
   const START = 0, UNSET = 1, SET = 2;
-  let next = START, nextBar = 0, penalty = 0, current = [], haveLast = false, last = 0;
+  let next = START, nextBar = 0, penalty = 0, current = [], currentChord = 0;
   const flush = () => {
     if (!current.length) return;
     let quantized = false;
@@ -424,11 +528,15 @@ function style(notesIn, mapping, temposIn, metersIn, o) {
       continue;
     }
     const note = notes[event.index];
-    const placed = locate(note.seconds * 1000, note.midi + r.transposition, mapping, o);
+    const k = chordOf[event.index];
+    if (current.length && k !== currentChord) flush();
+    if (!current.length) {
+      currentChord = k;
+      if (k > 0 && shifts[k] !== shifts[k - 1]) comment("Transpose by: " + (-shifts[k]));
+    }
+    const placed = locate(note.seconds * 1000, note.midi + shifts[k], mapping, o);
     placed.beatMs = bpm > 0 ? 60000 / bpm : 500;
-    if (!haveLast) { haveLast = true; last = placed.ms; }
-    if (Math.abs(placed.ms - last) < o.quantizeMs) { current.push(placed); last = placed.ms; }
-    else { flush(); current.push(placed); last = placed.ms; }
+    current.push(placed);
     checkBreak(current[0]);
   }
   flush();
@@ -439,12 +547,12 @@ function style(notesIn, mapping, temposIn, metersIn, o) {
   }
   while (kept.length && kept[kept.length - 1].kind === BREAK) kept.pop();
   r.items = kept;
-  const chords = [];
-  r.items.forEach((it, i) => { if (it.kind === CHORD) chords.push(i); });
-  for (let c = 0; c < chords.length; ++c) {
-    const it = r.items[chords[c]];
-    if (c + 1 === chords.length) { it.rhythm = LONG; it.separator = ""; continue; }
-    const difference = r.items[chords[c + 1]].ms - it.ms - 0.5;
+  const written = [];
+  r.items.forEach((it, i) => { if (it.kind === CHORD) written.push(i); });
+  for (let c = 0; c < written.length; ++c) {
+    const it = r.items[written[c]];
+    if (c + 1 === written.length) { it.rhythm = LONG; it.separator = ""; continue; }
+    const difference = r.items[written[c + 1]].ms - it.ms - 0.5;
     it.rhythm = rhythmFor(it.beatMs, difference - 0.5);
     it.separator = o.tempoMarks ? separator(it.beatMs, difference) : " ";
   }
@@ -483,7 +591,7 @@ function toHtml(r) {
   }
   return html;
 }
-return {defaults, applyRegions, style, toHtml, escapeHtml};
+return {defaults, applyRegions, transposeSections, style, toHtml, escapeHtml, NOTES_SHIFTED, TRANSPOSE};
 })();
 /*SHEET-CORE-END*/
 )js";
@@ -502,7 +610,8 @@ const stored = data.saved ? null : remembered();
 const options = Object.assign(SheetCore.defaults(), data.options, stored && stored.options || {});
 const page = Object.assign({fontSize: 10, lineHeight: 135}, data.page || {}, stored && stored.page || {});
 function remember() { try { localStorage.setItem(STORE, JSON.stringify({options, page})); } catch (e) {} }
-let regions = data.regions.map(r => ({from: r[0], to: r[1], semitones: r[2]}));
+const unpackRegion = r => ({from: r[0], to: r[1], semitones: r[2], kind: r[3] || SheetCore.NOTES_SHIFTED});
+let regions = data.regions.map(unpackRegion);
 const notes = data.notes.map(n => ({seconds: n[0], midi: n[1]}));
 const tempos = data.tempos.map(t => ({seconds: t[0], bpm: t[1]}));
 const meters = data.meters.map(m => ({seconds: m[0], numerator: m[1]}));
@@ -512,8 +621,15 @@ const time = seconds => {
   const whole = Math.floor(seconds), minutes = Math.floor(whole / 60), rest = whole % 60;
   return minutes + ":" + (rest < 10 ? "0" : "") + rest + "." + Math.floor((seconds - whole) * 10);
 };
+const signed = n => (n > 0 ? "+" : "") + n;
+const sameRun = (a, b) => a.from === b.from && a.to === b.to;
+// The transposition in force at a moment: the section it falls in.
+const shiftAt = seconds => {
+  for (const s of result.sections) if (seconds >= s.from && seconds <= s.to) return s.semitones;
+  return result.transposition;
+};
 function draw() {
-  result = SheetCore.style(SheetCore.applyRegions(notes, regions), data.mapping, tempos, meters, options);
+  result = SheetCore.style(SheetCore.applyRegions(notes, regions), data.mapping, tempos, meters, options, SheetCore.transposeSections(regions));
   const sheet = $("sheet");
   sheet.innerHTML = SheetCore.toHtml(result);
   sheet.style.fontSize = page.fontSize + "pt";
@@ -527,25 +643,55 @@ function draw() {
   if (result.merged) count += " " + result.merged + " shared notes merged.";
   if (result.unmapped) count += " " + result.unmapped + " unmapped.";
   if (result.hidden) count += " " + result.hidden + " out of range left out.";
-  if (result.transposition) count += " Transposed " + (result.transposition > 0 ? "+" : "") + result.transposition + ".";
+  if (result.sections.length > 1) count += " Transposed in " + result.sections.length + " sections.";
+  else if (result.transposition) count += " Transposed " + signed(result.transposition) + ".";
   $("count").textContent = count;
+  // Every run of one transposition when there is more than one, then the
+  // shifted runs. A run the user made can be removed; a found one cannot,
+  // but Keep turns the found runs into the user's.
   const list = $("sections");
   list.innerHTML = "";
-  if (!regions.length) list.innerHTML = '<li class="empty">Select part of the sheet to transpose it on its own.</li>';
-  regions.forEach((r, i) => {
+  const entry = (text, onRemove) => {
     const li = document.createElement("li");
-    const text = document.createElement("span");
-    text.textContent = time(r.from) + " to " + time(r.to) + ", " + (r.semitones > 0 ? "+" : "") + r.semitones + " semitones";
-    text.style.flex = "1";
-    const remove = document.createElement("button");
-    remove.className = "small";
-    remove.textContent = "Remove";
-    remove.onclick = () => { regions.splice(i, 1); draw(); };
-    li.append(text, remove);
+    const span = document.createElement("span");
+    span.textContent = text;
+    span.style.flex = "1";
+    li.appendChild(span);
+    if (onRemove) {
+      const remove = document.createElement("button");
+      remove.className = "small";
+      remove.textContent = "Remove";
+      remove.onclick = onRemove;
+      li.appendChild(remove);
+    }
     list.appendChild(li);
+  };
+  if (result.sections.length > 1) result.sections.forEach(s => {
+    const own = regions.findIndex(r => r.kind === SheetCore.TRANSPOSE && sameRun(r, s));
+    entry(time(s.from) + " to " + time(s.to) + ", transposed " + signed(s.semitones), own >= 0 ? () => { regions.splice(own, 1); draw(); } : null);
   });
+  regions.forEach((r, i) => {
+    if (r.kind === SheetCore.TRANSPOSE && !result.sections.some(s => sameRun(r, s))) {
+      entry(time(r.from) + " to " + time(r.to) + ", transposed " + signed(r.semitones) + ", inside another section", () => { regions.splice(i, 1); draw(); });
+    } else if (r.kind !== SheetCore.TRANSPOSE) {
+      entry(time(r.from) + " to " + time(r.to) + ", notes shifted " + signed(r.semitones), () => { regions.splice(i, 1); draw(); });
+    }
+  });
+  if (!list.children.length) list.innerHTML = '<li class="empty">Select part of the sheet to transpose it on its own, or to shift its notes.</li>';
+  const found = options.autoTranspose && options.autoSections && result.sections.length > 1;
+  $("keep").style.display = found ? "" : "none";
   $("beats-row").style.display = options.breaks === 1 ? "" : "none";
+  $("sections-row").style.display = options.autoTranspose ? "" : "none";
+  $("sections-rows").style.display = options.autoTranspose && options.autoSections ? "" : "none";
 }
+$("keep").onclick = () => {
+  regions = regions.filter(r => r.kind !== SheetCore.TRANSPOSE)
+    .concat(result.sections.map(s => ({from: s.from, to: s.to, semitones: s.semitones, kind: SheetCore.TRANSPOSE})));
+  options.autoSections = false;
+  document.querySelectorAll("[data-key]").forEach(el => el._show());
+  remember();
+  draw();
+};
 function control(el) {
   const key = el.dataset.key, target = el.dataset.page ? page : options;
   const read = () => {
@@ -586,7 +732,14 @@ function selectionRegion() {
     from = Math.min(from, it.ms / 1000);
     to = Math.max(to, it.msEnd / 1000);
   }
-  return from <= to ? {from, to, semitones: 0} : null;
+  return from <= to ? {from, to} : null;
+}
+// The toolbar's two amounts: the transposition in force over the selection,
+// and how far its notes are shifted.
+function showAmounts() {
+  const shifted = regions.find(r => r.kind !== SheetCore.TRANSPOSE && sameRun(r, pending));
+  $("selection-amount").textContent = signed(shiftAt(pending.from));
+  $("shift-amount").textContent = signed(shifted ? shifted.semitones : 0);
 }
 document.addEventListener("selectionchange", () => {
   const region = selectionRegion();
@@ -597,19 +750,31 @@ document.addEventListener("selectionchange", () => {
   toolbar.style.left = Math.max(8, Math.min(window.innerWidth - toolbar.offsetWidth - 8, rect.left)) + "px";
   toolbar.style.top = Math.max(8, rect.top - toolbar.offsetHeight - 8) + "px";
   $("selection-range").textContent = time(region.from) + " to " + time(region.to);
-  $("selection-amount").textContent = "0";
+  showAmounts();
 });
+// Transpose sets the selection's transposition, on top of the sheet's or
+// the search's, and the sheet says so where it starts and ends.
 function transposeSelection(by) {
   if (!pending) return;
-  const existing = regions.find(r => r.from === pending.from && r.to === pending.to);
-  if (existing) existing.semitones += by; else regions.push({from: pending.from, to: pending.to, semitones: by});
-  regions = regions.filter(r => r.semitones !== 0);
-  const shown = regions.find(r => r.from === pending.from && r.to === pending.to);
-  $("selection-amount").textContent = shown ? (shown.semitones > 0 ? "+" : "") + shown.semitones : "0";
+  const existing = regions.find(r => r.kind === SheetCore.TRANSPOSE && sameRun(r, pending));
+  if (existing) existing.semitones += by;
+  else regions.push({from: pending.from, to: pending.to, semitones: shiftAt(pending.from) + by, kind: SheetCore.TRANSPOSE});
   draw();
+  showAmounts();
+}
+// Shift notes moves the selection's notes and the reader sees other keys.
+function shiftSelection(by) {
+  if (!pending) return;
+  const existing = regions.find(r => r.kind !== SheetCore.TRANSPOSE && sameRun(r, pending));
+  if (existing) existing.semitones += by; else regions.push({from: pending.from, to: pending.to, semitones: by, kind: SheetCore.NOTES_SHIFTED});
+  regions = regions.filter(r => r.kind === SheetCore.TRANSPOSE || r.semitones !== 0);
+  draw();
+  showAmounts();
 }
 $("selection-down").onclick = () => transposeSelection(-1);
 $("selection-up").onclick = () => transposeSelection(1);
+$("shift-down").onclick = () => shiftSelection(-1);
+$("shift-up").onclick = () => shiftSelection(1);
 $("selection-close").onclick = () => { toolbar.style.display = "none"; window.getSelection().removeAllRanges(); };
 function copyText(text) {
   const fallback = () => {
@@ -631,7 +796,7 @@ $("copy").onclick = () => copyText(result.text).then(ok => {
   setTimeout(() => { button.textContent = "Copy sheet"; }, 1500);
 });
 $("save").onclick = () => {
-  const saved = Object.assign({}, data, {saved: true, options, page, regions: regions.map(r => [r.from, r.to, r.semitones]), expected: result.text});
+  const saved = Object.assign({}, data, {saved: true, options, page, regions: regions.map(r => [r.from, r.to, r.semitones, r.kind]), expected: result.text});
   const element = $("sheet-data");
   const before = element.textContent;
   element.textContent = JSON.stringify(saved).replace(/<\//g, "<\\/");
@@ -650,8 +815,9 @@ draw();
 // settings it embedded. A difference means the two translations of
 // midi-converter have drifted, which is a bug here.
 if (typeof data.expected === "string") {
-  const check = SheetCore.style(SheetCore.applyRegions(notes, data.regions.map(r => ({from: r[0], to: r[1], semitones: r[2]}))),
-                                data.mapping, tempos, meters, Object.assign(SheetCore.defaults(), data.options)).text;
+  const written = data.regions.map(unpackRegion);
+  const check = SheetCore.style(SheetCore.applyRegions(notes, written), data.mapping, tempos, meters,
+                                Object.assign(SheetCore.defaults(), data.options), SheetCore.transposeSections(written)).text;
   if (check !== data.expected) {
     console.error("The page's sheet differs from the app's. Expected:\n" + data.expected + "\nGot:\n" + check);
     $("parity").classList.add("shown");
@@ -662,15 +828,27 @@ if (typeof data.expected === "string") {
 
 } // namespace detail
 
+// The page's regions applied as the script applies them: shifted notes are
+// moved before styling, transposed runs are sections.
+inline std::vector<TimedNote> ShiftedNotes(const PageInput& in) {
+    std::vector<TimedNote> notes = in.notes;
+    for (auto& note : notes)
+        for (const auto& region : in.regions)
+            if (region.kind == Region::Kind::NotesShifted && note.seconds >= region.from && note.seconds <= region.to) note.midi += region.semitones;
+    return notes;
+}
+inline std::vector<Section> TransposeSections(const PageInput& in) {
+    std::vector<Section> sections;
+    for (const auto& region : in.regions)
+        if (region.kind == Region::Kind::Transpose) sections.push_back({region.from, region.to, region.semitones});
+    return sections;
+}
+
 // The editable page. The initial sheet is the app's own rendering, which the
 // script replaces with its own on load and checks against; rendered, when
 // given, receives that rendering so the caller has its counts.
 inline std::string ToEditorHtml(const PageInput& in, StyledResult* rendered = nullptr) {
-    std::vector<TimedNote> notes = in.notes;
-    for (auto& note : notes)
-        for (const auto& region : in.regions)
-            if (note.seconds >= region.from && note.seconds <= region.to) note.midi += region.semitones;
-    const auto initial = Style(std::move(notes), in.mapping, in.tempos, in.meters, in.options);
+    const auto initial = Style(ShiftedNotes(in), in.mapping, in.tempos, in.meters, in.options, TransposeSections(in));
     if (rendered) *rendered = initial;
     std::string html = "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><title>" + detail::EscapeHtml(in.title) +
         "</title><style>" + detail::kPageCss + "</style></head><body>\n"
@@ -703,8 +881,17 @@ inline std::string ToEditorHtml(const PageInput& in, StyledResult* rendered = nu
         "<label class=\"row\"><span>Find the best transposition</span><input type=\"checkbox\" data-key=\"autoTranspose\"></label>"
         "<p class=\"note\">Searches near Transpose for the shift that keeps the most notes on keys.</p>"
         "<label class=\"col\"><span>Resilience</span><div class=\"range\"><input type=\"range\" min=\"0\" max=\"20\" step=\"1\" data-key=\"resilience\"><output></output></div></label>"
-        "<p class=\"note\">How much better a shift must score to replace Transpose.</p>\n"
-        "<h2>Sections</h2><ul id=\"sections\"></ul>\n"
+        "<p class=\"note\">How much better a shift must score to replace Transpose.</p>"
+        "<div id=\"sections-row\"><label class=\"row\"><span>Change transposition part-way</span><input type=\"checkbox\" data-key=\"autoSections\"></label>"
+        "<p class=\"note\">Splits the sheet where another shift keeps more notes on keys, and says so in the sheet.</p></div>"
+        "<div id=\"sections-rows\">"
+        "<label class=\"col\"><span>Switch cost</span><div class=\"range\"><input type=\"range\" min=\"0\" max=\"60\" step=\"1\" data-key=\"sectionSwitchCost\" data-format=\"% notes\"><output></output></div></label>"
+        "<p class=\"note\">Notes a switch must bring onto keys to be worth making.</p>"
+        "<label class=\"col\"><span>Shortest section</span><div class=\"range\"><input type=\"range\" min=\"0\" max=\"60\" step=\"1\" data-key=\"sectionMinSeconds\" data-format=\"% s\"><output></output></div></label>"
+        "<label class=\"col\"><span>Rest before a switch</span><div class=\"range\"><input type=\"range\" min=\"0\" max=\"2000\" step=\"50\" data-key=\"sectionRestMs\" data-format=\"% ms\"><output></output></div></label>"
+        "<label class=\"col\"><span>Search range</span><div class=\"range\"><input type=\"range\" min=\"1\" max=\"24\" step=\"1\" data-key=\"sectionRange\" data-format=\"% semitones either way\"><output></output></div></label>"
+        "</div>\n"
+        "<h2>Sections</h2><ul id=\"sections\"></ul><button id=\"keep\">Keep these sections</button>\n"
         "<h2>Page</h2>"
         "<label class=\"col\"><span>Text size</span><div class=\"range\"><input type=\"range\" min=\"6\" max=\"24\" step=\"1\" data-key=\"fontSize\" data-page=\"1\" data-format=\"% pt\"><output></output></div></label>"
         "<label class=\"col\"><span>Line height</span><div class=\"range\"><input type=\"range\" min=\"100\" max=\"250\" step=\"5\" data-key=\"lineHeight\" data-page=\"1\" data-format=\"%%\"><output></output></div></label>"
@@ -717,7 +904,9 @@ inline std::string ToEditorHtml(const PageInput& in, StyledResult* rendered = nu
     html += "</div></main></div>\n"
         "<div id=\"selection\"><span id=\"selection-range\"></span><span>Transpose</span>"
         "<button id=\"selection-down\" class=\"small\">-</button><output id=\"selection-amount\">0</output>"
-        "<button id=\"selection-up\" class=\"small\">+</button><button id=\"selection-close\" class=\"small\">Done</button></div>\n"
+        "<button id=\"selection-up\" class=\"small\">+</button><span>Shift notes</span>"
+        "<button id=\"shift-down\" class=\"small\">-</button><output id=\"shift-amount\">0</output>"
+        "<button id=\"shift-up\" class=\"small\">+</button><button id=\"selection-close\" class=\"small\">Done</button></div>\n"
         "<script id=\"sheet-data\" type=\"application/json\">" + detail::PageJson(in, initial.text) + "</script>\n"
         "<script>" + detail::kPageCore + detail::kPageUi + "</script>\n</body></html>\n";
     return html;

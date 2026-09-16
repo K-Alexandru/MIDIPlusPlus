@@ -37,7 +37,13 @@ $cases = @(
     @{Name='preset-floor-at-zero'; File='MIDI++\VelocityPresets.hpp'; Group='curve'; Find='points[i] = std::clamp(std::max(points[i], floorValue), 1, kMaxVelocity);'; Replace='points[i] = std::clamp(points[i], 0, kMaxVelocity);'; Failure='a preset threshold that no input can select'},
     # midi-converter's window is chained. Measuring from the chord's first
     # note instead splits a roll the original keeps as one braced group.
-    @{Name='quantize-not-chained'; File='MIDI++\SheetExport.hpp'; Group='sheet'; Find='{ current.push_back(placed); last = placed.ms; }'; Replace='{ current.push_back(placed); }'; Failure='a spread chord is one braced group in played order'},
+    @{Name='quantize-not-chained'; File='MIDI++\SheetExport.hpp'; Group='sheet'; Find='        last = ms;'; Replace='        if (i == 0 || indices[i] != indices[i - 1]) last = ms;'; Failure='a spread chord is one braced group in played order'},
+    # A section change costs the reader a keypress. A search that does not
+    # charge for it splits the sheet wherever a chord scores a point more.
+    @{Name='switch-cost-ignored'; File='MIDI++\SheetExport.hpp'; Group='sheet'; Find='open[i][t] = other - cost;'; Replace='open[i][t] = other;'; Failure='a switch that does not earn its cost is not made'},
+    # And a search that never tells the reader where the change is has made a
+    # sheet that sounds wrong from that chord on.
+    @{Name='section-change-untold'; File='MIDI++\SheetExport.hpp'; Group='sheet'; Find='if (k > 0 && shifts[k] != shifts[k - 1]) comment("Transpose by: " + std::to_string(-shifts[k]));'; Replace='/* change untold */'; Failure='the change is told to the reader where it happens'},
     # Out-of-range notes are the notation's main difference from ours, which
     # drops them. Dropping them here too loses the feature silently.
     @{Name='out-of-range-dropped'; File='MIDI++\SheetExport.hpp'; Group='sheet'; Find='const bool drawOor = n.outOfRange && o.showOutOfRange;'; Replace='const bool drawOor = false;'; Failure='an out-of-range note is kept and marked'},

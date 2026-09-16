@@ -21,12 +21,12 @@ const unpack = data => ({
     notes: data.notes.map(n => ({seconds: n[0], midi: n[1]})),
     tempos: data.tempos.map(t => ({seconds: t[0], bpm: t[1]})),
     meters: data.meters.map(m => ({seconds: m[0], numerator: m[1]})),
-    regions: data.regions.map(r => ({from: r[0], to: r[1], semitones: r[2]})),
+    regions: data.regions.map(r => ({from: r[0], to: r[1], semitones: r[2], kind: r[3] || SheetCore.NOTES_SHIFTED})),
     mapping: data.mapping,
     options: Object.assign(SheetCore.defaults(), data.options),
 });
 const render = (d, options) =>
-    SheetCore.style(SheetCore.applyRegions(d.notes, d.regions), d.mapping, d.tempos, d.meters, options).text;
+    SheetCore.style(SheetCore.applyRegions(d.notes, d.regions), d.mapping, d.tempos, d.meters, options, SheetCore.transposeSections(d.regions)).text;
 const show = text => JSON.stringify(text.length > 400 ? text.slice(0, 400) + "..." : text);
 
 let failures = 0, checks = 0;

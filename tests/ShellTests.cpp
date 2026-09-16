@@ -643,7 +643,7 @@ void WriteSheetPageParityFixture(const std::filesystem::path& file, const std::m
     in.mapping = mapping;
     in.tempos = {{0.0, 120}, {4.0, 150}, {8.0, 100}, {8.5, 100}};
     in.meters = {{0.0, 4}, {6.0, 3}};
-    in.regions = {{1.0, 3.0, 12}, {9.0, 9.5, -7}};
+    in.regions = {{1.0, 3.0, 12}, {9.0, 9.5, -7}, {5.0, 6.5, 3, sheet::Region::Kind::Transpose}};
     const int pitches[]{60, 64, 67, 72, 59, 62, 25, 100, 61, 66, 70, 73, 48, 55, 84, 96, 97, 35, 36, 108, 21, 60};
     double t = 0;
     for (int i = 0; i < 40; ++i) {
@@ -664,18 +664,23 @@ void WriteSheetPageParityFixture(const std::filesystem::path& file, const std::m
     { sheet::StyleOptions o; o.showOutOfRange = false; o.outOfRangePlace = sheet::Place::End; cases.push_back({"out of range hidden", o}); }
     { sheet::StyleOptions o; o.autoTranspose = true; o.transpose = 2; o.resilience = 0; cases.push_back({"auto transpose", o}); }
     { sheet::StyleOptions o; o.transpose = -5; o.shifts = sheet::Place::InOrder; o.bpmChanges = false; cases.push_back({"down five, no tempo", o}); }
+    { sheet::StyleOptions o; o.autoTranspose = true; o.autoSections = true; o.sectionSwitchCost = 0; o.sectionMinSeconds = 0; o.sectionRestMs = 0;
+      cases.push_back({"sections, free to switch", o}); }
+    { sheet::StyleOptions o; o.autoTranspose = true; o.autoSections = true; o.transpose = 1; o.sectionSwitchCost = 6; o.sectionMinSeconds = 2;
+      o.sectionRestMs = 100; o.sectionRange = 7; cases.push_back({"sections, paid switches", o}); }
     std::string json = "{\"data\":" + sheet::detail::PageJson(in, "") + ",\"cases\":[";
+    bool anySplit = false;
     for (size_t i = 0; i < cases.size(); ++i) {
-        auto notes = in.notes;
-        for (auto& note : notes)
-            for (const auto& region : in.regions)
-                if (note.seconds >= region.from && note.seconds <= region.to) note.midi += region.semitones;
-        const auto result = sheet::Style(notes, in.mapping, in.tempos, in.meters, cases[i].second);
+        const auto result = sheet::Style(sheet::ShiftedNotes(in), in.mapping, in.tempos, in.meters, cases[i].second, sheet::TransposeSections(in));
         Require(result.notes > 0, "the parity fixture produced no sheet");
+        if (cases[i].second.autoSections && result.sections.size() > 2) anySplit = true;
         json += (i ? "," : "") + std::string("{\"name\":") + sheet::detail::JsonString(cases[i].first) +
                 ",\"options\":" + sheet::detail::JsonOptions(cases[i].second) +
                 ",\"expected\":" + sheet::detail::JsonString(result.text) + "}";
     }
+    // The marked section makes two runs of its own; a case that only reaches
+    // two has not exercised the search's own splits.
+    Require(anySplit, "the parity fixture's section search found no split of its own");
     json += "]}\n";
     std::ofstream out(file, std::ios::binary); out << json;
     Require(static_cast<bool>(out), "the parity fixture was not written");
@@ -1600,6 +1605,86 @@ void SheetStyleTests() {
             "a meter change is placed in seconds");
 
     std::cout << "PASS styled sheet: chained quantize, orders, out of range, rhythm colours, bars, tempo, transpose, HTML\n";
+}
+
+// The section search: one transposition per stretch of the sheet, chosen
+// for the most notes on keys less a cost for every change, with the reader
+// told where to change. Not in midi-converter, which transposes a sheet once.
+void SheetSectionTests() {
+    // The first half sits on keys as written; the second half only six
+    // semitones up, where the first half falls off them.
+    const std::map<std::string, std::string> mapping{{"C4", "t"}, {"E4", "y"}, {"G4", "u"}, {"C#4", "%"}};
+    std::vector<sheet::TimedNote> notes;
+    for (int i = 0; i < 10; ++i) for (const int midi : {60, 64, 67}) notes.push_back({i / 5.0, midi});
+    for (int i = 0; i < 10; ++i) for (const int midi : {54, 58, 61}) notes.push_back({2.3 + i / 5.0, midi});
+    sheet::StyleOptions o;
+    o.bpmChanges = false;
+    o.autoTranspose = true;
+    o.autoSections = true;
+    o.sectionSwitchCost = 12;
+    o.sectionMinSeconds = 1;
+    o.sectionRestMs = 250;
+    const auto close = [](double a, double b) { return std::abs(a - b) < 1e-9; };
+    const auto mentions = [](const std::string& text) {
+        size_t count = 0;
+        for (size_t at = text.find("Transpose by:"); at != std::string::npos; at = text.find("Transpose by:", at + 1)) ++count;
+        return count;
+    };
+
+    // The split gains thirty notes, so it is worth a twelve-note switch. The
+    // change is told to the reader once, between the halves, and the sheet's
+    // own transposition is the first section's.
+    auto split = sheet::Style(notes, mapping, {}, {}, o);
+    Require(split.sections.size() == 2, "the search splits a sheet whose halves want different transpositions");
+    Require(split.sections[0].semitones == 0 && split.sections[1].semitones == 6, "each section takes the transposition that keeps its notes on keys");
+    Require(close(split.sections[0].from, 0) && close(split.sections[0].to, 1.8) && close(split.sections[1].from, 2.3) && close(split.sections[1].to, 4.1),
+            "a section runs from its first chord's onset to its last chord's last note");
+    Require(split.transposition == 0 && split.text.find("Transpose by:") != 0, "the first section's transposition is the sheet's");
+    Require(mentions(split.text) == 1 && split.text.find("\nTranspose by: -6\n") != std::string::npos, "the change is told to the reader where it happens");
+    Require(split.text.find("[tyu]", split.text.find("Transpose by: -6")) != std::string::npos, "the second half is written on keys after the change");
+    Require(split.notes == 60, "every note reached a key");
+
+    // A switch must earn its cost: at forty notes the same split is not made.
+    auto costly = o; costly.sectionSwitchCost = 40;
+    auto one = sheet::Style(notes, mapping, {}, {}, costly);
+    Require(one.sections.size() == 1 && one.transposition == 0 && mentions(one.text) == 0, "a switch that does not earn its cost is not made");
+
+    // A section shorter than the minimum is not made, and a sheet shorter
+    // than the minimum is one section.
+    auto longer = o; longer.sectionMinSeconds = 3;
+    Require(sheet::Style(notes, mapping, {}, {}, longer).sections.size() == 1, "a section shorter than the minimum is not made");
+    auto longest = o; longest.sectionMinSeconds = 60;
+    Require(sheet::Style(notes, mapping, {}, {}, longest).sections.size() == 1, "a sheet shorter than the minimum is one section");
+
+    // A switch needs a rest before it. The halves are half a second apart
+    // and the chords within them a fifth, so 600 ms leaves nowhere to switch.
+    auto rested = o; rested.sectionRestMs = 600;
+    Require(sheet::Style(notes, mapping, {}, {}, rested).sections.size() == 1, "a switch needs a rest before it");
+    auto restless = o; restless.sectionRestMs = 0; restless.sectionMinSeconds = 0; restless.sectionSwitchCost = 0;
+    auto free = sheet::Style(notes, mapping, {}, {}, restless);
+    Require(free.sections.size() == 2 && free.sections[1].semitones == 6, "with no cost, minimum or rest the same split is found");
+
+    // The search stays within its range of Transpose.
+    auto narrow = o; narrow.sectionRange = 5;
+    Require(sheet::Style(notes, mapping, {}, {}, narrow).sections.size() == 1, "the search stays within its range");
+
+    // A section the user marks overrides the search and the sheet's own
+    // transposition, and the sheet says where it starts and where it ends.
+    auto plain = o; plain.autoTranspose = false; plain.autoSections = false;
+    auto marked = sheet::Style(notes, mapping, {}, {}, plain, {{2.3, 4.1, 6}});
+    Require(marked.sections.size() == 2 && marked.sections[1].semitones == 6 && marked.text == split.text, "a marked section reads as a found one");
+    auto opening = sheet::Style(notes, mapping, {}, {}, plain, {{0.0, 0.5, 3}});
+    Require(opening.text.starts_with("Transpose by: -3\n") && opening.text.find("\nTranspose by: 0\n") != std::string::npos,
+            "a marked opening is announced and its end returns the reader to the sheet's transposition");
+    Require(opening.sections.size() == 2 && close(opening.sections[0].to, 0.4) && close(opening.sections[1].from, 0.6), "a marked section covers the chords that start inside it");
+
+    // Every chord's transposition is the section's, and the grouping is the
+    // chained window Style always used.
+    auto page = sheet::Style(notes, mapping, {}, {}, plain);
+    const auto chordsWritten = std::count_if(page.items.begin(), page.items.end(), [](const auto& item) { return item.kind == sheet::StyledItem::Kind::Chord; });
+    Require(page.sections.size() == 1 && close(page.sections[0].from, 0) && close(page.sections[0].to, 4.1) && chordsWritten == 20,
+            "a plain sheet is one section over every chord");
+    std::cout << "PASS sheet sections: the search splits, pays for switches, keeps sections long and rested, stays in range; marked sections announce themselves\n";
 }
 
 // Three index spaces once disagreed about what "device 1" meant, which is
@@ -2864,7 +2949,7 @@ int wmain(int argc, wchar_t** argv) {
             else if (group == L"connect") ConnectAndWarningTests(directory);
             else if (group == L"curve") { VelocityCurveDrawingTests(directory / L"config.json"); BuiltinCurveTests(directory); VelocityCurveEditorModelTests(); VelocityPresetTests(); }
             else if (group == L"drums") DrumDetectionTests(directory);
-            else if (group == L"sheet") { SheetExportTests(); SheetStyleTests(); SheetMenuTests(directory); }
+            else if (group == L"sheet") { SheetExportTests(); SheetStyleTests(); SheetSectionTests(); SheetMenuTests(directory); }
             else if (group == L"audio") AudioToMidiTests(directory);
             else if (group == L"midi-out") MidiOutputTests(directory / L"config.json");
             else if (group == L"vel-mod") VelocityModifierTests(directory / L"config.json");
@@ -2881,6 +2966,7 @@ int wmain(int argc, wchar_t** argv) {
         PortResolutionTests();
         SheetExportTests();
         SheetStyleTests();
+        SheetSectionTests();
         SheetMenuTests(directory);
         AudioToMidiTests(directory);
         TwoDeviceTests();
