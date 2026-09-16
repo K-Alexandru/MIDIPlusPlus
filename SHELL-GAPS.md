@@ -119,6 +119,13 @@ The reports as filed:
 Found by looking at the built shell. Panel work, with anchors so nobody has to
 find them twice.
 
+**All eight closed, checked 2026-09-15 against the code and the render
+captures:** the headers centre on measured text, files sort by name, size and
+date, the highlight follows the rounded shoulders, the top strip and the pills
+are the same in both modes, Refresh is an icon everywhere, Export is a menu,
+and "Loading..." is a status-bar field under a clip rect. The list stays as
+the record of what was asked.
+
 - **SOLO is not centred.** `Panels.cpp:1586`. MUTE and SOLO are centred by the
   same arithmetic, so if only one looks wrong the header rectangle is wrong,
   not the centring.
@@ -349,8 +356,9 @@ audio, and a finished `.mid` is saved in the MIDI folder and rescanned.
 
 The owner let Claude add `ConvertAudio`, `ConvertCancel` and `ConvertProgress`
 and the `converting`, `conversionFailed` and `conversionStatus` fields this
-once, outside the usual seat split. The popup is minimal and still owes the
-panel seat a styling pass.
+once, outside the usual seat split. The popup was reworked on 2026-09-15 at
+the owner's request: one primary action, the file picker second, sign-in as
+a footnote row.
 
 Still open:
 - A release bundle: `converter\` beside the exe with an embeddable Python,
@@ -432,8 +440,9 @@ for the owner rather than a task. What is left, reordered 2026-09-09:
    every skin and DPI.
 2. **Done 2026-09-11, option 2.** Improved Low Volume, Logarithmic and
    Exponential keep their R5 shapes stretched across all 32 steps, so every
-   built-in but Pro can play loud. The Linear Coarse and Linear Fine naming is
-   still open, see `VELOCITY-CURVES.md`.
+   built-in but Pro can play loud. The Linear Coarse and Linear Fine naming
+   was closed the same day: the owner reports both work in game, so they stay
+   as R5 shipped them, see `VELOCITY-CURVES.md`.
 3. **Done 2026-09-11.** Pro, from the R5 config. See the Pro section above.
 4. **Done 2026-09-09, both halves.** MIDI output, `MIDI-OUTPUT.md`: the
    engine half at `7205e37`, the panel half at `08aa1ab` as a Keystrokes or
@@ -448,9 +457,10 @@ for the owner rather than a task. What is left, reordered 2026-09-09:
    selected layout, since choosing ctrl makes fifteen taps play a note in the
    88-key layout and the app is the only thing that can work that out. The
    panel control and the conflict list landed at `08aa1ab`.
-6. **Done 2026-09-11, engine side.** Drum detection and auto-transpose; the
-   panel still owes their two Settings switches.
-7. The conversion pipeline, which starts with reading two licences.
+6. **Done, both halves.** Drum detection and auto-transpose in the engine on
+   2026-09-11, their Settings switches on 2026-09-15.
+7. **Done 2026-09-15.** The conversion pipeline: the bundle, the sign-in
+   window, the Export menu with the styled and coloured sheets.
 
 Not on this list because they are not shell work: the Wooting and two-device
 checks, which need the owner at the keyboard. The duplicate
