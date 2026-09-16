@@ -38,7 +38,9 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
   transposition is named by time, since the shell renders no sheet.
 - UI copy follows `HANDOFF.md` section 15; attribution follows section 13.
 - One branch. New work goes in a worktree off it and merges back; a merged
-  branch is deleted, locally and on `origin`. The owner confirms each publish.
+  branch is deleted, locally and on `origin`.
+- Test builds stay on this PC (owner, 2026-09-16): `make-release.ps1` zips to
+  `build\release\` and the reply gives the paths. No GitHub release uploads.
 
 ## Relevant files
 
