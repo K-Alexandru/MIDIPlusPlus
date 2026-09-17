@@ -1,4 +1,4 @@
-﻿# Start here
+# Start here
 
 Updated 2026-09-16 on `claude/consolidate-2026-09-15`, the one branch. Read
 `HANDOFF.md` only where this points, `SHELL-GAPS.md` (owed) and `SEATS.md`.
