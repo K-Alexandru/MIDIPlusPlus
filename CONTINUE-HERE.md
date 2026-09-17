@@ -28,7 +28,8 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
   Injection never shares a thread with the message loop (`HANDOFF.md`
   section 4). Legit mode applies at dispatch (`LEGIT-MODE.md`).
 - Timing numbers stop at the keyboard hook; never call them end-to-end latency.
-- A skin chooses colour only; 1090 x 635 collapsed, floor 900 x 610.
+- Skins are Blue, Blue Dark, Orange and Orange Dark (Orange was Terracotta).
+  A skin chooses colour only; 1090 x 635 collapsed, floor 900 x 610.
 - Six built-in curves; S-Curve's engine table is the inverse of the R5 values.
 - MP3 to MIDI is a Python sidecar, never in process. YouTube links use a
   signed-in session from `signin.py`; the app never reads browser cookies.

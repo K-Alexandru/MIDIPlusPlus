@@ -129,8 +129,9 @@ inline void Shape(Skin& s) {
 }
 
 // Named for the accent, because that is now the whole of the difference.
-// #0B6EC4 is a plain blue; #B5443A is a brick red rather than an orange, and
-// calling it Orange would describe a colour the app does not draw.
+// #0B6EC4 is a plain blue. #B5443A is nearer brick than orange, but the owner
+// chose Orange on 2026-09-16 as the plain word for the pair; Terracotta was
+// the one skin name that needed explaining.
 inline Skin Blue() {
     Skin s{};
     s.name = "Blue";
@@ -168,9 +169,9 @@ inline Skin BlueDark() {
     return s;
 }
 
-inline Skin Terracotta() {
+inline Skin Orange() {
     Skin s{};
-    s.name = "Terracotta";
+    s.name = "Orange";
     s.dark = false;
     Shape(s);
     s.surface = { Rgb(0xE6E2DB), Rgb(0xF1EEE9), Rgb(0xFBFAF8),
@@ -186,9 +187,9 @@ inline Skin Terracotta() {
     return s;
 }
 
-inline Skin TerracottaDark() {
-    Skin s = Terracotta();
-    s.name = "Terracotta Dark";
+inline Skin OrangeDark() {
+    Skin s = Orange();
+    s.name = "Orange Dark";
     s.dark = true;
     s.surface = { Rgb(0x17140F), Rgb(0x1F1B15), Rgb(0x26221B),
                   Rgb(0x2E2921), Rgb(0x372F26), Rgb(0x120F0B) };
@@ -207,7 +208,7 @@ inline Skin TerracottaDark() {
 // light and dark, and `skin >= 2` picks the colour. Light and dark of one
 // colour stay adjacent.
 inline std::array<Skin, 4> All() {
-    return { Blue(), BlueDark(), Terracotta(), TerracottaDark() };
+    return { Blue(), BlueDark(), Orange(), OrangeDark() };
 }
 
 // The piano is a physical object, not UI chrome, so ivory stays ivory in every
