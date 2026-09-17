@@ -27,11 +27,8 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
 - Velocity stays on a modifier; the tap is four events in one `SendInput`.
   Injection never shares a thread with the message loop (`HANDOFF.md`
   section 4). Legit mode applies at dispatch (`LEGIT-MODE.md`).
-- Timing numbers stop at the keyboard hook; never call them end-to-end latency.
 - Skins are Blue, Blue Dark, Orange and Orange Dark (Orange was Terracotta).
   A skin chooses colour only; 1090 x 635 collapsed, floor 900 x 610.
-- MP3 to MIDI is a Python sidecar, never in process. YouTube links use a
-  signed-in session from `signin.py`; the app never reads browser cookies.
 - Sheet settings live in the editor page alone. The page is
   `%TEMP%\QuartzMIDI sheets\<stem>.html`; sheet files go under the sheets
   folder (`SHELL_SHEETS_FOLDER`, default a "<MIDI folder> sheets" sibling).
@@ -92,7 +89,6 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
   100 to 200% in four skins, including the new `library-save` scenario.
 - `NativeShell.ps1` launched three skins: caption, title, icon and keycaps in
   the captures, Key Mapping shut. The owner saw Solo Piano work on their file.
-- Not run: native and latency tests, `signin.py`, parity mutations.
 
 ## Build and test
 
