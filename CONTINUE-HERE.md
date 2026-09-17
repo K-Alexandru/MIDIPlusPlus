@@ -73,9 +73,6 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
 
 ## Unresolved
 
-- **Demo v2 is behind the source:** the staged demo is from `9fa4605`, the
-  copy pass is `7f1f3df`. `make-release.ps1` failed because the owner was
-  running the staged exe; repackage once it is closed.
 - **Owner to read the `7f1f3df` build's text:** Settings, the state pill
   tooltips, the Export menu and its confirmation, the sheet editor page.
 - **Owner to test:** the Solo Piano toggle in the mini window; sections on a
@@ -104,14 +101,15 @@ python .\tools\make-source.py
 - The main checkout `D:\Dev\MIDIPlusPlus-modded` is on this branch, pushed,
   clean apart from the owner's `x64\Release\MIDI++.exe` and `x64\Release\midi\`;
   `D:\Dev\mpp-panels` is the panel seat's, leave it.
-- `build\release\QuartzMIDI-demo-v2.zip` (426 MB) and the staged folder are
-  from `9fa4605`, SHA256 `0AFAF5425F0FCD24847431C3A52A4353E3F4118869FA224EFE4BA5406F89C787`.
-  `QuartzMIDI-source-7f1f3df.zip` (2.4 MB) is current.
+- Demo v2 from `f119dae` (the `7f1f3df` code plus this file):
+  `build\release\QuartzMIDI-demo-v2.zip` (426 MB, SHA256
+  `E3B174DEBD32EF5C4DCBDC9277E0BEEEB7979312C31FEC6B53448FD7F55A400A`), the
+  staged folder beside it, and `QuartzMIDI-source-7f1f3df.zip` (2.4 MB).
 - Never commit `x64/Release/midi/`, `build/`, `MIDI++/MIDI++/`, `.claude/`,
   `tools/mp3-to-midi/cookies.txt` or `tools/mp3-to-midi/browser/`.
 
 ## Next action
 
-Ask the owner to close the staged `QuartzMIDI.exe`, run
-`.\tools\make-release.ps1`, and give them the zip path with its SHA256; then
-fix the first thing they name from the `7f1f3df` build.
+Ask the owner what they found in the text of the `f119dae` build and fix the
+first thing they name on this branch, then repackage with `make-release.ps1`
+and `make-source.py`.
