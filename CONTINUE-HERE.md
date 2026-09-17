@@ -39,11 +39,9 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
 
 ## Relevant files
 
-- `ui/Panels.cpp`: the Export menu and its confirmation (about 2100 to 2190),
-  the settings descriptions (246 to 259, 720, 1367 to 1411, 1523 to 1585),
-  the toggle tooltips (1814, 2297), the AutoVol tooltip (731).
-- `MIDI++/SheetPage.hpp`: the editor page's eight `<p class="note">` lines
-  (923 to 962). `tools/release-README.txt`: the tester notes.
+- `ui/Panels.cpp`: the Export menu and its confirmation, the settings
+  descriptions, the state pills. `MIDI++/SheetPage.hpp`: the editor page.
+- `tools/release-README.txt`: the tester notes.
 - `ui/Shell.cpp`: `ApplyCaption`, the window class icon. `ui/TrackModel.*`.
 - `tools/make-release.ps1`, `tools/make-source.py`, `tools/gen-icon.py`.
 
@@ -68,27 +66,28 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
 - Export menu items relabelled with tooltips; the library save confirms
   first; the converter user agent no longer names the repository.
 - `tools/make-source.py` and the clean source zip.
+- The copy pass: every tooltip, settings description, confirmation line and
+  editor page note judged; what stays is a state the control cannot show or
+  a hidden gesture. OutRange became "Fold out-of-range notes onto the keys",
+  Resilience "Keep Transpose unless better by".
 
 ## Unresolved
 
-- **Copy pass, owner-asked:** the tooltips, settings descriptions, the
-  confirmation and the editor page notes read as an assistant wrote them.
-  Go through every string in the files above and cut what a clear label
-  already says. The owner's examples: "Files already there are overwritten.
-  Progress shows in the status bar; Stop is in the Export menu." and "A note
-  this close to the one before joins its chord."
-- **Owner to test on the `9fa4605` build:** the Export menu and the
-  confirmation; the Solo Piano toggle in the mini window; sections on a real
-  file; Save image from a page opened off disk.
+- **Demo v2 is behind the source:** the staged demo is from `9fa4605`, the
+  copy pass is `7f1f3df`. `make-release.ps1` failed because the owner was
+  running the staged exe; repackage once it is closed.
+- **Owner to read the `7f1f3df` build's text:** Settings, the state pill
+  tooltips, the Export menu and its confirmation, the sheet editor page.
+- **Owner to test:** the Solo Piano toggle in the mini window; sections on a
+  real file; Save image from a page opened off disk.
 - **Needs the owner at the keyboard:** game delivery, Wooting, two devices,
   MIDI out, live curve reconnection, mixed DPI, the 900 x 610 clamp.
 
 ## Validation actually run
 
 - `ShellTests.exe` all PASS, parity passed, `RenderTests.exe` all PASS at
-  100 to 200% in four skins, including `library-save`, at `9fa4605`.
-- The source zip's scan found nothing at `9fa4605`; `make-source.py` ran
-  from the repo and reproduced it.
+  100 to 200% in four skins at `7f1f3df`; the settings capture was read.
+- The source zip's scan found nothing at `7f1f3df`.
 
 ## Build and test
 
@@ -105,14 +104,14 @@ python .\tools\make-source.py
 - The main checkout `D:\Dev\MIDIPlusPlus-modded` is on this branch, pushed,
   clean apart from the owner's `x64\Release\MIDI++.exe` and `x64\Release\midi\`;
   `D:\Dev\mpp-panels` is the panel seat's, leave it.
-- Demo v2 from `9fa4605`: `build\release\QuartzMIDI-demo-v2.zip` (426 MB,
-  SHA256 `0AFAF5425F0FCD24847431C3A52A4353E3F4118869FA224EFE4BA5406F89C787`),
-  the staged folder beside it, and `QuartzMIDI-source-9fa4605.zip` (2.4 MB).
+- `build\release\QuartzMIDI-demo-v2.zip` (426 MB) and the staged folder are
+  from `9fa4605`, SHA256 `0AFAF5425F0FCD24847431C3A52A4353E3F4118869FA224EFE4BA5406F89C787`.
+  `QuartzMIDI-source-7f1f3df.zip` (2.4 MB) is current.
 - Never commit `x64/Release/midi/`, `build/`, `MIDI++/MIDI++/`, `.claude/`,
   `tools/mp3-to-midi/cookies.txt` or `tools/mp3-to-midi/browser/`.
 
 ## Next action
 
-Do the copy pass: every string in `ui/Panels.cpp`, `MIDI++/SheetPage.hpp`
-and `tools/release-README.txt` named above, one decision per string, then
-run the tests, repackage with `make-release.ps1` and `make-source.py`.
+Ask the owner to close the staged `QuartzMIDI.exe`, run
+`.\tools\make-release.ps1`, and give them the zip path with its SHA256; then
+fix the first thing they name from the `7f1f3df` build.
