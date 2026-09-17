@@ -127,11 +127,19 @@ New-Item -ItemType Directory -Path $stage -Force | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $stage 'midi') -Force | Out-Null
 New-Item -ItemType Directory -Path $downloads -Force | Out-Null
 
-# The exe, its config, and the licences the GPL and the two third-party ones
-# require to travel with the binary.
-foreach ($file in @('QuartzMIDI.exe', 'config.json', 'LICENSE', 'IBM-Plex-LICENSE.txt', 'ImGui-LICENSE.txt')) {
+# The exe and the licences the GPL and the third-party ones require to travel
+# with the binary; README.txt names midi-converter-LICENSE.txt, so it goes too.
+foreach ($file in @('QuartzMIDI.exe', 'LICENSE', 'IBM-Plex-LICENSE.txt', 'ImGui-LICENSE.txt', 'midi-converter-LICENSE.txt')) {
     Copy-Item -LiteralPath (Join-Path $built $file) -Destination $stage
 }
+# The config is the tracked default, never build\shell's: the build copies
+# that one once and every run of the built shell rewrites it, so it carried
+# remapped keys, an edited curve and Wooting values into a package.
+$defaultConfig = Join-Path $repoPath 'x64\Release\config.json'
+if (& git -C $repoPath status --porcelain -- 'x64/Release/config.json') {
+    throw 'x64\Release\config.json differs from the commit; a release ships the tracked default.'
+}
+Copy-Item -LiteralPath $defaultConfig -Destination $stage
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'release-README.txt') -Destination (Join-Path $stage 'README.txt')
 
 # ---- The converter: converter\ beside the exe, laid out as AudioToMidi.hpp's
