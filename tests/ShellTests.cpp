@@ -65,8 +65,13 @@ void ModelTests(const std::filesystem::path& fixture) {
     Require(rows[0].piano && rows[1].piano && !rows[2].piano, "piano detection");
     Require(rows[2].instrument == "Flute", "program changes from a different track");
     Require(rows[4].drums && !rows[4].piano && rows[4].channels == "10", "channel 10 percussion is not piano program zero");
+    Require(!shell::SoloPianoApplied(rows) && !shell::AllPiano(rows), "the toggle starts off");
     shell::SoloPiano(rows);
     Require(shell::SilentTracks(rows) == 3, "Solo Piano mutes non-piano parts");
+    Require(shell::SoloPianoApplied(rows), "the toggle reads on after Solo Piano");
+    rows[0].muted = true;
+    Require(!shell::SoloPianoApplied(rows), "a muted piano part turns the toggle off");
+    rows[0].muted = false;
     rows[2].solo = true;
     Require(shell::SilentTracks(rows) == 4 && shell::TrackAudible(rows[2], true), "solo overrides mute");
     shell::UnmuteAll(rows);

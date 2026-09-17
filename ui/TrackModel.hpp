@@ -38,4 +38,16 @@ inline void SoloPiano(std::vector<TrackRow>& rows) {
 inline void UnmuteAll(std::vector<TrackRow>& rows) {
     for (auto& row : rows) { row.muted = false; row.solo = false; }
 }
+// True when the rows are exactly what SoloPiano leaves: the toggle shows on.
+inline bool SoloPianoApplied(const std::vector<TrackRow>& rows) {
+    bool others = false;
+    for (const auto& row : rows) {
+        if (row.solo || row.muted == row.piano) return false;
+        others |= !row.piano;
+    }
+    return others;
+}
+inline bool AllPiano(const std::vector<TrackRow>& rows) {
+    return std::all_of(rows.begin(), rows.end(), [](const auto& row) { return row.piano; });
+}
 }

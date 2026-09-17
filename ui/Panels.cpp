@@ -74,26 +74,31 @@ bool IconButton(const char* id, Icon icon, const char* tip, const skin::Skin& s,
 // Icon and label are centred as one unit. The width used to reserve 18px plus
 // a gap for the icon while the label was drawn 24px in, which left every
 // transport button two pixels wider on the right than on the left.
+// `active` marks a toggle that is on, the same way IconButton does: the soft
+// accent fill, accent ink and an outline.
 bool TransportBody(const char* id, const Icon* icon, const char* label,
-                   const skin::Skin& s, float dpi, bool primary) {
+                   const skin::Skin& s, float dpi, bool primary, bool active = false) {
     const ImVec2 min = ImGui::GetCursorScreenPos();
     const float pad = (primary ? 16.f : 12.f) * dpi;
     const float side = 16 * dpi;
     const float lead = icon ? side + s.spacing.s2 : 0.f;
     const float width = 2 * pad + lead + ImGui::CalcTextSize(label).x;
+    if (active) ImGui::PushStyleColor(ImGuiCol_Button, Colour(s.accent.accentSoft));
     const bool clicked = ImGui::Button(id, ImVec2(width, s.metric.controlHeight));
+    if (active) ImGui::PopStyleColor();
     auto* draw = ImGui::GetWindowDrawList();
+    const ImU32 ink = active ? Colour(s.accent.accent) : ImGui::GetColorU32(ImGuiCol_Text);
     if (icon)
-        DrawIcon(draw, *icon, ImVec2(min.x + pad, min.y + (s.metric.controlHeight - side) / 2),
-                 side, ImGui::GetColorU32(ImGuiCol_Text), dpi);
-    draw->AddText(ImVec2(min.x + pad + lead, min.y + (s.metric.controlHeight - ImGui::GetTextLineHeight()) / 2),
-                  ImGui::GetColorU32(ImGuiCol_Text), label);
+        DrawIcon(draw, *icon, ImVec2(min.x + pad, min.y + (s.metric.controlHeight - side) / 2), side, ink, dpi);
+    draw->AddText(ImVec2(min.x + pad + lead, min.y + (s.metric.controlHeight - ImGui::GetTextLineHeight()) / 2), ink, label);
+    if (active)
+        draw->AddRect(min, ImVec2(min.x + width, min.y + s.metric.controlHeight), Colour(s.accent.accent), s.radius.control, 0, dpi);
     return clicked;
 }
 
 bool TransportButton(const char* id, Icon icon, const char* label, const skin::Skin& s,
-                     float dpi, bool primary = false) {
-    return TransportBody(id, &icon, label, s, dpi, primary);
+                     float dpi, bool primary = false, bool active = false) {
+    return TransportBody(id, &icon, label, s, dpi, primary, active);
 }
 
 // Label only, for the seek buttons. The spec draws them as bare text: a
@@ -1805,7 +1810,9 @@ void Panels::DrawMini(HWND hwnd, const Fonts& fonts, const skin::Skin& design, f
             if (!path.empty()) engine.Send({ShellEngine::Action::Load, path, 0, 0, preferences.autoSolo});
         }
         ImGui::SameLine(); ImGui::BeginDisabled(state->rows.empty());
-        if (IconButton("##mini-solo-piano", Icon::Piano, "Solo piano tracks", s, dpi)) engine.Send({ShellEngine::Action::SoloPiano, {}, state->generation});
+        { const bool applied = SoloPianoApplied(state->rows);
+          if (IconButton("##mini-solo-piano", Icon::Piano, applied ? "Solo Piano is on. Click to unmute every track." : "Solo Piano: mutes every track that is not a piano.", s, dpi, applied))
+              engine.Send({applied ? ShellEngine::Action::UnmuteAll : ShellEngine::Action::SoloPiano, {}, state->generation}); }
         ImGui::EndDisabled();
         ImGui::BeginDisabled(state->loaded.empty() || state->busy);
         ImGui::SetCursorScreenPos(ImVec2(origin.x + pad, row + control + 8 * dpi));
@@ -2222,17 +2229,20 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     ImGui::PushFont(fonts.Get(design), design.type.body * SpecFontScale(design));
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12 * dpi, (s.metric.controlHeight - ImGui::GetTextLineHeight()) / 2));
     { FontScope font(fonts, design, design.type.body * SpecFontScale(design), Weight::Semibold); ImGui::AlignTextToFramePadding(); ImGui::TextUnformatted("Tracks"); }
-    // Icon and label, like the transport row: a piano for the one that keeps
-    // the pianos, a speaker for the one that brings every track back.
-    const auto buttonWidth = [&](const char* label) { return 2 * 12 * dpi + 16 * dpi + s.spacing.s2 + ImGui::CalcTextSize(label).x; };
-    const float actionsWidth = buttonWidth("Solo Piano") + buttonWidth("Unmute All") + s.spacing.s2;
+    // One toggle. On means the rows are exactly what Solo Piano leaves; a
+    // second click brings every track back. Unmute All was a second button
+    // for the same pair of states, and the owner asked for one.
+    const bool applied = SoloPianoApplied(state->rows);
+    const bool allPiano = AllPiano(state->rows);
+    const float actionsWidth = 2 * 12 * dpi + 16 * dpi + s.spacing.s2 + ImGui::CalcTextSize("Solo Piano").x;
     ImGui::SameLine(ImGui::GetWindowWidth() - actionsWidth);
-    ImGui::BeginDisabled(state->rows.empty() || state->busy);
-    if (TransportButton("##solo-piano", Icon::Piano, "Solo Piano", s, dpi)) send(ShellEngine::Action::SoloPiano);
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("Mutes every track that is not a piano.");
-    ImGui::SameLine();
-    if (TransportButton("##unmute-all", Icon::Speaker, "Unmute All", s, dpi)) send(ShellEngine::Action::UnmuteAll);
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("Clears every mute and solo.");
+    ImGui::BeginDisabled(state->rows.empty() || state->busy || allPiano);
+    if (TransportButton("##solo-piano", Icon::Piano, "Solo Piano", s, dpi, false, applied))
+        send(applied ? ShellEngine::Action::UnmuteAll : ShellEngine::Action::SoloPiano);
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        ImGui::SetTooltip("%s", applied ? "On. Click to unmute every track." :
+                          allPiano && !state->rows.empty() ? "Every track is piano; there is nothing to mute." :
+                          "Mutes every track that is not a piano.");
     ImGui::EndDisabled();
     const ImVec2 tableMin = ImGui::GetCursorScreenPos();
     const ImVec2 tableSize = ImGui::GetContentRegionAvail();
