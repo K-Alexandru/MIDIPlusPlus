@@ -5,9 +5,10 @@ Updated 2026-09-16 on `claude/consolidate-2026-09-15`, the one branch. Read
 
 ## Goal
 
-One Windows app that does everything the original MIDI++ window did and more.
-The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
-(`MIDI++/`); both share `PlaybackCore` through `ShellEngine`. Nothing is optional.
+One Windows app, QuartzMIDI, that does everything the original MIDI++ window
+did and more. The ImGui shell (`ui/`, `build\shell\QuartzMIDI.exe`) replaces
+the Win32 window (`MIDI++/`); both share `PlaybackCore` through `ShellEngine`.
+Nothing is optional. The demo v2 build is what the owner shares with testers.
 
 ## Seats
 
@@ -17,6 +18,12 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 
 ## Decisions made, do not reopen
 
+- The product name is QuartzMIDI: the window title, the exe, the icon, the
+  package folder and zip, the sheets folders. MIDI++ survives only in source
+  tree names (`MIDI++/`, `MIDIShell.vcxproj`, the window class) and credits.
+- The caption follows the skin through DWM (`ApplyCaption` in `ui/Shell.cpp`):
+  strip colour, primary ink, dark flag. Windows 10 gets dark or light only.
+- Key Mapping never opens on its own; `keyMappingOpen` is not saved.
 - Velocity stays on a modifier; the tap is four events in one `SendInput`.
   Injection never shares a thread with the message loop (`HANDOFF.md`
   section 4). Legit mode applies at dispatch (`LEGIT-MODE.md`).
@@ -25,72 +32,66 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - Six built-in curves; S-Curve's engine table is the inverse of the R5 values.
 - MP3 to MIDI is a Python sidecar, never in process. YouTube links use a
   signed-in session from `signin.py`; the app never reads browser cookies.
-- Sheet settings live in the editor page alone; the app stores none. The page
-  is `%TEMP%\MIDI++ sheets\<stem>.html`, opened by the panel, saved from the
-  page. Its script is a translation of `sheet::Style`, held by the parity test.
-- One transposition per chord; `BestSections` may change it part-way, paying a
-  switch cost, and the sheet says "Transpose by" there. A region is Transpose
-  (announced) or Notes shifted (silent): JSON `[from, to, semitones, kind]`.
-- Sheet files go under the sheets folder (`SHELL_SHEETS_FOLDER`, default a
-  "<MIDI folder> sheets" sibling) in the MIDI folder's own sub-folders. The
-  style is a saved editor page (`SHELL_SHEET_STYLE_PAGE`), read at each save.
+- Sheet settings live in the editor page alone. The page is
+  `%TEMP%\QuartzMIDI sheets\<stem>.html`; sheet files go under the sheets
+  folder (`SHELL_SHEETS_FOLDER`, default a "<MIDI folder> sheets" sibling).
+- One transposition per chord; `BestSections` may change it part-way.
 - UI copy follows `HANDOFF.md` section 15; attribution follows section 13.
-- One branch: work in a worktree off it, merge back, delete the merged branch.
+- One branch, worked in the main checkout; delete a branch once merged.
 - Test builds stay on this PC: `make-release.ps1` zips to `build\release\`.
 
 ## Relevant files
 
-- `MIDI++/SheetExport.hpp`: `BestSections`, `Style`. `MIDI++/SheetPage.hpp`:
-  `ToEditorHtml`, the page's script (`SHEET-CORE` is DOM-free for node).
-  `MIDI++/SheetImage.hpp`: `SavePng`.
-- `ui/ShellEngine.cpp`: `StyleFromPage`, `SheetTarget`, `WriteSheetFiles`,
-  `PageForFile`, the `SaveLibrarySheets` thread. `ui/Panels.cpp`: Export menu.
-- `tests/ShellTests.cpp`: `SheetSectionTests`, `SheetFilesTests`, the parity fixture.
+- `ui/Shell.cpp`: `ApplyCaption`, the window class with the icon, `wWinMain`.
+- `ui/Panels.cpp`: `DrawTransportHints` (keycaps), the Tracks buttons,
+  `LoadPreferences`. `ui/ShellEngine.cpp`: `SoloPiano`/`UnmuteAll` cases.
+- `ui/Shell.rc`, `ui/QuartzMIDI.ico`, `tools/gen-icon.py` (pure Python).
+- `tools/make-release.ps1`, `tools/release-README.txt`, `tests/NativeShell.ps1`.
 
 ## Verified facts
 
-- A running `MIDIShell.exe` blocks the shell link step (LNK1168) and, run
-  from `build\release\MIDIPlusPlus`, blocks `make-release.ps1` too.
-- The display runs at 125%; read `tests/NativeShell.ps1` before scripting a click.
-  A DPI-unaware `PrintWindow` is the shell scaled down 20%; set awareness first.
+- A running `QuartzMIDI.exe` blocks the shell link step (LNK1168) and, run
+  from `build\release\QuartzMIDI`, blocks `make-release.ps1` too.
+- The display runs at 125%; read `tests/NativeShell.ps1` before scripting a
+  click. `Start-NativeShell` waits for the title `QuartzMIDI`.
 - PowerShell 5.1: never redirect a native exe with `2>&1` or `*>` under
-  `$ErrorActionPreference = 'Stop'`; run `run-shell-tests.ps1` bare.
+  `$ErrorActionPreference = 'Stop'`; run `run-shell-tests.ps1` bare. Piping it
+  through `Select-String` with `2>&1` hides every PASS line and fails the run.
 - Actions before `CurveSelect` in the enum are dropped unless the generation
   matches; a new engine's first snapshot is blank, so tests `Await` the config.
 - Run MSBuild from PowerShell: Git Bash rewrites `/p:` switches as paths.
+- Solo Piano on a piano-only file and Unmute All with nothing muted change no
+  row; the status bar now says so. That was the "does nothing" report.
 
-## Work completed, 2026-09-16
+## Work completed, 2026-09-16 (owner-asked `ui/` exceptions)
 
-- Multi-transpose in the editor: "Change transposition part-way" under Find
-  the best transposition, with Switch cost, Shortest section, Rest before a
-  switch and Search range; Sections lists runs, Keep makes them the user's; a
-  selection offers Transpose and Shift notes. Parity and three mutations hold it.
-- Sheet files (owner-asked `ui/` exception). The page has Save image (SVG
-  foreignObject to a canvas at 2x); both saves use `showSaveFilePicker` with a
-  remembered folder where the browser has it. Export gained Save sheet files,
-  Save sheets for the whole library (own thread, Stop, progress and failures
-  in the status and log), Image/Text/Editor page switches, Sheets folder and
-  Style from a saved page. `SheetFilesTests` and two mutations cover it.
+- Rename to QuartzMIDI across the title, exe, package, sheets folders, tests,
+  release script and tester README. `TargetName` in `MIDIShell.vcxproj`.
+- Caption colours from the skin; an icon (blue square, white prism) as
+  resource 1, set on the window class.
+- Key Mapping starts closed every run.
+- Hotkey legend as keycaps in the Playback header and mini mode. Solo Piano
+  and Unmute All are icon buttons with tooltips, and report a no-op in the
+  status bar (`ShellTests` covers the Unmute All message).
 
 ## Unresolved
 
-- **Owner to test on the `bb73374` build:** sections on a real file (defaults
-  12 notes, 8 s, 250 ms, 12 semitones); Save image from a page opened off disk
-  (the picker is untested from `file://`); the library save over 3325 files.
+- **Owner to test on the `f783ccc` build:** the caption on their machine,
+  the icon in the taskbar and Explorer, the legend at their DPI, and the
+  earlier items: sections on a real file, Save image from a page opened off
+  disk, the library save over 3325 files.
 - **Owner's call:** a green pill's top highlight shows faintly inside its border.
 - **Needs the owner at the keyboard:** game delivery, Wooting, two devices,
   MIDI out, live curve reconnection, mixed DPI, the 900 x 610 clamp.
 
 ## Validation actually run
 
-- `ShellTests.exe` all PASS; sheet page parity 11 of 11; the shell built. The
-  editor page ran in the built-in browser: sections, Keep, Transpose, Shift
-  notes and the image path, no console errors. A driver ran the library save
-  over three real MIDIs in two artist folders and the PNGs read right.
-- Parity mutations 27 of 27 killed, in the worktree, sources restored.
-- The state pills at 125%, in the captures of all four skins and the live
-  window at physical pixels, 4x: clean. `make-release.ps1` packaged `bb73374`.
-- Not run: `RenderTests`, native and latency tests, `signin.py`, the shell live.
+- `ShellTests.exe` all PASS, parity passed, `RenderTests.exe` all PASS at
+  100 to 200% in four skins, after the rename and the legend.
+- The shell launched in Blue, Blue Dark and Terracotta Dark by
+  `NativeShell.ps1`; captures show the dark caption, the title, the icon,
+  the keycaps and the icon buttons. Key Mapping did not open.
+- Not run: native and latency tests, `signin.py`, parity mutations.
 
 ## Build and test
 
@@ -98,6 +99,7 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 & .\tests\run-shell-tests.ps1 -Render
 & .\tests\run-shell-parity-mutations.ps1
 & .\tools\make-release.ps1
+python .\tools\gen-icon.py
 ```
 
 ## Repository state
@@ -107,13 +109,12 @@ The ImGui shell (`ui/`, `build\shell\MIDIShell.exe`) replaces the Win32 window
 - The main checkout `D:\Dev\MIDIPlusPlus-modded` is on this branch, pushed,
   clean apart from the owner's `x64\Release\MIDI++.exe` and `x64\Release\midi\`.
   `D:\Dev\mpp-panels` is the panel seat's; leave it.
-- Test build from `bb73374`: `build\release\MIDIPlusPlus-test-build.zip`
-  (426 MB) and the staged folder, which the owner runs the shell from.
+- Demo v2 from `f783ccc`: `build\release\QuartzMIDI-demo-v2.zip` and the
+  staged folder `build\release\QuartzMIDI\`; SHA256 in the last reply.
 - Never commit `x64/Release/midi/`, `build/`, `MIDI++/MIDI++/`, `.claude/`,
   `tools/mp3-to-midi/cookies.txt` or `tools/mp3-to-midi/browser/`.
 
 ## Next action
 
-Ask the owner what they found on the `bb73374` test build, in the sheet
-editor, Save image and the library save, and fix the first thing they name in
-a worktree off this branch, then repackage with `.\tools\make-release.ps1`.
+Ask the owner what they found on the `f783ccc` demo v2 build and fix the first
+thing they name on this branch, then repackage with `.\tools\make-release.ps1`.
