@@ -35,10 +35,6 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
   channel is not piano (`DescribeTracks`); an explicit program always wins.
 - Skins are Blue, Blue Dark, Orange and Orange Dark. A skin chooses colour
   only; 1090 x 635 collapsed, floor 900 x 610.
-- Velocity stays on a modifier; injection never shares a thread with the
-  message loop (`HANDOFF.md` section 4). Legit mode applies at dispatch.
-- Sheet settings live in the editor page alone, `%TEMP%\QuartzMIDI sheets`;
-  sheet files go under the sheets folder (`SHELL_SHEETS_FOLDER`).
 - Test builds stay on this PC: `make-release.ps1` zips to `build\release\`.
 
 ## Relevant files
@@ -60,8 +56,6 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
   click. `Start-NativeShell` waits for the title `QuartzMIDI`.
 - PowerShell 5.1: never redirect a native exe with `2>&1` or `*>` under
   `$ErrorActionPreference = 'Stop'`; run `run-shell-tests.ps1` bare.
-- Actions before `CurveSelect` in the enum are dropped unless the generation
-  matches; a new engine's first snapshot is blank, so tests `Await` the config.
 - `RenderTests` mode 17 `library-save` captures the confirmation; a scenario
   opens a popup through a `Panels` flag, as `openConvert` does.
 
