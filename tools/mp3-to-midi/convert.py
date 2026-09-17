@@ -73,7 +73,7 @@ def ydl_options():
     return options
 
 
-USER_AGENT = "MIDIPlusPlus/0.2 (audio to MIDI converter; +https://github.com/K-Alexandru/MIDIPlusPlus)"
+USER_AGENT = "QuartzMIDI/0.2 (audio to MIDI converter)"
 
 
 def fetch(link, options):
