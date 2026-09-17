@@ -26,8 +26,8 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
   only `ui/`, `MIDI++/`, `third_party/`, config and LICENSE, scrubbed and
   scanned. The library save asks before it writes.
 - UI copy is the owner's voice, `HANDOFF.md` section 15 and this rule:
-  explanatory text means the control was not clear, so fix the control and
-  cut the text. When unsure, cut: the owner removed every "keep" offered.
+  no explanatory text anywhere, not even why a control is disabled. If a
+  control seems to need a sentence, redesign it. Help, later, is one button.
 - The caption follows the skin through DWM (`ApplyCaption` in `ui/Shell.cpp`).
 - Key Mapping never opens on its own; `keyMappingOpen` is not saved.
 - Solo Piano is one toggle (`SoloPianoApplied`); a second click is Unmute All.
