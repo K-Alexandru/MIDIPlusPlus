@@ -239,15 +239,15 @@ bool StatePills(const Fonts& fonts, const skin::Skin& design, float dpi, ShellEn
     ImGui::SameLine();
     const bool sustainEnabled = !state->playing && !state->liveActive;
     if (StatePill("Sustain", state->sustain, fonts, design, dpi, pad, sustainEnabled,
-                  sustainEnabled ? nullptr : "Stop playback and live input before changing sustain."))
+                  sustainEnabled ? nullptr : "Stop playback or live input first."))
         engine.Send({ShellEngine::Action::Sustain, {}, 0, 0, !state->sustain});
     ImGui::SameLine();
     if (StatePill(state->eightyEightKeys ? "88 Keys" : "61 Keys", state->eightyEightKeys,
-                  fonts, design, dpi, pad, true, "Switch game layout. Pauses autoplay and releases held notes."))
+                  fonts, design, dpi, pad, true, nullptr))
         engine.Send({ShellEngine::Action::EightyEightKeys, {}, 0, 0, !state->eightyEightKeys});
     ImGui::SameLine();
     if (StatePill("MidiConnect", state->midiConnect, fonts, design, dpi, pad, !state->liveDevice.empty(),
-        "Sends the MIDIConnect numpad protocol. Replaces Midi2Key; requires a compatible game script."))
+        "Needs the MIDIConnect game script."))
         engine.Send({ShellEngine::Action::MidiConnect, {}, 0, 0, !state->midiConnect});
     {
         ImGui::SameLine();
@@ -255,8 +255,7 @@ bool StatePills(const Fonts& fonts, const skin::Skin& design, float dpi, ShellEn
         // one spelled its state out as well, so it read as a different kind of
         // control -- and the tooltip then said "AutoVol: off: off".
         return StatePill("AutoVol", state->autoVolume, fonts, design, dpi, pad, true,
-            state->autoVolumeNeedsCalibration ? "Adjust game volume from note velocity. Calibration needed; click to open it."
-                                              : "Adjust game volume from note velocity. Open calibration and controls.");
+            state->autoVolumeNeedsCalibration ? "Calibrate first." : nullptr);
     }
     return false;
 }
@@ -682,7 +681,7 @@ void Panels::DrawAutoVolume(const Fonts& fonts, const skin::Skin& design, float 
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16 * dpi, 16 * dpi));
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12 * dpi, (s.metric.controlHeight - ImGui::GetTextLineHeight()) / 2));
     if (ImGui::Begin("AutoVol", &autoVolumeOpen, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking)) {
-        ImGui::TextWrapped("Adjusts game volume from note velocity using the volume keys.");
+        ImGui::TextWrapped("Game volume follows note velocity.");
         ImGui::Spacing();
         if (state->autoVolume) {
             ImGui::TextUnformatted("AutoVol is on");
@@ -717,7 +716,7 @@ void Panels::DrawAutoVolume(const Fonts& fonts, const skin::Skin& design, float 
             if (key == "Left" || key == "Right" || key == "Up" || key == "Down") key += " arrow";
             return key;
         };
-        ImGui::TextWrapped("Presses the volume keys in the selected game to find a known level. Playback pauses.");
+        ImGui::TextWrapped("Presses the game's volume keys to find a known level.");
         ImGui::Spacing();
         ImGui::BeginDisabled(!selected);
         if (ImGui::Button("Focus game and calibrate", ImVec2(-1, s.metric.controlHeight))) {
@@ -728,8 +727,7 @@ void Panels::DrawAutoVolume(const Fonts& fonts, const skin::Skin& design, float 
         // The key-by-key account is here rather than in the panel body: it
         // matters when a sweep misbehaves, not every time the dialog opens.
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("After 3 seconds, focuses the game and sends %s 50 times, then %s to reach %d%%.\n"
-                              "Calibrate again after loading a new file or changing the game's volume.",
+            ImGui::SetTooltip("After 3 seconds, focuses the game and sends %s 50 times, then %s to reach %d%%.",
                               keyLabel(state->volumeDownKey).c_str(), keyLabel(state->volumeUpKey).c_str(),
                               state->volumeInitial);
         ImGui::EndDisabled();
@@ -1046,8 +1044,8 @@ void Panels::DrawVelocity(const Fonts& fonts, const skin::Skin& design, float dp
     if (ImGui::IsItemHovered() || ImGui::IsItemActive()) {
         ImGui::SetMouseCursor(curveTool_ == 0 ? ImGuiMouseCursor_Hand : ImGuiMouseCursor_ResizeAll);
         if (!ImGui::IsItemActive()) ImGui::SetTooltip(curveTool_ == 0 ?
-            "Click the curve to add an anchor. Drag an anchor outside to remove it." :
-            "Sweep across the graph. Smoothing is applied on release.");
+            "Click to add an anchor, drag one off the graph to remove it." :
+            "Sweep across the graph.");
     }
     ImGui::EndDisabled();
 
@@ -1316,7 +1314,7 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
     }
     bool active = state->liveActive;
     ImGui::BeginDisabled(state->liveDevice.empty());
-    if (SettingCheck("Midi2Key", active, "Types incoming MIDI notes using the current key mapping.", fonts, design, dpi))
+    if (SettingCheck("Midi2Key", active, nullptr, fonts, design, dpi))
         engine.Send({ShellEngine::Action::LiveActive, {}, 0, 0, active});
     ImGui::EndDisabled();
     ImGui::SetNextItemWidth(-1);
@@ -1336,7 +1334,7 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
     // scroll. A measurement keeps running with the header closed.
     if (ImGui::CollapsingHeader("Keyboard timing")) {
     bool measure = measuring_;
-    if (SettingCheck("Measure keyboard timing", measure, "Collects note observations while Settings is open.", fonts, design, dpi)) {
+    if (SettingCheck("Measure keyboard timing", measure, "Only while Settings is open.", fonts, design, dpi)) {
         if (measure) { timing_ = input_latency::Collector{}; timingSummary_ = {}; measuring_ = input_latency::start(); }
         else { input_latency::stop(); measuring_ = false; timingSummary_ = {}; }
     }
@@ -1364,29 +1362,26 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
             static_cast<unsigned long long>(t.failures), static_cast<unsigned long long>(input_latency::dropped()));
     }
     { FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
-      ImGui::TextWrapped("Starts after the MIDI transport; ends at the keyboard hook, before the game. Autoplay starts at event dispatch."); }
+      ImGui::TextWrapped("From the MIDI transport to the keyboard hook, not to the game."); }
     }
     ImGui::Separator();
     section("Behaviour");
     ImGui::BeginDisabled(state->eightyEightKeys);
     bool outRange = state->outRange;
-    if (SettingSwitch("OutRange", outRange,
-        state->eightyEightKeys ? "Switch to 61 Keys to fold notes into its range." :
-        "Folds out-of-range notes into 61 Keys. Changing this pauses autoplay and releases held notes.", fonts, design, dpi))
+    if (SettingSwitch("Fold out-of-range notes onto the keys", outRange,
+        state->eightyEightKeys ? "Needs 61 Keys." : nullptr, fonts, design, dpi))
         engine.Send({ShellEngine::Action::OutRange, {}, 0, 0, outRange});
     ImGui::EndDisabled();
-    ImGui::TextUnformatted("Mouse play countdown");
+    ImGui::TextUnformatted("Play button countdown");
     int playbackDelay = state->playbackDelay;
     ImGui::SetNextItemWidth(-1);
     if (ImGui::SliderInt("##playback-delay", &playbackDelay, 0, 10, "%d seconds"))
         engine.Send({ShellEngine::Action::PlaybackDelay, {}, 0, 0, false, static_cast<double>(playbackDelay)});
-    ImGui::TextWrapped("Global play starts immediately in the focused window. During a countdown it cancels the start.");
     ImGui::TextUnformatted("Skip step");
     int seekStep = state->seekStep;
     ImGui::SetNextItemWidth(-1);
     if (ImGui::SliderInt("##seek-step", &seekStep, 1, 60, "%d seconds"))
         engine.Send({ShellEngine::Action::SeekStep, {}, 0, 0, false, static_cast<double>(seekStep)});
-    ImGui::TextWrapped("How far the seek buttons and the F2 and F3 hotkeys move.");
     // On and off are already on the pill. Calibration pending is not, and it is
     // the one state that wants something from you, so it keeps its suffix.
     if (ImGui::Button(state->autoVolumeNeedsCalibration ? "AutoVol: calibrate" : "AutoVol", ImVec2(-1, s.metric.controlHeight))) {
@@ -1396,29 +1391,25 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
     SettingSwitch("Solo piano tracks on load", preferences.autoSolo, nullptr, fonts, design, dpi);
     bool legit = state->legitMode;
     if (SettingSwitch("Legit Mode", legit,
-        "Humanises autoplay timing and intentionally drops some notes.", fonts, design, dpi))
+        "Human timing and a few dropped notes.", fonts, design, dpi))
         engine.Send({ShellEngine::Action::LegitMode, {}, 0, 0, legit});
     bool shuffle = state->shuffle;
     if (SettingSwitch("Shuffle Play", shuffle, nullptr, fonts, design, dpi))
         engine.Send({ShellEngine::Action::Shuffle, {}, 0, 0, shuffle});
     if (revealSettingsSwitches) ImGui::SetScrollHereY(0.f);
     bool detectDrums = state->detectDrums;
-    if (SettingSwitch("Detect drum tracks", detectDrums,
-        "Labels a kit that is not on channel 10 as drums, so Solo Piano leaves it out. Reloads the open file.", fonts, design, dpi))
+    if (SettingSwitch("Detect drum tracks", detectDrums, nullptr, fonts, design, dpi))
         engine.Send({ShellEngine::Action::DetectDrums, {}, 0, 0, detectDrums});
     bool autoTranspose = state->autoTranspose;
-    if (SettingSwitch("Auto-transpose on load", autoTranspose,
-        "Sets Transpose to the shift that keeps the most notes in range. Reloads the open file.", fonts, design, dpi))
+    if (SettingSwitch("Auto-transpose on load", autoTranspose, nullptr, fonts, design, dpi))
         engine.Send({ShellEngine::Action::AutoTranspose, {}, 0, 0, autoTranspose});
     bool velocity = state->velocity;
     const std::string modifierName = state->velocityModifier == "ctrl" ? "Ctrl" :
         state->velocityModifier == "shift" ? "Shift" : "Alt";
-    const std::string velocityDescription = state->outputMidi
-        ? "MIDI output sends note velocity in each note-on message."
-        : "Off skips the " + modifierName + " velocity preamble for live input and autoplay.";
+    const std::string velocityDescription = state->outputMidi ? "MIDI output carries velocity itself." : "";
     ImGui::BeginDisabled(state->outputMidi);
     if (SettingSwitch(state->outputMidi ? "Velocity hotkeys unavailable" : "Velocity hotkeys", velocity,
-        velocityDescription.c_str(), fonts, design, dpi))
+        velocityDescription.empty() ? nullptr : velocityDescription.c_str(), fonts, design, dpi))
         engine.Send({ShellEngine::Action::Velocity, {}, 0, 0, velocity});
     ImGui::EndDisabled();
     ImGui::TextUnformatted("Velocity modifier");
@@ -1520,7 +1511,7 @@ void Panels::DrawConvert(HWND hwnd, const Fonts& fonts, const skin::Skin& design
     { FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
       ImGui::PushStyleColor(ImGuiCol_Text, Colour(s.ink.secondary));
       ImGui::PushTextWrapPos(width);
-      ImGui::TextUnformatted("A recording or a YouTube link becomes a MIDI file in your MIDI folder. Solo piano converts best.");
+      ImGui::TextUnformatted("Solo piano converts best.");
       ImGui::PopTextWrapPos();
       ImGui::PopStyleColor(); }
     ImGui::Dummy(ImVec2(0, s.spacing.s1));
@@ -1550,7 +1541,6 @@ void Panels::DrawConvert(HWND hwnd, const Fonts& fonts, const skin::Skin& design
     // a playlist still converts on its own.
     if (playlistLink) {
         SettingCheck("Whole playlist", convertPlaylist_, nullptr, fonts, design, dpi);
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("Every video in turn. Cancel keeps the files made so far.");
     }
     if (TransportButton("##convert-file", Icon::Open, "Choose an audio file", s, dpi)) {
         const auto path = PickFile(hwnd, PickKind::Audio);
@@ -1560,7 +1550,7 @@ void Panels::DrawConvert(HWND hwnd, const Fonts& fonts, const skin::Skin& design
     if (!ready) {
         FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
         ImGui::PushStyleColor(ImGuiCol_Text, Colour(s.ink.secondary));
-        ImGui::TextUnformatted("Choose a MIDI folder first. The file is saved there.");
+        ImGui::TextUnformatted("Choose a MIDI folder first.");
         ImGui::PopStyleColor();
     }
 
@@ -1582,7 +1572,7 @@ void Panels::DrawConvert(HWND hwnd, const Fonts& fonts, const skin::Skin& design
         ImGui::PopStyleVar();
         ImGui::EndDisabled();
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
-            ImGui::SetTooltip("Needed when YouTube refuses links. You sign in yourself, in a window the app opens.");
+            ImGui::SetTooltip("For when YouTube refuses the link.");
     }
 
     // Progress: an indeterminate bar while a run is going, then the last line
@@ -1811,7 +1801,7 @@ void Panels::DrawMini(HWND hwnd, const Fonts& fonts, const skin::Skin& design, f
         }
         ImGui::SameLine(); ImGui::BeginDisabled(state->rows.empty());
         { const bool applied = SoloPianoApplied(state->rows);
-          if (IconButton("##mini-solo-piano", Icon::Piano, applied ? "Solo Piano is on. Click to unmute every track." : "Solo Piano: mutes every track that is not a piano.", s, dpi, applied))
+          if (IconButton("##mini-solo-piano", Icon::Piano, applied ? "Unmute all" : "Solo Piano", s, dpi, applied))
               engine.Send({applied ? ShellEngine::Action::UnmuteAll : ShellEngine::Action::SoloPiano, {}, state->generation}); }
         ImGui::EndDisabled();
         ImGui::BeginDisabled(state->loaded.empty() || state->busy);
@@ -2100,48 +2090,39 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
         // sheet written where it can be kept: under the sheets folder, in the
         // MIDI folder's own sub-folders, styled by a page saved from the
         // editor, for the open file or the whole list.
-        // Every item says what it does in its label and again on hover; a
-        // menu of "Copy sheet / Image / Text" meant nothing to a first user.
-        const auto tip = [](const char* text) {
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("%s", text);
-        };
+        // Every item says what it does in its label; a menu of "Copy sheet /
+        // Image / Text" meant nothing to a first user, and tooltips are not
+        // the fix for that.
         ImGui::BeginDisabled(!haveFile);
         if (ImGui::MenuItem("Copy sheet to clipboard")) request(ShellEngine::Action::CopySheet, "Preparing sheet...");
-        tip("The open MIDI as virtual piano letters, ready to paste into a chat.");
         if (ImGui::MenuItem("Open sheet editor in browser")) request(ShellEngine::Action::OpenSheetEditor, "Opening the sheet editor...");
-        tip("The coloured sheet with every setting beside it. Copy, save or print it from there.");
         if (ImGui::MenuItem("Save sheet files for this MIDI")) request(ShellEngine::Action::SaveSheetFiles, "Saving sheet files...");
-        tip("Writes the files ticked below into the sheets folder.");
         ImGui::EndDisabled();
         if (state->sheetBatchRunning) {
             if (ImGui::MenuItem("Stop saving the library")) engine.Send({ShellEngine::Action::SheetBatchCancel});
         } else if (ImGui::MenuItem("Save sheet files for every MIDI in the list...", nullptr, false, !state->files->empty())) {
             openLibrarySave = true;
         }
-        tip("Asks first. One set of files per MIDI, so a big list means a lot of files.");
         ImGui::Separator();
         ImGui::TextDisabled("Files to save");
-        const auto output = [&](const char* label, const char* help, bool on, const char* key) {
+        const auto output = [&](const char* label, bool on, const char* key) {
             if (ImGui::MenuItem(label, nullptr, on)) engine.Send({ShellEngine::Action::SheetFiles, {}, 0, 0, !on, 0, key});
-            tip(help);
         };
-        output("Image (.png)", "The coloured sheet as a picture.", state->sheetImage, "image");
-        output("Text (.txt)", "The letters alone, the same as Copy sheet.", state->sheetTextFile, "text");
-        output("Editor page (.html)", "The sheet editor for that MIDI, to reopen in a browser.", state->sheetPageFile, "page");
+        output("Image (.png)", state->sheetImage, "image");
+        output("Text (.txt)", state->sheetTextFile, "text");
+        output("Editor page (.html)", state->sheetPageFile, "page");
         ImGui::Separator();
         const auto sheetsFolder = state->sheetsFolder.empty() ? DefaultSheetsFolder(state->folder) : state->sheetsFolder;
         if (ImGui::MenuItem(("Save to: " + Utf8(sheetsFolder) + "...").c_str())) {
             const auto path = PickFolder(hwnd);
             if (!path.empty()) engine.Send({ShellEngine::Action::SheetsFolder, path});
         }
-        tip("Where sheet files go, in the same sub-folders as the MIDI files. Click to choose another folder.");
         const std::string styleLabel = state->sheetStylePage.empty() ? "Sheet style: editor defaults..."
                                                                        : "Sheet style: " + Utf8(state->sheetStylePage.filename()) + "...";
         if (ImGui::MenuItem(styleLabel.c_str())) {
             const auto path = PickFile(hwnd, PickKind::Page);
             if (!path.empty()) engine.Send({ShellEngine::Action::SheetStylePage, path});
         }
-        tip("Saved files use the settings of a page you saved from the sheet editor. Click to pick that page.");
         if (!state->sheetStylePage.empty() && ImGui::MenuItem("Back to the editor's defaults")) engine.Send({ShellEngine::Action::SheetStylePage, {}});
         ImGui::EndPopup();
     }
@@ -2169,13 +2150,11 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
         { FontScope font(fonts, design, design.type.body * SpecFontScale(design), Weight::Semibold);
           ImGui::TextUnformatted("Save sheet files for every MIDI in the list?"); }
         ImGui::Spacing();
-        if (kinds.empty()) ImGui::TextWrapped("Nothing is turned on to save. Turn on Image, Text or Editor page in the Export menu first.");
+        if (kinds.empty()) ImGui::TextWrapped("Nothing is ticked under Files to save.");
         else ImGui::TextWrapped("%s", (what + (total == 1 ? " for the one MIDI file, under" : " for each of the " + count + " MIDI files, under")).c_str());
         ImGui::PushStyleColor(ImGuiCol_Text, Colour(s.ink.secondary));
         ImGui::TextWrapped("%s", Utf8(sheetsFolder).c_str());
         ImGui::PopStyleColor();
-        ImGui::Spacing();
-        ImGui::TextWrapped("Files already there are overwritten. Progress shows in the status bar; Stop is in the Export menu.");
         ImGui::Spacing();
         ImGui::BeginDisabled(kinds.empty());
         if (TransportButton("##library-save-go", (total == 1 ? "Save 1 sheet" : "Save " + count + " sheets").c_str(), s, dpi, true)) {
@@ -2293,10 +2272,8 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     ImGui::BeginDisabled(state->rows.empty() || state->busy || allPiano);
     if (TransportButton("##solo-piano", Icon::Piano, "Solo Piano", s, dpi, false, applied))
         send(applied ? ShellEngine::Action::UnmuteAll : ShellEngine::Action::SoloPiano);
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
-        ImGui::SetTooltip("%s", applied ? "On. Click to unmute every track." :
-                          allPiano && !state->rows.empty() ? "Every track is piano; there is nothing to mute." :
-                          "Mutes every track that is not a piano.");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip) && (applied || (allPiano && !state->rows.empty())))
+        ImGui::SetTooltip("%s", applied ? "Unmute all" : "Every track is piano.");
     ImGui::EndDisabled();
     const ImVec2 tableMin = ImGui::GetCursorScreenPos();
     const ImVec2 tableSize = ImGui::GetContentRegionAvail();
