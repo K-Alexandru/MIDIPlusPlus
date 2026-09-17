@@ -266,8 +266,10 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     g_engine = &engine;
     g_panels = &panels;
     g_dpi = ImGui_ImplWin32_GetDpiScaleForMonitor(MonitorFromPoint(POINT{100, 100}, MONITOR_DEFAULTTOPRIMARY));
+    // Resource 1 in Shell.rc: the caption, the taskbar and Explorer all read it.
+    HICON icon = LoadIconW(inst, MAKEINTRESOURCEW(1));
     WNDCLASSEXW wc = { sizeof(wc), CS_CLASSDC, WndProc, 0, 0, inst,
-                       nullptr, nullptr, nullptr, nullptr, L"MIDIShell", nullptr };
+                       icon, nullptr, nullptr, nullptr, L"MIDIShell", icon };
     ::RegisterClassExW(&wc);
     // From DesiredSize, not from a copy of the numbers it used to return.
     //
