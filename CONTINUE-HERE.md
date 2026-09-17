@@ -56,6 +56,9 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
   `$ErrorActionPreference = 'Stop'`; run `run-shell-tests.ps1` bare.
 - `RenderTests` mode 17 `library-save` captures the confirmation; a scenario
   opens a popup through a `Panels` flag, as `openConvert` does.
+- `build\shell\config.json` is rewritten by every run of the built shell. A
+  release copies the tracked `x64\Release\config.json` and refuses if it is
+  modified. `/d1trimfile` keeps the repository path out of the exe.
 
 ## Work completed, 2026-09-16
 
@@ -73,7 +76,7 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
 
 ## Unresolved
 
-- **Owner to read the `1542a14` build's text:** Settings, the state pills,
+- **Owner to read the `1de8a50` build's text:** Settings, the state pills,
   the Export menu and its confirmation, the sheet editor page.
 - **Owner to test:** the Solo Piano toggle in the mini window; sections on a
   real file; Save image from a page opened off disk.
@@ -83,8 +86,11 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
 ## Validation actually run
 
 - `ShellTests.exe` all PASS, parity passed, `RenderTests.exe` all PASS at
-  100 to 200% in four skins at `1542a14`; the settings capture was read.
-- The source zip's scan found nothing at `1542a14`.
+  100 to 200% in four skins, on the `1542a14` sources.
+- At `1de8a50`: the exe in the zip is the staged and built one; no account,
+  assistant or path string in the exe or the package text; the config is the
+  default; no settings file, session or MIDI in the zip; the shell launched;
+  the source zip extracted elsewhere and built `QuartzMIDI.exe` on its own.
 
 ## Build and test
 
@@ -101,14 +107,14 @@ python .\tools\make-source.py
 - The main checkout `D:\Dev\MIDIPlusPlus-modded` is on this branch, pushed,
   clean apart from the owner's `x64\Release\MIDI++.exe` and `x64\Release\midi\`;
   `D:\Dev\mpp-panels` is the panel seat's, leave it.
-- Demo v2 from `1542a14`: `build\release\QuartzMIDI-demo-v2.zip` (426 MB,
-  SHA256 `E8CF6720AB5B164C2E8F094EB354C2B6E94E9E9B2A9C318DEA38D63493D217F7`),
-  the staged folder beside it, and `QuartzMIDI-source-1542a14.zip` (2.4 MB).
+- Demo v2 from `1de8a50`: `build\release\QuartzMIDI-demo-v2.zip` (426 MB,
+  SHA256 `7DD4BC8985D532EF80D07B0D96233B6578A7775CD5F8585D455949C6B31BDCE4`),
+  the staged folder beside it, and `QuartzMIDI-source-1de8a50.zip` (2.4 MB).
 - Never commit `x64/Release/midi/`, `build/`, `MIDI++/MIDI++/`, `.claude/`,
   `tools/mp3-to-midi/cookies.txt` or `tools/mp3-to-midi/browser/`.
 
 ## Next action
 
-Ask the owner what they found in the text of the `1542a14` build and fix the
+Ask the owner what they found in the text of the `1de8a50` build and fix the
 first thing they name on this branch, then repackage with `make-release.ps1`
 and `make-source.py`.
