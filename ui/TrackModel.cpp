@@ -1,6 +1,7 @@
 #include "TrackModel.hpp"
 #include "GeneralMidi.hpp"
 #include <cctype>
+#include <utility>
 
 namespace shell {
 namespace {
@@ -8,18 +9,28 @@ namespace {
 // by program alone a file of Flutes and Strings is all piano and Solo Piano
 // has nothing to mute. When no program was ever set for a part's channel, its
 // name decides: "Flute" is a flute. An explicit program always wins.
-bool NamedNonPiano(std::string name) {
+// Returns what to call it, which the Instrument column shows: the file gave
+// no program, so General MIDI's default "Acoustic Grand Piano" beside a part
+// already treated as a flute was the app contradicting itself.
+const char* NamedNonPiano(std::string name) {
     for (char& c : name) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    if (name.find("piano") != std::string::npos || name.find("keys") != std::string::npos) return false;
-    static constexpr const char* kOthers[] = {
-        "flute", "piccolo", "recorder", "ocarina", "whistle", "oboe", "clarinet", "bassoon", "sax",
-        "violin", "viola", "cello", "contrabass", "string", "harp", "bass", "guitar", "banjo", "sitar",
-        "koto", "trumpet", "trombone", "tuba", "horn", "brass", "organ", "accordion", "harmonica",
-        "choir", "voice", "vocal", "synth", "drum", "perc", "timpani", "bell", "marimba", "xylophone",
-        "vibraphone", "glock", "celesta"};
-    for (const char* other : kOthers)
-        if (name.find(other) != std::string::npos) return true;
-    return false;
+    if (name.find("piano") != std::string::npos || name.find("keys") != std::string::npos) return nullptr;
+    // The longer word first where one contains another.
+    static constexpr std::pair<const char*, const char*> kOthers[] = {
+        {"flute", "Flute"}, {"piccolo", "Piccolo"}, {"recorder", "Recorder"}, {"ocarina", "Ocarina"},
+        {"whistle", "Whistle"}, {"oboe", "Oboe"}, {"clarinet", "Clarinet"}, {"bassoon", "Bassoon"},
+        {"sax", "Saxophone"}, {"violin", "Violin"}, {"viola", "Viola"}, {"cello", "Cello"},
+        {"contrabass", "Contrabass"}, {"string", "Strings"}, {"harp", "Harp"}, {"bass", "Bass"},
+        {"guitar", "Guitar"}, {"banjo", "Banjo"}, {"sitar", "Sitar"}, {"koto", "Koto"},
+        {"trumpet", "Trumpet"}, {"trombone", "Trombone"}, {"tuba", "Tuba"}, {"horn", "Horn"},
+        {"brass", "Brass"}, {"organ", "Organ"}, {"accordion", "Accordion"}, {"harmonica", "Harmonica"},
+        {"choir", "Choir"}, {"voice", "Voice"}, {"vocal", "Voice"}, {"synth", "Synth"}, {"drum", "Drums"},
+        {"perc", "Percussion"}, {"timpani", "Timpani"}, {"bell", "Bells"}, {"marimba", "Marimba"},
+        {"xylophone", "Xylophone"}, {"vibraphone", "Vibraphone"}, {"glock", "Glockenspiel"},
+        {"celesta", "Celesta"}};
+    for (const auto& [word, label] : kOthers)
+        if (name.find(word) != std::string::npos) return label;
+    return nullptr;
 }
 }
 std::vector<TrackRow> DescribeTracks(const MidiFile& file) {
@@ -28,6 +39,8 @@ std::vector<TrackRow> DescribeTracks(const MidiFile& file) {
         std::bitset<128> programs;
         std::bitset<16> channels;
         bool nonPiano = false;
+        bool programmed = false;      // a note on a channel whose program was set
+        const char* named = nullptr;  // the instrument its name gave it instead
     };
     struct EventRef { const MidiEvent* event; size_t track; };
     std::vector<Part> parts(file.tracks.size());
@@ -63,8 +76,9 @@ std::vector<TrackRow> DescribeTracks(const MidiFile& file) {
         part.channels.set(channel);
         if (channel == 9) part.row.drums = true;
         else part.programs.set(programs[channel]);
-        part.nonPiano |= channel == 9 || programs[channel] > 7 ||
-                         (!programSet[channel] && NamedNonPiano(part.row.name));
+        if (programSet[channel]) part.programmed = true;
+        else if (channel != 9 && !part.named) part.named = NamedNonPiano(part.row.name);
+        part.nonPiano |= channel == 9 || programs[channel] > 7 || (!programSet[channel] && part.named);
     }
     std::vector<TrackRow> rows;
     for (auto& part : parts) {
@@ -74,6 +88,7 @@ std::vector<TrackRow> DescribeTracks(const MidiFile& file) {
         for (char& c : row.name) if (static_cast<unsigned char>(c) < 32) c = ' ';
         row.piano = !part.nonPiano;
         if (row.drums && part.programs.none()) row.instrument = "Drums";
+        else if (part.named && !part.programmed && !row.drums) row.instrument = part.named;
         else if (part.programs.count() == 1 && !row.drums) {
             for (size_t i = 0; i < 128; ++i)
                 if (part.programs[i]) row.instrument = midi::GeneralMidiNames[i];

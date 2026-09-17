@@ -98,6 +98,11 @@ void ModelTests(const std::filesystem::path& fixture) {
     Require(namedRows.size() == 3 && !namedRows[0].piano && namedRows[1].piano,
             "a part named Flute with no program change is not piano");
     Require(namedRows[2].piano, "an explicit piano program outranks the name");
+    // The column says what the row is treated as. The file names no program,
+    // so "Acoustic Grand Piano" was only General MIDI's default, printed beside
+    // a part the app had already decided was a flute.
+    Require(namedRows[0].instrument == "Flute" && namedRows[1].instrument == "Acoustic Grand Piano" &&
+            namedRows[2].instrument == "Acoustic Grand Piano", "a part told apart by name is labelled by that name");
     bool rejected = false;
     try { (void)parser.parse(shell::Utf8(fixture.parent_path() / L".." / fixture.filename())); }
     catch (...) { rejected = true; }
