@@ -74,15 +74,14 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
 
 ## Unresolved
 
-- **Owner to test the `3aeea33` build:** mini and back, from a maximized
-  window too; Live/Autoplay resize; the velocity editor while maximized;
-  Miphas Court's Flutes now read Flute in the Instrument column.
+- **Owner to test the `3aeea33` build:** mini and back, maximized too; the
+  velocity editor while maximized; Miphas Court's Flutes reading Flute.
 - `tests/run-native-tests.ps1`: numbers re-derived, not run; takes the cursor.
 - **Owner to read the text:** Settings, pills, Export, the sheet editor page.
-- **Owner to test:** the Solo Piano toggle in the mini window; sections on a
-  real file; Save image from a page opened off disk.
-- **Needs the owner at the keyboard:** game delivery, Wooting, two devices,
-  MIDI out, live curve reconnection, mixed DPI.
+- **Owner to test:** Solo Piano in mini; sections on a real file; Save image
+  from a page opened off disk.
+- **Owner at the keyboard:** game delivery, Wooting, two devices, MIDI out,
+  live curve reconnection, mixed DPI.
 
 ## Validation actually run
 
