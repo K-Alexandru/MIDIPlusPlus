@@ -2100,39 +2100,93 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
         // sheet written where it can be kept: under the sheets folder, in the
         // MIDI folder's own sub-folders, styled by a page saved from the
         // editor, for the open file or the whole list.
+        // Every item says what it does in its label and again on hover; a
+        // menu of "Copy sheet / Image / Text" meant nothing to a first user.
+        const auto tip = [](const char* text) {
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("%s", text);
+        };
         ImGui::BeginDisabled(!haveFile);
-        if (ImGui::MenuItem("Copy sheet")) request(ShellEngine::Action::CopySheet, "Preparing sheet...");
-        if (ImGui::MenuItem("Open sheet editor")) request(ShellEngine::Action::OpenSheetEditor, "Opening the sheet editor...");
-        if (ImGui::MenuItem("Save sheet files")) request(ShellEngine::Action::SaveSheetFiles, "Saving sheet files...");
+        if (ImGui::MenuItem("Copy sheet to clipboard")) request(ShellEngine::Action::CopySheet, "Preparing sheet...");
+        tip("The open MIDI as virtual piano letters, ready to paste into a chat.");
+        if (ImGui::MenuItem("Open sheet editor in browser")) request(ShellEngine::Action::OpenSheetEditor, "Opening the sheet editor...");
+        tip("The coloured sheet with every setting beside it. Copy, save or print it from there.");
+        if (ImGui::MenuItem("Save sheet files for this MIDI")) request(ShellEngine::Action::SaveSheetFiles, "Saving sheet files...");
+        tip("Writes the files ticked below into the sheets folder.");
         ImGui::EndDisabled();
         if (state->sheetBatchRunning) {
             if (ImGui::MenuItem("Stop saving the library")) engine.Send({ShellEngine::Action::SheetBatchCancel});
-        } else if (ImGui::MenuItem("Save sheets for the whole library", nullptr, false, !state->files->empty())) {
-            engine.Send({ShellEngine::Action::SaveLibrarySheets});
+        } else if (ImGui::MenuItem("Save sheet files for every MIDI in the list...", nullptr, false, !state->files->empty())) {
+            openLibrarySave = true;
         }
+        tip("Asks first. One set of files per MIDI, so a big list means a lot of files.");
         ImGui::Separator();
-        const auto output = [&](const char* label, bool on, const char* key) {
+        ImGui::TextDisabled("Files to save");
+        const auto output = [&](const char* label, const char* help, bool on, const char* key) {
             if (ImGui::MenuItem(label, nullptr, on)) engine.Send({ShellEngine::Action::SheetFiles, {}, 0, 0, !on, 0, key});
+            tip(help);
         };
-        output("Image", state->sheetImage, "image");
-        output("Text", state->sheetTextFile, "text");
-        output("Editor page", state->sheetPageFile, "page");
+        output("Image (.png)", "The coloured sheet as a picture.", state->sheetImage, "image");
+        output("Text (.txt)", "The letters alone, the same as Copy sheet.", state->sheetTextFile, "text");
+        output("Editor page (.html)", "The sheet editor for that MIDI, to reopen in a browser.", state->sheetPageFile, "page");
         ImGui::Separator();
         const auto sheetsFolder = state->sheetsFolder.empty() ? DefaultSheetsFolder(state->folder) : state->sheetsFolder;
-        if (ImGui::MenuItem(("Sheets folder: " + Utf8(sheetsFolder) + "...").c_str())) {
+        if (ImGui::MenuItem(("Save to: " + Utf8(sheetsFolder) + "...").c_str())) {
             const auto path = PickFolder(hwnd);
             if (!path.empty()) engine.Send({ShellEngine::Action::SheetsFolder, path});
         }
-        const std::string styleLabel = state->sheetStylePage.empty() ? "Style from a saved page..."
-                                                                       : "Style: " + Utf8(state->sheetStylePage.filename()) + "...";
+        tip("Where sheet files go, in the same sub-folders as the MIDI files. Click to choose another folder.");
+        const std::string styleLabel = state->sheetStylePage.empty() ? "Sheet style: editor defaults..."
+                                                                       : "Sheet style: " + Utf8(state->sheetStylePage.filename()) + "...";
         if (ImGui::MenuItem(styleLabel.c_str())) {
             const auto path = PickFile(hwnd, PickKind::Page);
             if (!path.empty()) engine.Send({ShellEngine::Action::SheetStylePage, path});
         }
-        if (!state->sheetStylePage.empty() && ImGui::MenuItem("Use the editor's defaults")) engine.Send({ShellEngine::Action::SheetStylePage, {}});
+        tip("Saved files use the settings of a page you saved from the sheet editor. Click to pick that page.");
+        if (!state->sheetStylePage.empty() && ImGui::MenuItem("Back to the editor's defaults")) engine.Send({ShellEngine::Action::SheetStylePage, {}});
         ImGui::EndPopup();
     }
     ImGui::EndDisabled();
+    // The library save writes files for every MIDI in the list, hundreds for
+    // a real library, so a menu item alone must not start it. This says how
+    // many, what and where, and only its own button begins. Opened here, a
+    // sibling of the menu, since the menu closes on the click.
+    if (openLibrarySave) { ImGui::OpenPopup("Save library sheets"); openLibrarySave = false; }
+    ImGui::SetNextWindowSizeConstraints(ImVec2(440 * dpi, 0), ImVec2(440 * dpi, 10000 * dpi));
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (ImGui::BeginPopupModal("Save library sheets", nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove)) {
+        const size_t total = state->files->size();
+        const auto count = std::to_string(total);
+        std::vector<std::string> kinds;
+        if (state->sheetImage) kinds.push_back("an image");
+        if (state->sheetTextFile) kinds.push_back("a text file");
+        if (state->sheetPageFile) kinds.push_back("an editor page");
+        std::string what;
+        for (size_t i = 0; i < kinds.size(); ++i)
+            what += (i == 0 ? "" : i + 1 == kinds.size() ? " and " : ", ") + kinds[i];
+        if (!what.empty()) what[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(what[0])));
+        const auto sheetsFolder = state->sheetsFolder.empty() ? DefaultSheetsFolder(state->folder) : state->sheetsFolder;
+        { FontScope font(fonts, design, design.type.body * SpecFontScale(design), Weight::Semibold);
+          ImGui::TextUnformatted("Save sheet files for every MIDI in the list?"); }
+        ImGui::Spacing();
+        if (kinds.empty()) ImGui::TextWrapped("Nothing is turned on to save. Turn on Image, Text or Editor page in the Export menu first.");
+        else ImGui::TextWrapped("%s", (what + (total == 1 ? " for the one MIDI file, under" : " for each of the " + count + " MIDI files, under")).c_str());
+        ImGui::PushStyleColor(ImGuiCol_Text, Colour(s.ink.secondary));
+        ImGui::TextWrapped("%s", Utf8(sheetsFolder).c_str());
+        ImGui::PopStyleColor();
+        ImGui::Spacing();
+        ImGui::TextWrapped("Files already there are overwritten. Progress shows in the status bar; Stop is in the Export menu.");
+        ImGui::Spacing();
+        ImGui::BeginDisabled(kinds.empty());
+        if (TransportButton("##library-save-go", (total == 1 ? "Save 1 sheet" : "Save " + count + " sheets").c_str(), s, dpi, true)) {
+            engine.Send({ShellEngine::Action::SaveLibrarySheets});
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (TransportButton("##library-save-cancel", "Cancel", s, dpi)) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
     std::string sheetNote = sheetStatus_;
     if (sheetNote.empty()) sheetNote = state->sheetBatchStatus;
     if (state->sheetReady && state->sheetMerged)

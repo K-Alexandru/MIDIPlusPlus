@@ -9,8 +9,8 @@ What to try
 - Play a MIDI file into your game and check the notes land in time.
 - Play live and tell me if the velocity feels right.
 - Pick S-Curve under Velocity Response and say whether it feels right.
-- Open Sheet style under Export, change a setting, and check the copied sheet follows it.
-- Save coloured sheet, then open the .html beside the MIDI file in a browser.
+- Open the sheet editor under Export, change a setting, and check the copied sheet follows it.
+- Save sheet files for this MIDI under Export, then open what lands in the sheets folder.
 - Try the other transports in Settings if you have more than one.
 - Convert an audio file or a YouTube link with the + button above the file list.
 - If YouTube refuses the link, use Sign in to YouTube in that popup and try again.

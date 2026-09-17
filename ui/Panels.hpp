@@ -37,6 +37,9 @@ public:
     // next Draw. The menu that normally opens it needs a click a render test
     // cannot place reliably, so the test asks here instead.
     bool openConvert = false;
+    // The same for the library save's confirmation: set by its menu item, or
+    // by a render test, and consumed by the next Draw.
+    bool openLibrarySave = false;
     // Scrolls the open Settings popover to the drum and auto-transpose
     // switches, which sit below the fold; a render scenario captures them.
     bool revealSettingsSwitches = false;
