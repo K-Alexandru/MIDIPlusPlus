@@ -20,7 +20,7 @@
 
 Set-StrictMode -Version Latest
 
-$script:NativeShellTitle = 'MIDI++ shell (ImGui)'
+$script:NativeShellTitle = 'QuartzMIDI'
 
 if (-not ('NativeShellApi' -as [type])) {
     Add-Type -TypeDefinition @"
@@ -125,11 +125,11 @@ function Start-NativeShell {
     )
     Enter-NativeShellDpiAwareness
 
-    $source = Join-Path $RepoPath 'build\shell\MIDIShell.exe'
+    $source = Join-Path $RepoPath 'build\shell\QuartzMIDI.exe'
     if (-not (Test-Path -LiteralPath $source)) { throw "Build the shell first: $source is missing." }
     if (-not $WorkingDirectory) { $WorkingDirectory = Join-Path $RepoPath 'build\native-tests' }
 
-    Get-Process -Name 'MIDIShell' -ErrorAction SilentlyContinue | Stop-Process -Force
+    Get-Process -Name 'QuartzMIDI' -ErrorAction SilentlyContinue | Stop-Process -Force
     Start-Sleep -Milliseconds 400
     if (Test-Path -LiteralPath $WorkingDirectory) { Remove-Item -LiteralPath $WorkingDirectory -Recurse -Force }
     New-Item -ItemType Directory -Path $WorkingDirectory -Force | Out-Null
@@ -138,7 +138,7 @@ function Start-NativeShell {
 
     # miniMode and velocityExpanded are deliberately not persisted by the app, so
     # every run starts in the full window whatever the last one did.
-    $settings = @{ skin = 0; autoSoloPiano = $true; keyMappingOpen = $false; alwaysOnTop = $false; midiFolder = '' }
+    $settings = @{ skin = 0; autoSoloPiano = $true; alwaysOnTop = $false; midiFolder = '' }
     if ($Preferences) { foreach ($key in $Preferences.Keys) { $settings[$key] = $Preferences[$key] } }
     if ($MidiFiles.Count) {
         $folder = Join-Path $WorkingDirectory 'midi'
@@ -148,7 +148,7 @@ function Start-NativeShell {
     }
     ($settings | ConvertTo-Json) | Out-File -LiteralPath (Join-Path $WorkingDirectory 'shell-settings.json') -Encoding utf8
 
-    $process = Start-Process -FilePath (Join-Path $WorkingDirectory 'MIDIShell.exe') `
+    $process = Start-Process -FilePath (Join-Path $WorkingDirectory 'QuartzMIDI.exe') `
                              -WorkingDirectory $WorkingDirectory -PassThru
     $window = Wait-NativeShellWindow -ProcessId $process.Id
     [pscustomobject]@{

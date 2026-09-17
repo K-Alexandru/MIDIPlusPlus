@@ -16,7 +16,8 @@ extern std::function<std::filesystem::path(HWND)> PickMidiFile;
 struct Preferences {
     int skin = 0;
     bool autoSolo = false;
-    bool keyMappingOpen = true;
+    // Never restored from the settings file: the window starts closed every run.
+    bool keyMappingOpen = false;
     bool alwaysOnTop = false;
     int opacity = 100;
     std::filesystem::path folder;
@@ -73,7 +74,9 @@ private:
     void DrawConvert(HWND, const Fonts&, const skin::Skin&, float, ShellEngine&);
     void DrawAutoVolume(const Fonts&, const skin::Skin&, float, ShellEngine&);
     void DrawLog(HWND, const Fonts&, const skin::Skin&, float, ShellEngine&);
-    std::string TransportHints(int seekStep) const;
+    // The hotkey legend: a keycap per key, its action after it. Measures
+    // when draw is null. Callers push the meta face first.
+    float DrawTransportHints(ImDrawList* draw, const skin::Skin& s, float dpi, int seekStep, ImVec2 origin) const;
     bool volumeWasOpen_ = false;
     GameWindow volumeWindow_;
     void SettingsControl(const Fonts&, const skin::Skin&, float, ShellEngine&, ImVec2, float);

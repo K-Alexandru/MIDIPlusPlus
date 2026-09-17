@@ -35,7 +35,7 @@ from `build\shell-tests`, which has no converter, so they stay unaffected.
 
 ## The release bundle
 
-`tools\make-release.ps1` stages `converter\` beside `MIDIShell.exe`: an
+`tools\make-release.ps1` stages `converter\` beside `QuartzMIDI.exe`: an
 embeddable Python 3.12 in `python\` with the packages from `requirements.txt`
 installed with `--no-deps`, this folder's two scripts, `ffmpeg\ffmpeg.exe`
 with `ffprobe.exe`, `deno\deno.exe`, and every licence under `licenses\`. Each download is

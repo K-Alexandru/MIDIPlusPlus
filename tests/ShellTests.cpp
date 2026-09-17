@@ -713,7 +713,7 @@ void SheetMenuTests(const std::filesystem::path& directory) {
         const auto saved = produce(engine, A::OpenSheetEditor);
         Require(saved->sheetNotes > 0 && !saved->sheetText->empty(), "the editor page carried no sheet");
         std::error_code ignored;
-        const auto expectedPage = std::filesystem::temp_directory_path(ignored) / L"MIDI++ sheets" / L"sheet-menu.html";
+        const auto expectedPage = std::filesystem::temp_directory_path(ignored) / L"QuartzMIDI sheets" / L"sheet-menu.html";
         Require(saved->sheetSaved == expectedPage && std::filesystem::exists(expectedPage), "the coloured sheet was not written to the temp folder");
         Require(!std::filesystem::exists(page), "the coloured sheet was written beside the MIDI file");
         { std::ifstream file(expectedPage, std::ios::binary);
@@ -1315,6 +1315,9 @@ void ControllerTests(const std::filesystem::path& config, const std::filesystem:
     for (const auto& event : events) Require(event.thread != uiThread, "injection on message thread");
     engine.Send({shell::ShellEngine::Action::UnmuteAll, {}, generation});
     Await([&] { return shell::SilentTracks(engine.Snapshot()->rows) == 0; }, "Unmute All command");
+    Require(engine.Snapshot()->error.empty(), "Unmute All that changed rows must not report");
+    engine.Send({shell::ShellEngine::Action::UnmuteAll, {}, generation});
+    Await([&] { return engine.Snapshot()->error == "No track was muted or soloed."; }, "Unmute All with nothing muted must say so");
     engine.Send({shell::ShellEngine::Action::Play, {}, generation});
     Await([&] { return engine.Snapshot()->playing; }, "second play command not consumed");
     Await([&] { return !engine.Snapshot()->playing; }, "second playback did not finish");

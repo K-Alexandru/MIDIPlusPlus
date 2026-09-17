@@ -17,7 +17,7 @@
 ## Key Features
 For work on this fork, start with [CONTINUE-HERE.md](CONTINUE-HERE.md).
 The separate ImGui application builds from `ui/MIDIShell.vcxproj` into
-`build/shell/MIDIShell.exe`. It currently supports a MIDI library, track
+`build/shell/QuartzMIDI.exe`. It currently supports a MIDI library, track
 mute/solo, Solo Piano, basic autoplay, four skins, real fonts and DPI scaling.
 The full UI migration is still in progress. Verification instructions and
 the precise testing boundaries are in the handoff.

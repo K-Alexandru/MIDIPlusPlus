@@ -7,7 +7,7 @@
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Label="Configuration"><ConfigurationType>Application</ConfigurationType><PlatformToolset>v143</PlatformToolset><CharacterSet>Unicode</CharacterSet></PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
-  <PropertyGroup><OutDir>$(MSBuildThisFileDirectory)..\build\shell\</OutDir><IntDir>$(MSBuildThisFileDirectory)..\build\shell-obj\</IntDir></PropertyGroup>
+  <PropertyGroup><TargetName>QuartzMIDI</TargetName><OutDir>$(MSBuildThisFileDirectory)..\build\shell\</OutDir><IntDir>$(MSBuildThisFileDirectory)..\build\shell-obj\</IntDir></PropertyGroup>
   <ItemDefinitionGroup>
     <!-- Level3 rather than Level4: the vendored ImGui sources are not ours to
          keep warning-clean, and the shipped app already builds at Level4. -->

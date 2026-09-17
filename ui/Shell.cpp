@@ -1,4 +1,4 @@
-// ImGui shell for the MIDI++ successor UI.
+// ImGui shell for QuartzMIDI, the MIDI++ successor UI.
 //
 // The four skins, MIDI library, Tracks and basic autoplay. Other panels are
 // still ported one at a time against skin-system.html.
@@ -22,6 +22,7 @@
 #include <d3d11.h>
 #include <tchar.h>
 #include <shellapi.h>
+#include <dwmapi.h>
 #include "json.hpp"
 #include <algorithm>
 #include <cctype>
@@ -237,6 +238,19 @@ static LRESULT WINAPI WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     return DefWindowProcW(hwnd, msg, wp, lp);
 }
 
+// The caption is Windows', not ImGui's, so it followed the system theme: a
+// white strip over a dark skin. Windows 11 takes the skin's own colours;
+// Windows 10 from 20H1 takes only dark or light, and older builds keep theirs.
+void ApplyCaption(HWND hwnd, const skin::Skin& s) {
+    const BOOL dark = s.dark ? TRUE : FALSE;
+    DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof(dark));
+    const auto colour = [](skin::Argb argb) -> COLORREF { return RGB((argb >> 16) & 0xFF, (argb >> 8) & 0xFF, argb & 0xFF); };
+    const COLORREF caption = colour(s.surface.structure), text = colour(s.ink.primary);
+    DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR, &caption, sizeof(caption));
+    DwmSetWindowAttribute(hwnd, DWMWA_TEXT_COLOR, &text, sizeof(text));
+    DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, &caption, sizeof(caption));
+}
+
 int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     ImGui_ImplWin32_EnableDpiAwareness();
     const HRESULT com = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
@@ -265,9 +279,11 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     const ImVec2 desired = panels.DesiredSize();
     RECT initial{0, 0, static_cast<LONG>(desired.x * g_dpi), static_cast<LONG>(desired.y * g_dpi)};
     AdjustWindowRectExForDpi(&initial, WS_OVERLAPPEDWINDOW, FALSE, 0, static_cast<UINT>(96.f * g_dpi));
-    HWND hwnd = ::CreateWindowW(wc.lpszClassName, L"MIDI++ shell (ImGui)",
+    HWND hwnd = ::CreateWindowW(wc.lpszClassName, L"QuartzMIDI",
                                 WS_OVERLAPPEDWINDOW, 100, 100, initial.right - initial.left, initial.bottom - initial.top,
                                 nullptr, nullptr, wc.hInstance, nullptr);
+    auto skins = skin::All();
+    ApplyCaption(hwnd, skins[panels.preferences.skin]);  // before the first paint, so no white flashes
     if (!CreateDevice(hwnd)) {
         CleanupDevice();
         ::UnregisterClassW(wc.lpszClassName, wc.hInstance);
@@ -293,7 +309,6 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     ImGui_ImplWin32_Init(hwnd);
     ImGui_ImplDX11_Init(g_device, g_context);
 
-    auto skins = skin::All();
     int appliedSkin = -1;
     float appliedDpi = 0.f;
     bool appliedMini = false, appliedExpanded = false, appliedMiniAutoplay = false;
@@ -368,6 +383,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
         }
         if (appliedSkin != active || appliedDpi != g_dpi) {
             skin::ApplyStyle(skins[active], g_dpi);
+            ApplyCaption(hwnd, skins[active]);
             ImGui::GetIO().FontDefault = fonts.Get(skins[active]);
             appliedSkin = active;
             appliedDpi = g_dpi;

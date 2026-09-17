@@ -467,7 +467,6 @@ void Panels::LoadPreferences(const std::filesystem::path& path) {
         const auto json = nlohmann::json::parse(stream);
         preferences.skin = std::clamp(json.value("skin", 0), 0, 3);
         preferences.autoSolo = json.value("autoSoloPiano", false);
-        preferences.keyMappingOpen = json.value("keyMappingOpen", true);
         preferences.alwaysOnTop = json.value("alwaysOnTop", false);
         preferences.opacity = std::clamp(json.value("opacity", 100), 40, 100);
         const auto folder = json.value("midiFolder", std::string());
@@ -477,7 +476,7 @@ void Panels::LoadPreferences(const std::filesystem::path& path) {
 
 void Panels::SavePreferences(const std::filesystem::path& path) const {
     nlohmann::json json{{"skin", preferences.skin}, {"autoSoloPiano", preferences.autoSolo},
-                        {"midiFolder", Utf8(preferences.folder)}, {"keyMappingOpen", preferences.keyMappingOpen},
+                        {"midiFolder", Utf8(preferences.folder)},
                         {"alwaysOnTop", preferences.alwaysOnTop}, {"opacity", preferences.opacity}};
     std::ofstream stream(path);
     if (stream) stream << json.dump(2) << '\n';
@@ -1692,16 +1691,27 @@ void Panels::DrawLog(HWND hwnd, const Fonts& fonts, const skin::Skin& design, fl
     ImGui::End();
 }
 
-std::string Panels::TransportHints(int seekStep) const {
+// Keycaps, not a run of text. "F1 Play/Pause   F2 -10s   F3 +10s   F4 Stop"
+// read as one sentence in the meta face; a bordered cap round each key
+// separates the key from what it does, and a wider gap separates the pairs.
+float Panels::DrawTransportHints(ImDrawList* draw, const skin::Skin& s, float dpi, int seekStep, ImVec2 origin) const {
     const auto back = "-" + std::to_string(seekStep) + "s", forward = "+" + std::to_string(seekStep) + "s";
     const std::string actions[]{"Play/Pause", back, forward, "Stop"};
-    std::string text;
+    const float line = ImGui::GetTextLineHeight(), capPad = 5 * dpi, capHeight = line + 2 * dpi;
+    float x = origin.x;
     for (size_t i = 0; i < transportKeys.size(); ++i) {
-        if (i) text += "   ";
-        text += transportKeys[i] + " " + actions[i];
-        if (!transportKeysAvailable[i]) text += " (unavailable)";
+        const float capWidth = ImGui::CalcTextSize(transportKeys[i].c_str()).x + 2 * capPad;
+        const std::string action = actions[i] + (transportKeysAvailable[i] ? "" : " (unavailable)");
+        if (draw) {
+            const ImVec2 min(x, origin.y - dpi), max(x + capWidth, origin.y - dpi + capHeight);
+            draw->AddRectFilled(min, max, Colour(s.surface.elevated), 4 * dpi);
+            draw->AddRect(min, max, Colour(s.border.hairline), 4 * dpi, 0, dpi);
+            draw->AddText(ImVec2(x + capPad, origin.y), Colour(s.ink.primary), transportKeys[i].c_str());
+            draw->AddText(ImVec2(x + capWidth + s.spacing.s1, origin.y), Colour(s.ink.secondary), action.c_str());
+        }
+        x += capWidth + s.spacing.s1 + ImGui::CalcTextSize(action.c_str()).x + s.spacing.s4;
     }
-    return text;
+    return x - origin.x - s.spacing.s4;
 }
 
 void Panels::DrawMini(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float dpi, ShellEngine& engine,
@@ -1830,8 +1840,7 @@ void Panels::DrawMini(HWND hwnd, const Fonts& fonts, const skin::Skin& design, f
         draw->AddText(ImVec2(origin.x + size.x - pad - ImGui::CalcTextSize(time.c_str()).x,
             row + control + 38 * dpi + (control - ImGui::GetTextLineHeight()) / 2), Colour(s.ink.secondary), time.c_str());
         { FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
-          DrawEllipsis(TransportHints(state->seekStep), size.x - 2 * pad,
-              ImVec2(origin.x + pad, row + 2 * control + 44 * dpi)); }
+          DrawTransportHints(draw, s, dpi, state->seekStep, ImVec2(origin.x + pad, row + 2 * control + 44 * dpi)); }
     }
     DrawStatus(fonts, design, dpi, *state, ImVec2(origin.x, origin.y + size.y - status), size.x, status);
     ImGui::PopStyleVar();
@@ -2058,11 +2067,10 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     const float sheetButtonWidth = 2 * 12 * dpi + 16 * dpi + s.spacing.s2 + ImGui::CalcTextSize(sheetLabel).x;
     float hintsWidth = 0;
     { FontScope font(fonts, design, design.type.meta * SpecFontScale(design));
-      const std::string hints = TransportHints(state->seekStep);
-      hintsWidth = ImGui::CalcTextSize(hints.c_str()).x + s.spacing.s3;
-      ImGui::GetWindowDrawList()->AddText(ImVec2(content.x + contentWidth - sheetButtonWidth - hintsWidth + s.spacing.s3 - s.spacing.s2,
-                                                 content.y + (titleHeight - ImGui::GetTextLineHeight()) / 2),
-                                          Colour(s.ink.secondary), hints.c_str()); }
+      hintsWidth = DrawTransportHints(nullptr, s, dpi, state->seekStep, {}) + s.spacing.s3;
+      DrawTransportHints(ImGui::GetWindowDrawList(), s, dpi, state->seekStep,
+          ImVec2(content.x + contentWidth - sheetButtonWidth - hintsWidth + s.spacing.s3 - s.spacing.s2,
+                 content.y + (titleHeight - ImGui::GetTextLineHeight()) / 2)); }
     { FontScope font(fonts, design, 20 * SpecFontScale(design), Weight::Medium);
       DrawEllipsis(state->loaded.empty() ? "Playback" : Utf8(state->loaded.stem()),
                    contentWidth - sheetButtonWidth - hintsWidth - s.spacing.s2, ImVec2(content.x, content.y + (titleHeight - ImGui::GetTextLineHeight()) / 2)); }
@@ -2214,12 +2222,17 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     ImGui::PushFont(fonts.Get(design), design.type.body * SpecFontScale(design));
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12 * dpi, (s.metric.controlHeight - ImGui::GetTextLineHeight()) / 2));
     { FontScope font(fonts, design, design.type.body * SpecFontScale(design), Weight::Semibold); ImGui::AlignTextToFramePadding(); ImGui::TextUnformatted("Tracks"); }
-    const float actionsWidth = ImGui::CalcTextSize("Solo Piano").x + ImGui::CalcTextSize("Unmute All").x + 4 * ImGui::GetStyle().FramePadding.x + s.spacing.s2;
+    // Icon and label, like the transport row: a piano for the one that keeps
+    // the pianos, a speaker for the one that brings every track back.
+    const auto buttonWidth = [&](const char* label) { return 2 * 12 * dpi + 16 * dpi + s.spacing.s2 + ImGui::CalcTextSize(label).x; };
+    const float actionsWidth = buttonWidth("Solo Piano") + buttonWidth("Unmute All") + s.spacing.s2;
     ImGui::SameLine(ImGui::GetWindowWidth() - actionsWidth);
     ImGui::BeginDisabled(state->rows.empty() || state->busy);
-    if (ImGui::Button("Solo Piano")) send(ShellEngine::Action::SoloPiano);
+    if (TransportButton("##solo-piano", Icon::Piano, "Solo Piano", s, dpi)) send(ShellEngine::Action::SoloPiano);
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("Mutes every track that is not a piano.");
     ImGui::SameLine();
-    if (ImGui::Button("Unmute All")) send(ShellEngine::Action::UnmuteAll);
+    if (TransportButton("##unmute-all", Icon::Speaker, "Unmute All", s, dpi)) send(ShellEngine::Action::UnmuteAll);
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("Clears every mute and solo.");
     ImGui::EndDisabled();
     const ImVec2 tableMin = ImGui::GetCursorScreenPos();
     const ImVec2 tableSize = ImGui::GetContentRegionAvail();

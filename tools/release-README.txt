@@ -1,5 +1,5 @@
-MIDI++ test build
-=================
+QuartzMIDI demo v2
+==================
 
 
 What to try

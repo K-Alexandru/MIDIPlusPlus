@@ -81,7 +81,7 @@ std::filesystem::path DefaultSheetsFolder(const std::filesystem::path& midiFolde
     std::filesystem::path documents;
     PWSTR text = nullptr;
     if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Documents, 0, nullptr, &text))) { documents = text; CoTaskMemFree(text); }
-    return documents / L"MIDI++ sheets";
+    return documents / L"QuartzMIDI sheets";
 }
 
 namespace {
@@ -1122,8 +1122,20 @@ void ShellEngine::Run(std::stop_token stop) {
                     applyTracks();
                     invalidateSheet();
                     break;
-                case Action::SoloPiano: SoloPiano(state.rows); applyTracks(); invalidateSheet(); break;
-                case Action::UnmuteAll: UnmuteAll(state.rows); applyTracks(); invalidateSheet(); break;
+                // A piano-only file, or one with nothing muted, leaves the rows as
+                // they were; the status bar says so, or the click looks ignored.
+                case Action::SoloPiano: {
+                    const auto before = state.rows;
+                    SoloPiano(state.rows); applyTracks(); invalidateSheet();
+                    if (before == state.rows) state.error = "Every track is piano, so Solo Piano muted nothing.";
+                    break;
+                }
+                case Action::UnmuteAll: {
+                    const auto before = state.rows;
+                    UnmuteAll(state.rows); applyTracks(); invalidateSheet();
+                    if (before == state.rows) state.error = "No track was muted or soloed.";
+                    break;
+                }
                 case Action::ConvertAudio: {
                     if (state.converting) { state.error = "A conversion is already running."; break; }
                     if (state.folder.empty()) { state.error = "Choose a MIDI folder first. The converted file is saved there."; break; }
@@ -1261,7 +1273,7 @@ void ShellEngine::Run(std::stop_token stop) {
                     state.sheetFilesSaved.clear();
                     if (result.notes > 0) {
                         std::error_code ignored;
-                        const auto folder = std::filesystem::temp_directory_path(ignored) / L"MIDI++ sheets";
+                        const auto folder = std::filesystem::temp_directory_path(ignored) / L"QuartzMIDI sheets";
                         std::filesystem::create_directories(folder, ignored);
                         auto path = folder / state.loaded.filename(); path.replace_extension(L".html");
                         std::ofstream output(path, std::ios::binary);

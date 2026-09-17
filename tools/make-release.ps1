@@ -10,7 +10,7 @@
 #   & .\tools\make-release.ps1 -SkipBuild        # package what is already built
 #   & .\tools\make-release.ps1 -Python C:\py312\python.exe
 #
-# Output: build\release\MIDIPlusPlus\ and build\release\MIDIPlusPlus-test-build.zip
+# Output: build\release\QuartzMIDI\ and build\release\QuartzMIDI-demo-v2.zip
 #
 # The converter is an embeddable Python 3.12 with the packages pinned in
 # tools\mp3-to-midi\requirements.txt, plus FFmpeg and Deno, every one fetched
@@ -27,8 +27,8 @@ param([switch] $SkipBuild, [string] $Python)
 
 $ErrorActionPreference = 'Stop'
 $repoPath = Split-Path -Parent $PSScriptRoot
-$stage = Join-Path $repoPath 'build\release\MIDIPlusPlus'
-$zip = Join-Path $repoPath 'build\release\MIDIPlusPlus-test-build.zip'
+$stage = Join-Path $repoPath 'build\release\QuartzMIDI'
+$zip = Join-Path $repoPath 'build\release\QuartzMIDI-demo-v2.zip'
 $downloads = Join-Path $repoPath 'build\release\downloads'
 $converterSource = Join-Path $PSScriptRoot 'mp3-to-midi'
 
@@ -116,7 +116,7 @@ if (-not $SkipBuild) {
 }
 
 $built = Join-Path $repoPath 'build\shell'
-foreach ($required in @('MIDIShell.exe', 'config.json', 'LICENSE', 'IBM-Plex-LICENSE.txt', 'ImGui-LICENSE.txt')) {
+foreach ($required in @('QuartzMIDI.exe', 'config.json', 'LICENSE', 'IBM-Plex-LICENSE.txt', 'ImGui-LICENSE.txt')) {
     if (-not (Test-Path -LiteralPath (Join-Path $built $required))) {
         throw "$required is missing from $built. Build without -SkipBuild."
     }
@@ -129,7 +129,7 @@ New-Item -ItemType Directory -Path $downloads -Force | Out-Null
 
 # The exe, its config, and the licences the GPL and the two third-party ones
 # require to travel with the binary.
-foreach ($file in @('MIDIShell.exe', 'config.json', 'LICENSE', 'IBM-Plex-LICENSE.txt', 'ImGui-LICENSE.txt')) {
+foreach ($file in @('QuartzMIDI.exe', 'config.json', 'LICENSE', 'IBM-Plex-LICENSE.txt', 'ImGui-LICENSE.txt')) {
     Copy-Item -LiteralPath (Join-Path $built $file) -Destination $stage
 }
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'release-README.txt') -Destination (Join-Path $stage 'README.txt')
@@ -210,9 +210,9 @@ $dumpbin = $null
 $toolset = Get-ChildItem (Join-Path $vcRoot 'Tools\MSVC') -Directory -ErrorAction SilentlyContinue | Select-Object -Last 1
 if ($toolset) { $dumpbin = Join-Path $toolset.FullName 'bin\Hostx64\x64\dumpbin.exe' }
 if ($dumpbin -and (Test-Path -LiteralPath $dumpbin)) {
-    $dependents = & $dumpbin /dependents (Join-Path $stage 'MIDIShell.exe') 2>&1 | Select-String -Pattern '\.dll'
+    $dependents = & $dumpbin /dependents (Join-Path $stage 'QuartzMIDI.exe') 2>&1 | Select-String -Pattern '\.dll'
     $runtime = $dependents | Where-Object { $_ -match 'VCRUNTIME|MSVCP|api-ms-win-crt' }
-    if ($runtime) { throw "MIDIShell.exe now needs the VC++ runtime: $runtime. Check RuntimeLibrary is still MultiThreaded." }
+    if ($runtime) { throw "QuartzMIDI.exe now needs the VC++ runtime: $runtime. Check RuntimeLibrary is still MultiThreaded." }
 
     # The same promise for the converter: every VC++ runtime DLL any of its
     # binaries imports must be beside python.exe, not left to the tester's
@@ -295,11 +295,11 @@ try {
     foreach ($file in Get-ChildItem -LiteralPath $stage -File -Recurse | Sort-Object FullName) {
         $relative = $file.FullName.Substring($stage.Length + 1) -replace '\\', '/'
         [void][System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
-            $archive, $file.FullName, "MIDIPlusPlus/$relative",
+            $archive, $file.FullName, "QuartzMIDI/$relative",
             [System.IO.Compression.CompressionLevel]::Optimal)
     }
     # A trailing slash is what makes this a directory entry rather than a file.
-    [void]$archive.CreateEntry('MIDIPlusPlus/midi/')
+    [void]$archive.CreateEntry('QuartzMIDI/midi/')
 } finally { $archive.Dispose() }
 
 $hash = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash

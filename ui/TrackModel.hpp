@@ -17,6 +17,7 @@ struct TrackRow {
     bool drums = false;
     bool muted = false;
     bool solo = false;
+    bool operator==(const TrackRow&) const = default;
 };
 
 std::vector<TrackRow> DescribeTracks(const MidiFile& file);
