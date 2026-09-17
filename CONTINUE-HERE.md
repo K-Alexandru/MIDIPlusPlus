@@ -8,7 +8,7 @@ Updated 2026-09-16 on `claude/consolidate-2026-09-15`, the one branch. Read
 One Windows app, QuartzMIDI, that does everything the original MIDI++ window
 did and more. The ImGui shell (`ui/`, `build\shell\QuartzMIDI.exe`) replaces
 the Win32 window (`MIDI++/`); both share `PlaybackCore` through `ShellEngine`.
-Nothing is optional. The demo v2 build is what the owner shares with testers.
+Nothing is optional. Demo v2 is the build the owner shares with testers.
 
 ## Seats
 
@@ -88,9 +88,8 @@ Nothing is optional. The demo v2 build is what the owner shares with testers.
 
 - `ShellTests.exe` all PASS, parity passed, `RenderTests.exe` all PASS at
   100 to 200% in four skins, after the rename and the legend.
-- The shell launched in Blue, Blue Dark and Terracotta Dark by
-  `NativeShell.ps1`; captures show the dark caption, the title, the icon,
-  the keycaps and the icon buttons. Key Mapping did not open.
+- The shell launched in three skins by `NativeShell.ps1`; captures show the
+  caption, title, icon, keycaps and icon buttons, and Key Mapping stayed shut.
 - Not run: native and latency tests, `signin.py`, parity mutations.
 
 ## Build and test
@@ -109,8 +108,9 @@ python .\tools\gen-icon.py
 - The main checkout `D:\Dev\MIDIPlusPlus-modded` is on this branch, pushed,
   clean apart from the owner's `x64\Release\MIDI++.exe` and `x64\Release\midi\`.
   `D:\Dev\mpp-panels` is the panel seat's; leave it.
-- Demo v2 from `f783ccc`: `build\release\QuartzMIDI-demo-v2.zip` and the
-  staged folder `build\release\QuartzMIDI\`; SHA256 in the last reply.
+- Demo v2 from `f783ccc`: `build\release\QuartzMIDI-demo-v2.zip` (426 MB),
+  SHA256 `4AC86AA3C23F39E693C595C8BCE2617D4B0A621FD98AED5659981EC6658C2F8A`,
+  and the staged folder `build\release\QuartzMIDI\` the owner runs from.
 - Never commit `x64/Release/midi/`, `build/`, `MIDI++/MIDI++/`, `.claude/`,
   `tools/mp3-to-midi/cookies.txt` or `tools/mp3-to-midi/browser/`.
 
