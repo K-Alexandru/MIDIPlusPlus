@@ -60,8 +60,9 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
 - Actions before `CurveSelect` in the enum are dropped unless the generation
   matches; a new engine's first snapshot is blank, so tests `Await` the config.
 - Run MSBuild from PowerShell: Git Bash rewrites `/p:` switches as paths.
-- Solo Piano on a piano-only file and Unmute All with nothing muted change no
-  row; the status bar now says so. That was the "does nothing" report.
+- A DAW export puts every part on channel 1 with no program change, so by
+  program alone it is all piano. `DescribeTracks` lets the name decide when
+  the channel never set a program; "piano" or "keys" keeps it.
 
 ## Work completed, 2026-09-16 (owner-asked `ui/` exceptions)
 
@@ -76,10 +77,10 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
 
 ## Unresolved
 
-- **Owner to test on the `d4bfe92` build:** the caption on their machine,
-  the icon in the taskbar and Explorer, the legend at their DPI, and the
-  earlier items: sections on a real file, Save image from a page opened off
-  disk, the library save over 3325 files.
+- **Owner to test on the `3becff0` build:** Solo Piano on Miphas Court
+  (five Flutes, one MIDI Region), the caption, the icon, the legend at their
+  DPI, sections on a real file, Save image from a page opened off disk, the
+  library save over 3325 files.
 - **Owner's call:** a green pill's top highlight shows faintly inside its border.
 - **Needs the owner at the keyboard:** game delivery, Wooting, two devices,
   MIDI out, live curve reconnection, mixed DPI, the 900 x 610 clamp.
@@ -107,13 +108,13 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
 - The main checkout `D:\Dev\MIDIPlusPlus-modded` is on this branch, pushed,
   clean apart from the owner's `x64\Release\MIDI++.exe` and `x64\Release\midi\`.
   `D:\Dev\mpp-panels` is the panel seat's; leave it.
-- Demo v2 from `d4bfe92`: `build\release\QuartzMIDI-demo-v2.zip` (426 MB),
-  SHA256 `BF4F7447F32F9F8DB73D930FD2BF0D74B59875E4F27F191F6D30FB54A000A08E`,
+- Demo v2 from `3becff0`: `build\release\QuartzMIDI-demo-v2.zip` (426 MB),
+  SHA256 `BED7208A629402FD46538E0344A836FCC41AE0B772249ADC74A99F4AFADF3796`,
   and the staged folder `build\release\QuartzMIDI\` the owner runs from.
 - Never commit `x64/Release/midi/`, `build/`, `MIDI++/MIDI++/`, `.claude/`,
   `tools/mp3-to-midi/cookies.txt` or `tools/mp3-to-midi/browser/`.
 
 ## Next action
 
-Ask the owner what they found on the `d4bfe92` demo v2 build and fix the first
+Ask the owner what they found on the `3becff0` demo v2 build and fix the first
 thing they name on this branch, then repackage with `.\tools\make-release.ps1`.
