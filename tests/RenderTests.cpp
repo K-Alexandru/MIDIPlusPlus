@@ -100,9 +100,8 @@ int wmain() {
             panels.miniAutoplay = mode == 2 || mode == 8 || mode == 10;
             panels.logOpen = mode == 3 || mode == 9;
             panels.velocityExpanded = mode == 11;
-            // "minimum" is the smallest window WM_GETMINMAXINFO allows, 900 x 610:
-            // the design height at 190 less width, where the right column is
-            // at its narrowest.
+            // "minimum" is the smallest window WM_GETMINMAXINFO allows, where
+            // the right column and the strip are at their narrowest.
             const char* variants[]{"full", "mini-live", "mini-autoplay", "log", "settings", "sort", "export",
                                    "countdown", "mini-countdown", "mini-log", "mini-open", "velocity-editor", "convert", "minimum",
                                    "settings-switches",
@@ -124,7 +123,7 @@ int wmain() {
             if (panels.logOpen) shell::ShellLog::Instance().Append("[error] Kernel Streaming read failed, live input has stopped.\n");
             skin::ApplyStyle(skins[i], dpi);
             ImGui::GetIO().FontDefault = fonts.Get(skins[i]);
-            const auto desired = mode == 13 ? ImVec2(900, 610) : panels.DesiredSize();
+            const auto desired = mode == 13 ? shell::Panels::MinimumSize() : panels.DesiredSize();
             const UINT width = static_cast<UINT>(desired.x * dpi);
             const UINT height = static_cast<UINT>(desired.y * dpi);
             D3D11_TEXTURE2D_DESC desc{};
@@ -138,12 +137,12 @@ int wmain() {
             for (int frame = 0; frame < 7; ++frame) {
                 auto& io = ImGui::GetIO();
                 const auto s = skin::ScaleGeometry(skins[i], dpi);
-                const float leftEdge = s.spacing.windowPad + 336 * dpi - s.spacing.panelPad;
-                const float buttonY = 36 * dpi + 2 * s.metric.controlHeight + s.spacing.windowPad + s.spacing.panelPad + s.metric.controlHeight / 2;
+                const float leftEdge = s.spacing.windowPad + std::clamp(width - 2 * s.spacing.windowPad - s.spacing.s3 - 600 * dpi, 240 * dpi, 336 * dpi) - s.spacing.panelPad;
+                const float buttonY = 24 * dpi + s.metric.controlHeight + s.spacing.windowPad + s.spacing.panelPad + s.metric.controlHeight / 2;
                 // Second control from the right on mini's first body row: the
                 // strip, one row gap, and back past Solo Piano and one spacing.
                 const float openX = width - s.spacing.windowPad - 1.5f * s.metric.controlHeight - s.spacing.s2;
-                const float openY = 36 * dpi + 2 * s.metric.controlHeight + 8 * dpi + s.metric.controlHeight / 2;
+                const float openY = 24 * dpi + 2 * s.metric.controlHeight + 8 * dpi + s.metric.controlHeight / 2;
                 if (mode == 5) io.AddMousePosEvent(leftEdge - 1.5f * s.metric.controlHeight - s.spacing.s2, buttonY);
                 else if (mode == 6) io.AddMousePosEvent(width - s.spacing.windowPad - s.spacing.panelPad - 40 * dpi, buttonY);
                 else if (mode == 10) io.AddMousePosEvent(openX, openY);

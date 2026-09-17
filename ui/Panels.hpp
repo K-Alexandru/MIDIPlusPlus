@@ -45,6 +45,9 @@ public:
     bool revealSettingsSwitches = false;
     ~Panels();
     ImVec2 DesiredSize() const;
+    // The smallest full window: Files at its 240 and the right column at its
+    // 600. Mini has one size, DesiredSize.
+    static ImVec2 MinimumSize() { return ImVec2(884, 560); }
     void LoadPreferences(const std::filesystem::path& path);
     void SavePreferences(const std::filesystem::path& path) const;
     void Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design,
@@ -69,6 +72,7 @@ private:
     uint64_t handledSheetRevision_ = 0;
     uint64_t sheetStatusGeneration_ = 0;
     std::string sheetStatus_;
+    std::string sheetNote_;
     bool sheetPending_ = false;
     char convertLink_[1024]{};
     bool convertPlaylist_ = false;

@@ -211,13 +211,14 @@ static LRESULT WINAPI WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_GETMINMAXINFO: {
         auto* info = reinterpret_cast<MINMAXINFO*>(lp);
         const bool mini = g_panels && g_panels->miniMode;
-        // 610 is the design height: below it the Tracks panel is down to one
-        // row, and nothing in the layout has a shorter form to fall back to.
-        const ImVec2 minimum = mini ? g_panels->DesiredSize() : ImVec2(900, 610);
+        const ImVec2 minimum = mini ? g_panels->DesiredSize() : shell::Panels::MinimumSize();
         RECT rect{0, 0, static_cast<LONG>(minimum.x * g_dpi), static_cast<LONG>(minimum.y * g_dpi)};
         AdjustWindowRectExForDpi(&rect, WS_OVERLAPPEDWINDOW, FALSE, 0,
                                 static_cast<UINT>(96.f * g_dpi));
         info->ptMinTrackSize = {rect.right - rect.left, rect.bottom - rect.top};
+        // Mini is its content and nothing stretches, so a drag that made it
+        // larger only added blank window.
+        if (mini) info->ptMaxTrackSize = info->ptMinTrackSize;
         return 0;
     }
     case WM_SIZE:
@@ -315,6 +316,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     float appliedDpi = 0.f;
     bool appliedMini = false, appliedExpanded = false, appliedMiniAutoplay = false;
     RECT fullRect{}; GetWindowRect(hwnd, &fullRect);
+    bool fullMaximized = false;
     if (panels.preferences.folder.empty()) {
         auto folder = directory / L"midi";
         if (!std::filesystem::is_directory(folder)) folder = directory.parent_path().parent_path() / L"x64" / L"Release" / L"midi";
@@ -359,7 +361,18 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
         const bool modeChanged = appliedMini != panels.miniMode;
         const bool sizeChanged = modeChanged || appliedExpanded != panels.velocityExpanded ||
             (panels.miniMode && appliedMiniAutoplay != panels.miniAutoplay);
-        if (sizeChanged) {
+        // A maximized full window keeps its size when the velocity editor
+        // opens: SetWindowPos on it left a window that said it was maximized
+        // and was not.
+        if (sizeChanged && !modeChanged && !panels.miniMode && IsZoomed(hwnd)) appliedExpanded = panels.velocityExpanded;
+        else if (sizeChanged) {
+            if (modeChanged) {
+                // Mini has one size, so it has no maximize box, and a
+                // maximized full window is restored first and put back after.
+                if (panels.miniMode) { fullMaximized = IsZoomed(hwnd) != FALSE; if (fullMaximized) ShowWindow(hwnd, SW_RESTORE); }
+                const auto style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+                SetWindowLongPtrW(hwnd, GWL_STYLE, panels.miniMode ? style & ~WS_MAXIMIZEBOX : style | WS_MAXIMIZEBOX);
+            }
             RECT window{}, client{}; GetWindowRect(hwnd, &window); GetClientRect(hwnd, &client);
             if (modeChanged && panels.miniMode) fullRect = window;
             RECT target{};
@@ -378,7 +391,8 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
             const LONG height = std::min(target.bottom - target.top, monitor.rcWork.bottom - monitor.rcWork.top);
             target.left = std::clamp(target.left, monitor.rcWork.left, monitor.rcWork.right - width);
             target.top = std::clamp(target.top, monitor.rcWork.top, monitor.rcWork.bottom - height);
-            SetWindowPos(hwnd, nullptr, target.left, target.top, width, height, SWP_NOZORDER | SWP_NOACTIVATE);
+            SetWindowPos(hwnd, nullptr, target.left, target.top, width, height, SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+            if (modeChanged && !panels.miniMode && fullMaximized) ShowWindow(hwnd, SW_MAXIMIZE);
             appliedMini = panels.miniMode;
             appliedExpanded = panels.velocityExpanded;
             appliedMiniAutoplay = panels.miniAutoplay;

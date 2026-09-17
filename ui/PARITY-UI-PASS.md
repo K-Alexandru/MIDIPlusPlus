@@ -13,8 +13,9 @@ All eight items in the Owner's UI pass are implemented:
 - Files sort by name, size or modification date, ascending or descending.
   The worker owns that order, shared by regular mode, mini mode and Prev/Next.
 - Raised highlights follow the rounded upper corners.
-- Both modes share device-pill typography, state-pill padding, strip rows and
-  the same four utility slots. Mini mode is 640 logical pixels wide.
+- Both modes share device-pill typography and state-pill padding. The full
+  window's strip is one row with four utility slots; mini keeps two rows and
+  three slots (no Key Mapping) and is 528 logical pixels wide, fixed.
 - File refresh uses the existing Refresh icon.
 - Export opens a menu containing only Copy as sheet.
 - Status text is clipped below the separator, including Loading.

@@ -55,19 +55,18 @@ function Write-MinimalMidi {
 # Client-logical coordinates, multiplied by the window's scale at use.
 #
 # All four are anchored to the top-left corner, which is why they do not depend
-# on the window size. The Files panel is `min(336, width * .33)` wide starting at
-# the 12px window pad, so x = 150 is inside it at every size the window allows,
-# down to the 900px minimum. The rows below it are the 81px Classic strip, the
-# 12px pad, the panel pad, a 28px heading, a 28px search field and 8px item
-# spacing, which puts the first file row's middle at y = 191 and the second 36
-# below it.
+# on the window size. The Files panel starts at the 16px window pad and is never
+# narrower than 240, so x = 150 is inside it at every size the window allows.
+# The rows below it are the 56px strip, the 16px pad, the 16px panel pad, a 32px
+# heading, a 32px search field and 8px item spacing, which puts the first file
+# row's middle at y = 184 and the second 40 below it.
 #
 # If the layout moves, the click checks below fail with "the file row is no
 # longer here", not with something mysterious. Re-derive the numbers and update
 # this block; do not chase the symptom.
 $Layout = @{
-    FileRow1   = @{ X = 150; Y = 191 }
-    FileRow2   = @{ X = 150; Y = 227 }
+    FileRow1   = @{ X = 150; Y = 184 }
+    FileRow2   = @{ X = 150; Y = 224 }
     # A rectangle inside the Tracks panel that holds the track rows. Empty
     # before a file is loaded, so a change here means the load reached the UI.
     TrackRows  = @{ X = 370; Y = 300; W = 490; H = 120 }
@@ -96,19 +95,19 @@ try {
     # can be the Key Mapping window; everything measured after that would be
     # measured against the wrong rectangle.
     $windows = @(Get-NativeShellWindows -ProcessId $shell.Process.Id)
-    $named = @($windows | Where-Object { $_.Visible -and $_.Title -eq 'MIDI++ shell (ImGui)' })
+    $named = @($windows | Where-Object { $_.Visible -and $_.Title -eq 'QuartzMIDI' })
     Check -Ok ($named.Count -eq 1) -Message 'exactly one visible window carries the shell title' `
           -Detail ("saw: " + (($windows | ForEach-Object { "'$($_.Title)' visible=$($_.Visible)" }) -join ', '))
 
     $geometry = Get-NativeShellGeometry -Shell $shell
     Check -Ok ($geometry.Dpi -ge 96) -Message "the window reports its DPI ($($geometry.Dpi), scale $($geometry.Scale))"
 
-    # WM_GETMINMAXINFO. The handler builds the minimum from ImVec2(900, 610) and
+    # WM_GETMINMAXINFO. The handler builds the minimum from Panels::MinimumSize() and
     # AdjustWindowRectExForDpi, so the floor is in logical pixels and scales.
     Set-NativeShellRect -Shell $shell -X 60 -Y 60 -Width 300 -Height 300 -Topmost
     $clamped = Get-NativeShellGeometry -Shell $shell
-    $minimumWidth = [int](900 * $clamped.Scale)
-    $minimumHeight = [int](610 * $clamped.Scale)
+    $minimumWidth = [int](884 * $clamped.Scale)
+    $minimumHeight = [int](560 * $clamped.Scale)
     Check -Ok ($clamped.ClientWidth -ge $minimumWidth - 4 -and $clamped.ClientHeight -ge $minimumHeight - 4) `
           -Message 'a resize below the minimum is clamped, not obeyed' `
           -Detail "asked for 300x300, client is $($clamped.ClientWidth)x$($clamped.ClientHeight), floor is ${minimumWidth}x${minimumHeight}"

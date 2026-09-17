@@ -211,8 +211,11 @@ bool StatePill(const char* label, bool on, const Fonts& fonts, const skin::Skin&
     // first so our stacked shadow cannot darken the translucent on surface.
     auto* dl = ImGui::GetWindowDrawList();
     skin::RaisedRect(dl, min, ImVec2(min.x + size.x, min.y + size.y), s.radius.control, s, fill);
+    // A pill that cannot be pressed is drawn in the tertiary ink. In the
+    // primary ink it was the same picture as one that is off, and a click on
+    // it did nothing.
     dl->AddText(ImVec2(min.x + (size.x - text.x) / 2, min.y + (size.y - text.y) / 2),
-                Colour(on ? s.accent.okInk : s.ink.primary), label);
+                Colour(on ? s.accent.okInk : enabled ? s.ink.primary : s.ink.tertiary), label);
 
     // No underline under the label: at pill width it read as text decoration
     // rather than as a state. The on state is still not carried by colour
@@ -231,10 +234,10 @@ bool StatePills(const Fonts& fonts, const skin::Skin& design, float dpi, ShellEn
         engine.Send({ShellEngine::Action::LiveActive, {}, 0, 0, !state->liveActive});
     ImGui::SameLine();
     const bool velocityAvailable = !state->outputMidi;
-    if (StatePill(velocityAvailable ? "Velocity" : "Velocity unavailable",
-                  velocityAvailable && state->velocity, fonts, design, dpi, pad, velocityAvailable,
-                  velocityAvailable ? nullptr : "MIDI output sends note velocity directly.",
-                  velocityAvailable ? nullptr : "Unavailable"))
+    // One label in both states. "Velocity unavailable" was half as wide again,
+    // so switching the output to MIDI pushed every pill after it to the right.
+    if (StatePill("Velocity", velocityAvailable && state->velocity, fonts, design, dpi, pad, velocityAvailable,
+                  nullptr, velocityAvailable ? nullptr : "Unavailable"))
         engine.Send({ShellEngine::Action::Velocity, {}, 0, 0, !state->velocity});
     ImGui::SameLine();
     const bool sustainEnabled = !state->playing && !state->liveActive;
@@ -492,7 +495,7 @@ void Panels::DrawKeyMapping(const Fonts& fonts, const skin::Skin& design, float 
     const float height = 268.390625f;
     const auto* main = ImGui::GetMainViewport();
     if (!platform || mappingDpi_ == 0)
-        ImGui::SetNextWindowPos(ImVec2(main->Pos.x + 125 * dpi, main->Pos.y + main->Size.y - (height + 40) * dpi));
+        ImGui::SetNextWindowPos(ImVec2(main->Pos.x + (main->Size.x - 840 * dpi) / 2, main->Pos.y + main->Size.y - (height + 40) * dpi));
     ImGui::SetNextWindowSize(ImVec2(840 * dpi, height * dpi));
     ImGuiWindowClass windowClass;
     windowClass.ViewportFlagsOverrideSet = ImGuiViewportFlags_NoAutoMerge;
@@ -747,11 +750,12 @@ std::function<std::filesystem::path(HWND)> PickMidiFile = [](HWND hwnd) { return
 Panels::~Panels() { if (measuring_) input_latency::stop(); }
 
 ImVec2 Panels::DesiredSize() const {
-    // Mini has no panel that stretches, so its height is the content: the
-    // 100dpi strip, the rows, one windowPad of air, and the status bar. The old
-    // 240/360 left the difference as blank window below the last control.
-    if (miniMode) return ImVec2(640, miniAutoplay ? 276.f : 184.f);
-    return ImVec2(1090, velocityExpanded ? 984.f : 610.f);
+    // Mini has no panel that stretches, so both sides are the content. The
+    // width is the state pills and a window pad each side; 640 left a blank
+    // fifth of the window to their right. The height is the 88dpi strip, the
+    // rows at 8dpi apart, and the status bar.
+    if (miniMode) return ImVec2(528, miniAutoplay ? 256.f : 164.f);
+    return ImVec2(940, velocityExpanded ? 974.f : 600.f);
 }
 
 namespace {
@@ -1587,6 +1591,8 @@ void Panels::DrawStatus(const Fonts& fonts, const skin::Skin& design, float dpi,
     if (!state.error.empty()) fields.push_back(state.error);
     else if (state.busy) fields.push_back("Loading...");
     else {
+        // The sheet's result leads while there is one; mini has no Export.
+        if (!miniMode && !sheetNote_.empty()) fields.push_back(sheetNote_);
         fields.push_back(state.playing ? "Playing" : state.midiConnect ? "MidiConnect" : state.liveActive ? "Live" : "Ready");
         // A conversion outlives its popup, so the bar says one is running.
         if (state.converting) fields.push_back(state.signingIn ? "Signing in to YouTube" : "Converting audio");
@@ -1691,17 +1697,20 @@ void Panels::DrawMini(HWND hwnd, const Fonts& fonts, const skin::Skin& design, f
     const float control = s.metric.controlHeight, pad = s.spacing.windowPad;
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12 * dpi, (control - ImGui::GetTextLineHeight()) / 2));
     // Two rows -- device pill, then state pills -- with equal air above, between
-    // and below. 125dpi was that plus a third row for the typing caption, and
-    // outlived it as dead space.
-    const float stripPad = 12 * dpi;
+    // and below, and the same 8dpi every other gap in mini uses.
+    const float gap = 8 * dpi, stripPad = gap;
     const float strip = 3 * stripPad + 2 * control, status = 28 * dpi;
     auto* draw = ImGui::GetWindowDrawList();
     draw->AddRectFilled(origin, ImVec2(origin.x + size.x, origin.y + strip), Colour(s.surface.structure));
+    draw->AddLine(ImVec2(origin.x, origin.y + strip), ImVec2(origin.x + size.x, origin.y + strip), Colour(s.border.hairline));
+    // Three utility slots. Key Mapping is a panel of the full window; its
+    // button sat here permanently disabled.
+    const float utilityX = origin.x + size.x - pad - 3 * control - 2 * s.spacing.s2;
+    const float segmentX = utilityX - 172 * dpi;
     ImGui::SetCursorScreenPos(ImVec2(origin.x + pad, origin.y + stripPad));
     { FontScope deviceFont(fonts, design, design.type.body * SpecFontScale(design), Weight::Medium);
-      if (DevicePill(DeviceName(*state), std::max(40 * dpi, size.x - 360 * dpi), s, dpi)) ImGui::OpenPopup("Settings"); }
-    const float utilityX = origin.x + size.x - pad - 4 * control - 3 * s.spacing.s2;
-    ImGui::SetCursorScreenPos(ImVec2(utilityX - 172 * dpi, origin.y + stripPad));
+      if (DevicePill(DeviceName(*state), std::max(40 * dpi, segmentX - s.spacing.s3 - origin.x - pad), s, dpi)) ImGui::OpenPopup("Settings"); }
+    ImGui::SetCursorScreenPos(ImVec2(segmentX, origin.y + stripPad));
     {
         FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
         const auto well = ImGui::GetCursorScreenPos();
@@ -1726,16 +1735,13 @@ void Panels::DrawMini(HWND hwnd, const Fonts& fonts, const skin::Skin& design, f
     ImGui::SetCursorScreenPos(ImVec2(utilityX, origin.y + stripPad));
     if (IconButton("##restore-full", Icon::Expand, "Full window", s, dpi)) miniMode = false;
     ImGui::SameLine();
-    ImGui::BeginDisabled();
-    IconButton("##mini-key-mapping", Icon::Keyboard, "Key Mapping: open the full window", s, dpi);
-    ImGui::EndDisabled(); ImGui::SameLine();
-    if (IconButton("##mini-theme", s.dark ? Icon::Moon : Icon::Sun, "Switch theme", s, dpi)) preferences.skin ^= 1;
+    if (IconButton("##mini-theme", s.dark ? Icon::Moon : Icon::Sun, s.dark ? "Switch to light" : "Switch to dark", s, dpi)) preferences.skin ^= 1;
     ImGui::SameLine();
     SettingsControl(fonts, design, dpi, engine,
-                    ImVec2(origin.x + size.x - 344 * dpi - s.spacing.windowPad, origin.y + 48 * dpi), 544 * dpi);
+                    ImVec2(origin.x + size.x - 344 * dpi - s.spacing.windowPad, origin.y + stripPad + control + 4 * dpi), 544 * dpi);
     ImGui::SetCursorScreenPos(ImVec2(origin.x + pad, origin.y + 2 * stripPad + control));
     if (StatePills(fonts, design, dpi, engine, true)) autoVolumeOpen = true;
-    const float row = origin.y + strip + 8 * dpi;
+    const float row = origin.y + strip + gap;
     ImGui::SetCursorScreenPos(ImVec2(origin.x + pad, row));
     const auto number = [&](ShellEngine::Action action, double value) { engine.Send({action, {}, state->generation, 0, false, value}); };
     if (!miniAutoplay) {
@@ -1779,14 +1785,15 @@ void Panels::DrawMini(HWND hwnd, const Fonts& fonts, const skin::Skin& design, f
               engine.Send({applied ? ShellEngine::Action::UnmuteAll : ShellEngine::Action::SoloPiano, {}, state->generation}); }
         ImGui::EndDisabled();
         ImGui::BeginDisabled(state->loaded.empty() || state->busy);
-        ImGui::SetCursorScreenPos(ImVec2(origin.x + pad, row + control + 8 * dpi));
+        const float seekHeight = 22 * dpi, transportY = row + control + 2 * gap + seekHeight;
+        ImGui::SetCursorScreenPos(ImVec2(origin.x + pad, row + control + gap));
         if (!seeking_ || seekGeneration_ != state->generation) { seekPosition_ = static_cast<float>(state->position); seeking_ = false; }
         const bool changed = Groove("##mini-seek", &seekPosition_, 0, static_cast<float>(std::max(.001, state->duration)),
-            size.x - 2 * pad, 22 * dpi, s, dpi, false);
+            size.x - 2 * pad, seekHeight, s, dpi, false);
         if (ImGui::IsItemActivated()) { seeking_ = true; seekGeneration_ = state->generation; }
         if (seeking_ && ImGui::IsItemDeactivatedAfterEdit()) { number(ShellEngine::Action::Seek, seekPosition_); seeking_ = false; }
         else if (changed && !ImGui::IsItemActive()) number(ShellEngine::Action::Seek, seekPosition_);
-        ImGui::SetCursorScreenPos(ImVec2(origin.x + pad, row + control + 38 * dpi));
+        ImGui::SetCursorScreenPos(ImVec2(origin.x + pad, transportY));
         if (TransportButton("##mini-play", state->playing ? Icon::Pause : Icon::Play,
             state->playing ? "Pause" : state->playbackCountdown ? "Cancel" : "Play", s, dpi, true))
             engine.Send({ShellEngine::Action::PlayCountdown, {}, state->generation});
@@ -1809,9 +1816,9 @@ void Panels::DrawMini(HWND hwnd, const Fonts& fonts, const skin::Skin& design, f
         const auto time = state->playbackCountdown ? "Starts in " + std::to_string(state->playbackCountdown) + "s" :
             Time(seeking_ ? seekPosition_ : state->position) + " / " + Time(state->duration);
         draw->AddText(ImVec2(origin.x + size.x - pad - ImGui::CalcTextSize(time.c_str()).x,
-            row + control + 38 * dpi + (control - ImGui::GetTextLineHeight()) / 2), Colour(s.ink.secondary), time.c_str());
+            transportY + (control - ImGui::GetTextLineHeight()) / 2), Colour(s.ink.secondary), time.c_str());
         { FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
-          DrawTransportHints(draw, s, dpi, state->seekStep, ImVec2(origin.x + pad, row + 2 * control + 44 * dpi)); }
+          DrawTransportHints(draw, s, dpi, state->seekStep, ImVec2(origin.x + pad, transportY + control + gap)); }
     }
     DrawStatus(fonts, design, dpi, *state, ImVec2(origin.x, origin.y + size.y - status), size.x, status);
     ImGui::PopStyleVar();
@@ -1870,15 +1877,26 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
         return;
     }
     auto* dl = ImGui::GetWindowDrawList();
+    // One row: the state pills, then the device pill in what is left before
+    // the utility buttons. The device had a row of its own, which was a second
+    // 44dpi of strip for one pill, taken out of the Tracks panel.
     const float stripPad = 12 * dpi;
-    const float strip = 3 * stripPad + 2 * s.metric.controlHeight, status = 28 * dpi;
+    const float strip = 2 * stripPad + s.metric.controlHeight, status = 28 * dpi;
     dl->AddRectFilled(origin, ImVec2(origin.x + size.x, origin.y + strip), Colour(s.surface.structure));
     dl->AddLine(ImVec2(origin.x, origin.y + strip), ImVec2(origin.x + size.x, origin.y + strip), Colour(s.border.hairline));
+    const float utilityX = origin.x + size.x - s.spacing.windowPad - 4 * s.metric.controlHeight - 3 * s.spacing.s2;
     ImGui::SetCursorScreenPos(ImVec2(origin.x + s.spacing.windowPad, origin.y + stripPad));
+    if (StatePills(fonts, design, dpi, engine, false)) autoVolumeOpen = true;
+    ImGui::SameLine(0, s.spacing.s3);
+    // Against the utility buttons, beside the Settings it opens, so its width
+    // moves nothing else.
     { FontScope font(fonts, design, design.type.body * SpecFontScale(design), Weight::Medium);
-      if (DevicePill(DeviceName(*state), size.x - 240 * dpi, s, dpi)) ImGui::OpenPopup("Settings"); }
-    ImGui::SetCursorScreenPos(ImVec2(origin.x + size.x - s.spacing.windowPad - 4 * s.metric.controlHeight - 3 * s.spacing.s2,
-                                    origin.y + stripPad));
+      const auto name = DeviceName(*state);
+      const float room = std::max(40 * dpi, utilityX - s.spacing.s3 - ImGui::GetCursorScreenPos().x);
+      const float width = std::min(room, ImGui::CalcTextSize(name.c_str()).x + 26 * dpi);
+      ImGui::SetCursorScreenPos(ImVec2(utilityX - s.spacing.s3 - width, origin.y + stripPad));
+      if (DevicePill(name, room, s, dpi)) ImGui::OpenPopup("Settings"); }
+    ImGui::SetCursorScreenPos(ImVec2(utilityX, origin.y + stripPad));
     if (IconButton("##mini-mode", Icon::Mini, "Mini mode", s, dpi)) miniMode = true;
     ImGui::SameLine();
     if (IconButton("##key-mapping", Icon::Keyboard, "Key Mapping", s, dpi, preferences.keyMappingOpen))
@@ -1889,12 +1907,12 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     ImGui::SameLine();
     SettingsControl(fonts, design, dpi, engine,
                     ImVec2(origin.x + size.x - 344 * dpi - s.spacing.windowPad, origin.y + 48 * dpi), size.y - 52 * dpi);
-    ImGui::SetCursorScreenPos(ImVec2(origin.x + s.spacing.windowPad, origin.y + 2 * stripPad + s.metric.controlHeight));
-    if (StatePills(fonts, design, dpi, engine, false)) autoVolumeOpen = true;
 
     const float top = origin.y + strip + s.spacing.windowPad;
     const float bottom = origin.y + size.y - status - s.spacing.windowPad;
-    const float leftWidth = std::min(336 * dpi, size.x * .33f);
+    // The right column takes its 600 first: under that the velocity row's
+    // sustain value ran off the panel. Files has what is left, 240 to 336.
+    const float leftWidth = std::clamp(size.x - 2 * s.spacing.windowPad - s.spacing.s3 - 600 * dpi, 240 * dpi, 336 * dpi);
     const ImVec2 leftMin(origin.x + s.spacing.windowPad, top);
     const ImVec2 leftMax(leftMin.x + leftWidth, bottom);
     BeginPanel("Files", leftMin, leftMax, s);
@@ -2022,13 +2040,14 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
 
     const float right = leftMax.x + s.spacing.s3;
     const float edge = origin.x + size.x - s.spacing.windowPad;
-    // Keep the file name, sheet action and result status together above the
-    // seek groove. The two transport rows retain the mockup's measured geometry.
-    // The F-key hints sit on the title row, right of the name: a line of their
-    // own cost the Tracks panel a row at the smallest window.
+    // The file name and the sheet action sit above the seek groove, and the
+    // rows are 8dpi apart. The F-key hints sit on the title row, right of the
+    // name: a line of their own cost the Tracks panel a row at the smallest
+    // window. So did the line kept empty here for the sheet's result, which
+    // the status bar now reports.
     const float titleHeight = s.metric.controlHeight;
-    const float sheetLineHeight = 20 * dpi;
-    const float playbackHeight = 2 * s.spacing.panelPad + titleHeight + sheetLineHeight + 46 * dpi + 2 * s.metric.controlHeight;
+    const float rowGap = 8 * dpi, seekHeight = 22 * dpi;
+    const float playbackHeight = 2 * s.spacing.panelPad + titleHeight + seekHeight + 3 * rowGap + 2 * s.metric.controlHeight;
     BeginPanel("Playback", ImVec2(right, top), ImVec2(edge, top + playbackHeight), s,
                ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     ImGui::PushFont(fonts.Get(design), design.type.body * SpecFontScale(design));
@@ -2140,34 +2159,30 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
         if (TransportButton("##library-save-cancel", "Cancel", s, dpi)) ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
     }
-    std::string sheetNote = sheetStatus_;
-    if (sheetNote.empty()) sheetNote = state->sheetBatchStatus;
+    sheetNote_ = sheetStatus_;
+    if (sheetNote_.empty()) sheetNote_ = state->sheetBatchStatus;
     if (state->sheetReady && state->sheetMerged)
-        sheetNote += " " + std::to_string(state->sheetMerged) + " shared notes merged.";
+        sheetNote_ += " " + std::to_string(state->sheetMerged) + " shared notes merged.";
     if (state->sheetReady && state->sheetUnmapped)
-        sheetNote += " " + std::to_string(state->sheetUnmapped) + " unmapped notes dropped.";
-    if (!sheetNote.empty()) {
-        FontScope font(fonts, design, design.type.meta * SpecFontScale(design));
-        DrawEllipsis(sheetNote, contentWidth, ImVec2(content.x, content.y + titleHeight + 2 * dpi));
-    }
+        sheetNote_ += " " + std::to_string(state->sheetUnmapped) + " unmapped notes dropped.";
     const auto number = [&](ShellEngine::Action action, double amount) {
         engine.Send({action, {}, state->generation, 0, false, amount});
     };
     ImGui::BeginDisabled(state->loaded.empty() || state->rows.empty() || state->busy);
-    ImGui::SetCursorScreenPos(ImVec2(content.x, content.y + titleHeight + sheetLineHeight + 4 * dpi));
+    ImGui::SetCursorScreenPos(ImVec2(content.x, content.y + titleHeight + rowGap));
     if (!seeking_ || seekGeneration_ != state->generation) {
         seekPosition_ = static_cast<float>(state->position);
         seeking_ = false;
     }
     const bool seekChanged = Groove("##seek", &seekPosition_, 0, static_cast<float>(std::max(.001, state->duration)),
-                                     contentWidth, 22 * dpi, s, dpi, false);
+                                     contentWidth, seekHeight, s, dpi, false);
     if (ImGui::IsItemActivated()) { seeking_ = true; seekGeneration_ = state->generation; }
     if (seeking_ && ImGui::IsItemDeactivatedAfterEdit()) {
         if (seekGeneration_ == state->generation) number(ShellEngine::Action::Seek, seekPosition_);
         seeking_ = false;
     } else if (seekChanged && !ImGui::IsItemActive()) number(ShellEngine::Action::Seek, seekPosition_);
     if (ImGui::IsItemHovered() || seeking_) ImGui::SetTooltip("%s", Time(seekPosition_).c_str());
-    const float transportY = content.y + titleHeight + sheetLineHeight + 30 * dpi;
+    const float transportY = content.y + titleHeight + seekHeight + 2 * rowGap;
     ImGui::SetCursorScreenPos(ImVec2(content.x, transportY));
     if (TransportButton("##play", state->playing ? Icon::Pause : Icon::Play,
         state->playing ? "Pause" : state->playbackCountdown ? "Cancel" : "Play", s, dpi, true))
@@ -2191,7 +2206,7 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     dl = ImGui::GetWindowDrawList();
     dl->AddText(ImVec2(content.x + contentWidth - ImGui::CalcTextSize(time.c_str()).x,
                 transportY + (s.metric.controlHeight - ImGui::GetTextLineHeight()) / 2), Colour(s.ink.secondary), time.c_str());
-    ImGui::SetCursorScreenPos(ImVec2(content.x, transportY + s.metric.controlHeight + 12 * dpi));
+    ImGui::SetCursorScreenPos(ImVec2(content.x, transportY + s.metric.controlHeight + rowGap));
     const auto label = [&](const char* text) {
         FontScope font(fonts, design, design.type.meta * SpecFontScale(design));
         const auto pos = ImGui::GetCursorScreenPos();
