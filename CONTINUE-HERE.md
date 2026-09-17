@@ -41,7 +41,6 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
 
 - `ui/Panels.cpp`: the Export menu and its confirmation, the settings
   descriptions, the state pills. `MIDI++/SheetPage.hpp`: the editor page.
-- `tools/release-README.txt`: the tester notes.
 - `ui/Shell.cpp`: `ApplyCaption`, the window class icon. `ui/TrackModel.*`.
 - `tools/make-release.ps1`, `tools/make-source.py`, `tools/gen-icon.py`.
 
