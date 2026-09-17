@@ -30,8 +30,8 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
 - The caption follows the skin through DWM (`ApplyCaption` in `ui/Shell.cpp`).
 - Key Mapping never opens on its own; `keyMappingOpen` is not saved.
 - Solo Piano is one toggle (`SoloPianoApplied`); a second click is Unmute All.
-  A part named Flute or Drums with no program change is not piano
-  (`DescribeTracks`); an explicit program always wins.
+  A part named Flute or Drums with no program change is not piano and its
+  Instrument column says Flute (`DescribeTracks`); an explicit program wins.
 - Skins are Blue, Blue Dark, Orange and Orange Dark, colour only. The window
   opens 940 x 600, floor 884 x 560 (`Panels::MinimumSize`); mini is fixed at
   528 x 164 Live and 528 x 256 Autoplay.
@@ -74,8 +74,9 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
 
 ## Unresolved
 
-- **Owner to test the 2026-09-17 build:** mini and back, from a maximized
-  window too; Live/Autoplay resize; the velocity editor while maximized.
+- **Owner to test the `3aeea33` build:** mini and back, from a maximized
+  window too; Live/Autoplay resize; the velocity editor while maximized;
+  Miphas Court's Flutes now read Flute in the Instrument column.
 - `tests/run-native-tests.ps1`: numbers re-derived, not run; takes the cursor.
 - **Owner to read the text:** Settings, pills, Export, the sheet editor page.
 - **Owner to test:** the Solo Piano toggle in the mini window; sections on a
@@ -85,12 +86,12 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
 
 ## Validation actually run
 
-- 2026-09-17: `ShellTests.exe` all PASS, parity passed, `RenderTests.exe` all
-  PASS at 100 to 200% in four skins; the built shell opened 940 x 600 and
+- `ShellTests.exe` and parity PASS at `3aeea33`. At `4e55ecc`: `RenderTests.exe`
+  all PASS at 100 to 200% in four skins; the built shell opened 940 x 600 and
   clamped a 300 x 300 request to 884 x 560, read without the cursor.
-- At `1de8a50`, not repeated at `4e55ecc`: no account, assistant or path
-  string in the exe or package text; default config; no settings, session or
-  MIDI in the zip; the source zip built `QuartzMIDI.exe` on its own elsewhere.
+- At `1de8a50`, not repeated since: no account, assistant or path string in
+  the exe or package text; default config; no settings, session or MIDI in
+  the zip; the source zip built `QuartzMIDI.exe` on its own elsewhere.
 
 ## Build and test
 
@@ -106,10 +107,10 @@ python .\tools\make-source.py
   `main` stays at `e37ba7e`. Pushing without asking is authorized.
 - The main checkout is on this branch, pushed, clean apart from the owner's
   `x64\Release\MIDI++.exe` and `x64\Release\midi\`; leave `D:\Dev\mpp-panels`.
-- Demo v2 from `4e55ecc`: `build\release\QuartzMIDI-demo-v2.zip` (426 MB,
-  SHA256 `A7BD3169890126A85F50C8D3C7CD28B891612B7427A53727B4EC78947E553AAA`),
-  the staged folder beside it, and `QuartzMIDI-source-4e55ecc.zip` (2.4 MB);
-  the `1de8a50` source zip is still there.
+- Demo v2 from `3aeea33`: `build\release\QuartzMIDI-demo-v2.zip` (426 MB,
+  SHA256 `32D81AD90E95F136C4B5206F64962AE5A1E05837BF1E79AA3D765729F7672E01`),
+  the staged folder beside it, and `QuartzMIDI-source-3aeea33.zip` (2.4 MB);
+  the `1de8a50` and `4e55ecc` source zips are still there.
 - Never commit `x64/Release/midi/`, `build/`, `MIDI++/MIDI++/`, `.claude/`,
   `tools/mp3-to-midi/cookies.txt` or `tools/mp3-to-midi/browser/`.
 
