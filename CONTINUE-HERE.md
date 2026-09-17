@@ -27,7 +27,7 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
   scanned. The library save asks before it writes.
 - UI copy is the owner's voice, `HANDOFF.md` section 15 and this rule:
   explanatory text means the control was not clear, so fix the control and
-  cut the text. Keep a sentence only when it says what the control cannot.
+  cut the text. When unsure, cut: the owner removed every "keep" offered.
 - The caption follows the skin through DWM (`ApplyCaption` in `ui/Shell.cpp`).
 - Key Mapping never opens on its own; `keyMappingOpen` is not saved.
 - Solo Piano is one toggle (`SoloPianoApplied`); a second click is Unmute All.
@@ -66,15 +66,14 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
 - Export menu items relabelled with tooltips; the library save confirms
   first; the converter user agent no longer names the repository.
 - `tools/make-source.py` and the clean source zip.
-- The copy pass, twice: every tooltip, settings description, confirmation
-  line and editor page note judged, and the owner sent the first cut back
-  as not enough. What stays is a state that blocks a click ("Calibrate
-  first.", "Choose a MIDI folder first.") or the curve editor's gesture.
-  OutRange became "Fold out-of-range notes onto the keys".
+- The copy pass, three cuts, each sent back by the owner as not enough:
+  no tooltip, description or note explains a control any more, not even the
+  reason a control is disabled. Only results are reported ("Every track is
+  piano."). OutRange became "Fold out-of-range notes onto the keys".
 
 ## Unresolved
 
-- **Owner to read the `914134c` build's text:** Settings, the state pills,
+- **Owner to read the `1542a14` build's text:** Settings, the state pills,
   the Export menu and its confirmation, the sheet editor page.
 - **Owner to test:** the Solo Piano toggle in the mini window; sections on a
   real file; Save image from a page opened off disk.
@@ -84,8 +83,8 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
 ## Validation actually run
 
 - `ShellTests.exe` all PASS, parity passed, `RenderTests.exe` all PASS at
-  100 to 200% in four skins at `914134c`; the settings capture was read.
-- The source zip's scan found nothing at `914134c`.
+  100 to 200% in four skins at `1542a14`; the settings capture was read.
+- The source zip's scan found nothing at `1542a14`.
 
 ## Build and test
 
@@ -102,14 +101,14 @@ python .\tools\make-source.py
 - The main checkout `D:\Dev\MIDIPlusPlus-modded` is on this branch, pushed,
   clean apart from the owner's `x64\Release\MIDI++.exe` and `x64\Release\midi\`;
   `D:\Dev\mpp-panels` is the panel seat's, leave it.
-- Demo v2 from `914134c`: `build\release\QuartzMIDI-demo-v2.zip` (426 MB,
-  SHA256 `58173FFD4EAD69C1BF9F92B60AE829399A1F411EEFC2BCFAC085260009198C8B`),
-  the staged folder beside it, and `QuartzMIDI-source-914134c.zip` (2.4 MB).
+- Demo v2 from `1542a14`: `build\release\QuartzMIDI-demo-v2.zip` (426 MB,
+  SHA256 `E8CF6720AB5B164C2E8F094EB354C2B6E94E9E9B2A9C318DEA38D63493D217F7`),
+  the staged folder beside it, and `QuartzMIDI-source-1542a14.zip` (2.4 MB).
 - Never commit `x64/Release/midi/`, `build/`, `MIDI++/MIDI++/`, `.claude/`,
   `tools/mp3-to-midi/cookies.txt` or `tools/mp3-to-midi/browser/`.
 
 ## Next action
 
-Ask the owner what they found in the text of the `914134c` build and fix the
+Ask the owner what they found in the text of the `1542a14` build and fix the
 first thing they name on this branch, then repackage with `make-release.ps1`
 and `make-source.py`.
