@@ -80,6 +80,19 @@ void ModelTests(const std::filesystem::path& fixture) {
     mixed.tracks[1].events.push_back(note);
     const auto mixedRows = shell::DescribeTracks(mixed);
     Require(!mixedRows[0].piano && mixedRows[0].instrument == "Mixed instruments", "program changes during a part are not mislabeled piano");
+    // A DAW export: every part on channel 1, no program change anywhere, the
+    // parts told apart by name alone.
+    MidiFile named;
+    named.tracks.resize(3);
+    named.tracks[0].name = "Flute"; named.tracks[1].name = "MIDI Region"; named.tracks[2].name = "Flute";
+    for (auto& track : named.tracks) track.events.push_back(note);
+    // The third part sits on channel 2 with its piano program set explicitly.
+    named.tracks[2].events.back().status = 0x91;
+    named.tracks[2].events.insert(named.tracks[2].events.begin(), [] { MidiEvent p; p.absoluteTick = 0; p.status = 0xC1; p.data1 = 0; return p; }());
+    const auto namedRows = shell::DescribeTracks(named);
+    Require(namedRows.size() == 3 && !namedRows[0].piano && namedRows[1].piano,
+            "a part named Flute with no program change is not piano");
+    Require(namedRows[2].piano, "an explicit piano program outranks the name");
     bool rejected = false;
     try { (void)parser.parse(shell::Utf8(fixture.parent_path() / L".." / fixture.filename())); }
     catch (...) { rejected = true; }

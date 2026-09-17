@@ -1,7 +1,27 @@
 #include "TrackModel.hpp"
 #include "GeneralMidi.hpp"
+#include <cctype>
 
 namespace shell {
+namespace {
+// A DAW export often puts every part on channel 1 with no program change, so
+// by program alone a file of Flutes and Strings is all piano and Solo Piano
+// has nothing to mute. When no program was ever set for a part's channel, its
+// name decides: "Flute" is a flute. An explicit program always wins.
+bool NamedNonPiano(std::string name) {
+    for (char& c : name) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    if (name.find("piano") != std::string::npos || name.find("keys") != std::string::npos) return false;
+    static constexpr const char* kOthers[] = {
+        "flute", "piccolo", "recorder", "ocarina", "whistle", "oboe", "clarinet", "bassoon", "sax",
+        "violin", "viola", "cello", "contrabass", "string", "harp", "bass", "guitar", "banjo", "sitar",
+        "koto", "trumpet", "trombone", "tuba", "horn", "brass", "organ", "accordion", "harmonica",
+        "choir", "voice", "vocal", "synth", "drum", "perc", "timpani", "bell", "marimba", "xylophone",
+        "vibraphone", "glock", "celesta"};
+    for (const char* other : kOthers)
+        if (name.find(other) != std::string::npos) return true;
+    return false;
+}
+}
 std::vector<TrackRow> DescribeTracks(const MidiFile& file) {
     struct Part {
         TrackRow row;
@@ -29,11 +49,13 @@ std::vector<TrackRow> DescribeTracks(const MidiFile& file) {
         return a.event->absoluteTick < b.event->absoluteTick;
     });
     std::array<unsigned, 16> programs{}; // General MIDI defaults to program 0.
+    std::bitset<16> programSet;           // which channels ever had a program change
     for (const auto& ref : timeline) {
         const auto& event = *ref.event;
         const unsigned channel = event.status & 0x0F;
         if ((event.status & 0xF0) == 0xC0) {
             programs[channel] = event.data1 & 0x7F;
+            programSet.set(channel);
             continue;
         }
         auto& part = parts[ref.track];
@@ -41,7 +63,8 @@ std::vector<TrackRow> DescribeTracks(const MidiFile& file) {
         part.channels.set(channel);
         if (channel == 9) part.row.drums = true;
         else part.programs.set(programs[channel]);
-        part.nonPiano |= channel == 9 || programs[channel] > 7;
+        part.nonPiano |= channel == 9 || programs[channel] > 7 ||
+                         (!programSet[channel] && NamedNonPiano(part.row.name));
     }
     std::vector<TrackRow> rows;
     for (auto& part : parts) {
