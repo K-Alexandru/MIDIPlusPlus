@@ -37,6 +37,10 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
   folder (`SHELL_SHEETS_FOLDER`, default a "<MIDI folder> sheets" sibling).
 - UI copy follows `HANDOFF.md` section 15; attribution follows section 13.
 - Test builds stay on this PC: `make-release.ps1` zips to `build\release\`.
+- Anything sent out carries no account name, assistant name or working doc:
+  the binary's converter user agent is plain, and `tools/make-source.py`
+  zips only `ui/`, `MIDI++/`, `third_party/`, config and LICENSE, scrubbed
+  and scanned. The library save asks before it writes.
 
 ## Relevant files
 
@@ -45,7 +49,7 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
   `TransportBody` (`active`), `LoadPreferences`. `ui/TrackModel.hpp`: the row
   predicates. `ui/ShellEngine.cpp`: `SoloPiano`/`UnmuteAll` cases.
 - `ui/Shell.rc`, `ui/QuartzMIDI.ico`, `tools/gen-icon.py`, `tools/make-release.ps1`,
-  `tools/release-README.txt`, `tests/NativeShell.ps1`, `ui/TrackModel.cpp`.
+  `tools/make-source.py`, `tools/release-README.txt`, `ui/TrackModel.cpp`.
 
 ## Verified facts
 
@@ -57,7 +61,6 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
   `$ErrorActionPreference = 'Stop'`; run `run-shell-tests.ps1` bare.
 - Actions before `CurveSelect` in the enum are dropped unless the generation
   matches; a new engine's first snapshot is blank, so tests `Await` the config.
-- Run MSBuild from PowerShell: Git Bash rewrites `/p:` switches as paths.
 - A DAW export puts every part on channel 1 with no program change, so by
   program alone it is all piano; `DescribeTracks` lets the name decide then.
 
@@ -69,24 +72,24 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
   resource 1, set on the window class.
 - Key Mapping starts closed every run. Terracotta skins renamed Orange.
 - Hotkey legend as keycaps in the Playback header and mini mode.
+- Export menu items say what they do, in the label and on hover; the
+  library save opens a confirmation (count, files, folder) first.
 - Solo Piano: one toggle with icon, tooltips and the accent outline when on,
   disabled when every track is piano; a part named Flute, Strings, Drums and
   so on with no program on its channel counts as non-piano.
 
 ## Unresolved
 
-- **Owner to test on the `3d06029` build:** the Solo Piano toggle, off and
-  on, in the full and mini windows; sections on a real file; Save image from
-  a page opened off disk; the library save over 3325 files.
-- **Owner's call:** a green pill's top highlight shows faintly inside its border.
+- **Owner to test on the `9fa4605` build:** the Export menu and the library
+  save's confirmation; the Solo Piano toggle in the mini window; sections on
+  a real file; Save image from a page opened off disk.
 - **Needs the owner at the keyboard:** game delivery, Wooting, two devices,
   MIDI out, live curve reconnection, mixed DPI, the 900 x 610 clamp.
 
 ## Validation actually run
 
-- `ShellTests.exe` all PASS (toggle predicates, named parts), parity passed,
-  `RenderTests.exe` all PASS at 100 to 200% in four skins; its full-window
-  capture shows the toggle on with three of five tracks silent.
+- `ShellTests.exe` all PASS, parity passed, `RenderTests.exe` all PASS at
+  100 to 200% in four skins, including the new `library-save` scenario.
 - `NativeShell.ps1` launched three skins: caption, title, icon and keycaps in
   the captures, Key Mapping shut. The owner saw Solo Piano work on their file.
 - Not run: native and latency tests, `signin.py`, parity mutations.
@@ -97,6 +100,7 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
 & .\tests\run-shell-tests.ps1 -Render
 & .\tests\run-shell-parity-mutations.ps1
 & .\tools\make-release.ps1
+python .\tools\make-source.py
 ```
 
 ## Repository state
@@ -106,13 +110,14 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
 - The main checkout `D:\Dev\MIDIPlusPlus-modded` is on this branch, pushed,
   clean apart from the owner's `x64\Release\MIDI++.exe` and `x64\Release\midi\`;
   `D:\Dev\mpp-panels` is the panel seat's, leave it.
-- Demo v2 from `3d06029`: `build\release\QuartzMIDI-demo-v2.zip` (426 MB),
-  SHA256 `3D8E2491F346AA41A2AEA06A6FAABC4B6FC096C9F0D3AA637C9F9AF446E84DE5`,
-  and the staged folder `build\release\QuartzMIDI\` the owner runs from.
+- Demo v2 from `9fa4605`: `build\release\QuartzMIDI-demo-v2.zip` (426 MB),
+  SHA256 `0AFAF5425F0FCD24847431C3A52A4353E3F4118869FA224EFE4BA5406F89C787`,
+  the staged folder `build\release\QuartzMIDI\` the owner runs from, and
+  `QuartzMIDI-source-9fa4605.zip` (2.4 MB) from `make-source.py`.
 - Never commit `x64/Release/midi/`, `build/`, `MIDI++/MIDI++/`, `.claude/`,
   `tools/mp3-to-midi/cookies.txt` or `tools/mp3-to-midi/browser/`.
 
 ## Next action
 
-Ask the owner what they found on the `3d06029` demo v2 build and fix the first
+Ask the owner what they found on the `9fa4605` demo v2 build and fix the first
 thing they name on this branch, then repackage with `.\tools\make-release.ps1`.
