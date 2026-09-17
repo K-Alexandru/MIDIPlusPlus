@@ -227,7 +227,7 @@ bool StatePills(const Fonts& fonts, const skin::Skin& design, float dpi, ShellEn
     const auto state = engine.Snapshot();
     const float pad = 8.f * dpi;
     if (StatePill("Midi2Key", state->liveActive, fonts, design, dpi, pad,
-                  !state->liveDevice.empty(), state->liveDevice.empty() ? "Select a MIDI input in Settings." : nullptr))
+                  !state->liveDevice.empty(), nullptr))
         engine.Send({ShellEngine::Action::LiveActive, {}, 0, 0, !state->liveActive});
     ImGui::SameLine();
     const bool velocityAvailable = !state->outputMidi;
@@ -239,7 +239,7 @@ bool StatePills(const Fonts& fonts, const skin::Skin& design, float dpi, ShellEn
     ImGui::SameLine();
     const bool sustainEnabled = !state->playing && !state->liveActive;
     if (StatePill("Sustain", state->sustain, fonts, design, dpi, pad, sustainEnabled,
-                  sustainEnabled ? nullptr : "Stop playback or live input first."))
+                  nullptr))
         engine.Send({ShellEngine::Action::Sustain, {}, 0, 0, !state->sustain});
     ImGui::SameLine();
     if (StatePill(state->eightyEightKeys ? "88 Keys" : "61 Keys", state->eightyEightKeys,
@@ -255,7 +255,7 @@ bool StatePills(const Fonts& fonts, const skin::Skin& design, float dpi, ShellEn
         // one spelled its state out as well, so it read as a different kind of
         // control -- and the tooltip then said "AutoVol: off: off".
         return StatePill("AutoVol", state->autoVolume, fonts, design, dpi, pad, true,
-            state->autoVolumeNeedsCalibration ? "Calibrate first." : nullptr);
+            nullptr);
     }
     return false;
 }
@@ -1041,7 +1041,6 @@ void Panels::DrawVelocity(const Fonts& fonts, const skin::Skin& design, float dp
     }
     if (ImGui::IsItemHovered() || ImGui::IsItemActive()) {
         ImGui::SetMouseCursor(curveTool_ == 0 ? ImGuiMouseCursor_Hand : ImGuiMouseCursor_ResizeAll);
-        if (!ImGui::IsItemActive() && curveTool_ == 0) ImGui::SetTooltip("Click to add an anchor, drag one off the graph to remove it.");
     }
     ImGui::EndDisabled();
 
@@ -1531,12 +1530,6 @@ void Panels::DrawConvert(HWND hwnd, const Fonts& fonts, const skin::Skin& design
         if (!path.empty()) engine.Send({ShellEngine::Action::ConvertAudio, path});
     }
     ImGui::EndDisabled();
-    if (!ready) {
-        FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
-        ImGui::PushStyleColor(ImGuiCol_Text, Colour(s.ink.secondary));
-        ImGui::TextUnformatted("Choose a MIDI folder first.");
-        ImGui::PopStyleColor();
-    }
 
     // Sign-in is a footnote: done once, then it only says which state it is in.
     ImGui::Separator();
