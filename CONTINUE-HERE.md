@@ -37,7 +37,6 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
   `%TEMP%\QuartzMIDI sheets\<stem>.html`; sheet files go under the sheets
   folder (`SHELL_SHEETS_FOLDER`, default a "<MIDI folder> sheets" sibling).
 - UI copy follows `HANDOFF.md` section 15; attribution follows section 13.
-- One branch, worked in the main checkout; delete a branch once merged.
 - Test builds stay on this PC: `make-release.ps1` zips to `build\release\`.
 
 ## Relevant files
