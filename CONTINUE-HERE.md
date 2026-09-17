@@ -66,15 +66,16 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
 - Export menu items relabelled with tooltips; the library save confirms
   first; the converter user agent no longer names the repository.
 - `tools/make-source.py` and the clean source zip.
-- The copy pass: every tooltip, settings description, confirmation line and
-  editor page note judged; what stays is a state the control cannot show or
-  a hidden gesture. OutRange became "Fold out-of-range notes onto the keys",
-  Resilience "Keep Transpose unless better by".
+- The copy pass, twice: every tooltip, settings description, confirmation
+  line and editor page note judged, and the owner sent the first cut back
+  as not enough. What stays is a state that blocks a click ("Calibrate
+  first.", "Choose a MIDI folder first.") or the curve editor's gesture.
+  OutRange became "Fold out-of-range notes onto the keys".
 
 ## Unresolved
 
-- **Owner to read the `7f1f3df` build's text:** Settings, the state pill
-  tooltips, the Export menu and its confirmation, the sheet editor page.
+- **Owner to read the `914134c` build's text:** Settings, the state pills,
+  the Export menu and its confirmation, the sheet editor page.
 - **Owner to test:** the Solo Piano toggle in the mini window; sections on a
   real file; Save image from a page opened off disk.
 - **Needs the owner at the keyboard:** game delivery, Wooting, two devices,
@@ -83,8 +84,8 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
 ## Validation actually run
 
 - `ShellTests.exe` all PASS, parity passed, `RenderTests.exe` all PASS at
-  100 to 200% in four skins at `7f1f3df`; the settings capture was read.
-- The source zip's scan found nothing at `7f1f3df`.
+  100 to 200% in four skins at `914134c`; the settings capture was read.
+- The source zip's scan found nothing at `914134c`.
 
 ## Build and test
 
@@ -101,15 +102,14 @@ python .\tools\make-source.py
 - The main checkout `D:\Dev\MIDIPlusPlus-modded` is on this branch, pushed,
   clean apart from the owner's `x64\Release\MIDI++.exe` and `x64\Release\midi\`;
   `D:\Dev\mpp-panels` is the panel seat's, leave it.
-- Demo v2 from `f119dae` (the `7f1f3df` code plus this file):
-  `build\release\QuartzMIDI-demo-v2.zip` (426 MB, SHA256
-  `E3B174DEBD32EF5C4DCBDC9277E0BEEEB7979312C31FEC6B53448FD7F55A400A`), the
-  staged folder beside it, and `QuartzMIDI-source-7f1f3df.zip` (2.4 MB).
+- Demo v2 from `914134c`: `build\release\QuartzMIDI-demo-v2.zip` (426 MB,
+  SHA256 `58173FFD4EAD69C1BF9F92B60AE829399A1F411EEFC2BCFAC085260009198C8B`),
+  the staged folder beside it, and `QuartzMIDI-source-914134c.zip` (2.4 MB).
 - Never commit `x64/Release/midi/`, `build/`, `MIDI++/MIDI++/`, `.claude/`,
   `tools/mp3-to-midi/cookies.txt` or `tools/mp3-to-midi/browser/`.
 
 ## Next action
 
-Ask the owner what they found in the text of the `f119dae` build and fix the
+Ask the owner what they found in the text of the `914134c` build and fix the
 first thing they name on this branch, then repackage with `make-release.ps1`
 and `make-source.py`.
