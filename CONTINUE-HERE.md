@@ -115,6 +115,5 @@ python .\tools\make-source.py
 
 ## Next action
 
-Ask the owner what they found in the smaller windows and in the text, fix the
-first thing they name on this branch, then repackage with `make-release.ps1`
-and `make-source.py`.
+Ask the owner what they found in the smaller windows and the text, fix the
+first thing they name, then run `make-release.ps1` and `make-source.py`.
