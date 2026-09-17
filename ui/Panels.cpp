@@ -247,7 +247,7 @@ bool StatePills(const Fonts& fonts, const skin::Skin& design, float dpi, ShellEn
         engine.Send({ShellEngine::Action::EightyEightKeys, {}, 0, 0, !state->eightyEightKeys});
     ImGui::SameLine();
     if (StatePill("MidiConnect", state->midiConnect, fonts, design, dpi, pad, !state->liveDevice.empty(),
-        "Needs the MIDIConnect game script."))
+        nullptr))
         engine.Send({ShellEngine::Action::MidiConnect, {}, 0, 0, !state->midiConnect});
     {
         ImGui::SameLine();
@@ -681,7 +681,6 @@ void Panels::DrawAutoVolume(const Fonts& fonts, const skin::Skin& design, float 
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16 * dpi, 16 * dpi));
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12 * dpi, (s.metric.controlHeight - ImGui::GetTextLineHeight()) / 2));
     if (ImGui::Begin("AutoVol", &autoVolumeOpen, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking)) {
-        ImGui::TextWrapped("Game volume follows note velocity.");
         ImGui::Spacing();
         if (state->autoVolume) {
             ImGui::TextUnformatted("AutoVol is on");
@@ -716,7 +715,6 @@ void Panels::DrawAutoVolume(const Fonts& fonts, const skin::Skin& design, float 
             if (key == "Left" || key == "Right" || key == "Up" || key == "Down") key += " arrow";
             return key;
         };
-        ImGui::TextWrapped("Presses the game's volume keys to find a known level.");
         ImGui::Spacing();
         ImGui::BeginDisabled(!selected);
         if (ImGui::Button("Focus game and calibrate", ImVec2(-1, s.metric.controlHeight))) {
@@ -1043,9 +1041,7 @@ void Panels::DrawVelocity(const Fonts& fonts, const skin::Skin& design, float dp
     }
     if (ImGui::IsItemHovered() || ImGui::IsItemActive()) {
         ImGui::SetMouseCursor(curveTool_ == 0 ? ImGuiMouseCursor_Hand : ImGuiMouseCursor_ResizeAll);
-        if (!ImGui::IsItemActive()) ImGui::SetTooltip(curveTool_ == 0 ?
-            "Click to add an anchor, drag one off the graph to remove it." :
-            "Sweep across the graph.");
+        if (!ImGui::IsItemActive() && curveTool_ == 0) ImGui::SetTooltip("Click to add an anchor, drag one off the graph to remove it.");
     }
     ImGui::EndDisabled();
 
@@ -1303,8 +1299,6 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
                 ShellEngine::Action::WootingTriggerThreshold, "%.2f");
         setting(1, "Shift amount", "##wooting-shift", -127.f, 127.f, 1.f,
                 ShellEngine::Action::WootingShiftAmount, "%+.0f semitones");
-        { FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
-          ImGui::TextWrapped("Set this to 1 and hold Left Shift to play a black key."); }
         setting(2, "Velocity scale", "##wooting-velocity", .1f, 20.f, .1f,
                 ShellEngine::Action::WootingVelocityScale, "%.1f");
         ImGui::Separator();
@@ -1334,7 +1328,7 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
     // scroll. A measurement keeps running with the header closed.
     if (ImGui::CollapsingHeader("Keyboard timing")) {
     bool measure = measuring_;
-    if (SettingCheck("Measure keyboard timing", measure, "Only while Settings is open.", fonts, design, dpi)) {
+    if (SettingCheck("Measure keyboard timing", measure, nullptr, fonts, design, dpi)) {
         if (measure) { timing_ = input_latency::Collector{}; timingSummary_ = {}; measuring_ = input_latency::start(); }
         else { input_latency::stop(); measuring_ = false; timingSummary_ = {}; }
     }
@@ -1361,15 +1355,13 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
         ImGui::Text("%zu incomplete   %llu failures   %llu dropped", t.incomplete,
             static_cast<unsigned long long>(t.failures), static_cast<unsigned long long>(input_latency::dropped()));
     }
-    { FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
-      ImGui::TextWrapped("From the MIDI transport to the keyboard hook, not to the game."); }
     }
     ImGui::Separator();
     section("Behaviour");
     ImGui::BeginDisabled(state->eightyEightKeys);
     bool outRange = state->outRange;
     if (SettingSwitch("Fold out-of-range notes onto the keys", outRange,
-        state->eightyEightKeys ? "Needs 61 Keys." : nullptr, fonts, design, dpi))
+        nullptr, fonts, design, dpi))
         engine.Send({ShellEngine::Action::OutRange, {}, 0, 0, outRange});
     ImGui::EndDisabled();
     ImGui::TextUnformatted("Play button countdown");
@@ -1391,7 +1383,7 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
     SettingSwitch("Solo piano tracks on load", preferences.autoSolo, nullptr, fonts, design, dpi);
     bool legit = state->legitMode;
     if (SettingSwitch("Legit Mode", legit,
-        "Human timing and a few dropped notes.", fonts, design, dpi))
+        nullptr, fonts, design, dpi))
         engine.Send({ShellEngine::Action::LegitMode, {}, 0, 0, legit});
     bool shuffle = state->shuffle;
     if (SettingSwitch("Shuffle Play", shuffle, nullptr, fonts, design, dpi))
@@ -1406,10 +1398,9 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
     bool velocity = state->velocity;
     const std::string modifierName = state->velocityModifier == "ctrl" ? "Ctrl" :
         state->velocityModifier == "shift" ? "Shift" : "Alt";
-    const std::string velocityDescription = state->outputMidi ? "MIDI output carries velocity itself." : "";
     ImGui::BeginDisabled(state->outputMidi);
     if (SettingSwitch(state->outputMidi ? "Velocity hotkeys unavailable" : "Velocity hotkeys", velocity,
-        velocityDescription.empty() ? nullptr : velocityDescription.c_str(), fonts, design, dpi))
+        nullptr, fonts, design, dpi))
         engine.Send({ShellEngine::Action::Velocity, {}, 0, 0, velocity});
     ImGui::EndDisabled();
     ImGui::TextUnformatted("Velocity modifier");
@@ -1508,13 +1499,6 @@ void Panels::DrawConvert(HWND hwnd, const Fonts& fonts, const skin::Skin& design
     const float width = ImGui::GetContentRegionAvail().x;
     { FontScope title(fonts, design, design.type.heading * SpecFontScale(design), Weight::Semibold);
       ImGui::TextUnformatted("Convert audio to MIDI"); }
-    { FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
-      ImGui::PushStyleColor(ImGuiCol_Text, Colour(s.ink.secondary));
-      ImGui::PushTextWrapPos(width);
-      ImGui::TextUnformatted("Solo piano converts best.");
-      ImGui::PopTextWrapPos();
-      ImGui::PopStyleColor(); }
-    ImGui::Dummy(ImVec2(0, s.spacing.s1));
 
     const bool busy = state->converting;   // true while the sign-in window is open too
     const bool ready = !state->folder.empty();
@@ -1571,8 +1555,6 @@ void Panels::DrawConvert(HWND hwnd, const Fonts& fonts, const skin::Skin& design
         if (ImGui::Button(action, ImVec2(actionText, s.metric.innerHeight))) engine.Send({ShellEngine::Action::YouTubeSignIn});
         ImGui::PopStyleVar();
         ImGui::EndDisabled();
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
-            ImGui::SetTooltip("For when YouTube refuses the link.");
     }
 
     // Progress: an indeterminate bar while a run is going, then the last line
@@ -1653,7 +1635,6 @@ void Panels::DrawStatus(const Fonts& fonts, const skin::Skin& design, float dpi,
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
     if (ImGui::Button("Log", ImVec2(logWidth, height - 4 * dpi))) logOpen = !logOpen;
     ImGui::PopStyleVar();
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Engine output and errors");
 }
 
 void Panels::DrawLog(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float dpi, ShellEngine& engine) {
