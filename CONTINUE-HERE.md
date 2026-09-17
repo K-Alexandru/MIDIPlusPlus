@@ -45,8 +45,8 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
 - `ui/Shell.cpp`: `ApplyCaption`, the window class with the icon, `wWinMain`.
 - `ui/Panels.cpp`: `DrawTransportHints` (keycaps), the Tracks buttons,
   `LoadPreferences`. `ui/ShellEngine.cpp`: `SoloPiano`/`UnmuteAll` cases.
-- `ui/Shell.rc`, `ui/QuartzMIDI.ico`, `tools/gen-icon.py` (pure Python).
-- `tools/make-release.ps1`, `tools/release-README.txt`, `tests/NativeShell.ps1`.
+- `ui/Shell.rc`, `ui/QuartzMIDI.ico`, `tools/gen-icon.py`, `tools/make-release.ps1`,
+  `tools/release-README.txt`, `tests/NativeShell.ps1`, `ui/TrackModel.cpp`.
 
 ## Verified facts
 
@@ -106,8 +106,8 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
 - `origin` is K-Alexandru/MIDIPlusPlus; `upstream` is Zephkek/MIDIPlusPlus.
   `main` stays at `e37ba7e`. Pushing without asking is authorized.
 - The main checkout `D:\Dev\MIDIPlusPlus-modded` is on this branch, pushed,
-  clean apart from the owner's `x64\Release\MIDI++.exe` and `x64\Release\midi\`.
-  `D:\Dev\mpp-panels` is the panel seat's; leave it.
+  clean apart from the owner's `x64\Release\MIDI++.exe` and `x64\Release\midi\`;
+  `D:\Dev\mpp-panels` is the panel seat's, leave it.
 - Demo v2 from `3becff0`: `build\release\QuartzMIDI-demo-v2.zip` (426 MB),
   SHA256 `BED7208A629402FD46538E0344A836FCC41AE0B772249ADC74A99F4AFADF3796`,
   and the staged folder `build\release\QuartzMIDI\` the owner runs from.
