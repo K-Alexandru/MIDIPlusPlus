@@ -70,14 +70,14 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
   release script and tester README. `TargetName` in `MIDIShell.vcxproj`.
 - Caption colours from the skin; an icon (blue square, white prism) as
   resource 1, set on the window class.
-- Key Mapping starts closed every run.
+- Key Mapping starts closed every run. Terracotta skins renamed Orange.
 - Hotkey legend as keycaps in the Playback header and mini mode. Solo Piano
   and Unmute All are icon buttons with tooltips, and report a no-op in the
   status bar (`ShellTests` covers the Unmute All message).
 
 ## Unresolved
 
-- **Owner to test on the `f783ccc` build:** the caption on their machine,
+- **Owner to test on the `d4bfe92` build:** the caption on their machine,
   the icon in the taskbar and Explorer, the legend at their DPI, and the
   earlier items: sections on a real file, Save image from a page opened off
   disk, the library save over 3325 files.
@@ -109,13 +109,13 @@ python .\tools\gen-icon.py
 - The main checkout `D:\Dev\MIDIPlusPlus-modded` is on this branch, pushed,
   clean apart from the owner's `x64\Release\MIDI++.exe` and `x64\Release\midi\`.
   `D:\Dev\mpp-panels` is the panel seat's; leave it.
-- Demo v2 from `f783ccc`: `build\release\QuartzMIDI-demo-v2.zip` (426 MB),
-  SHA256 `4AC86AA3C23F39E693C595C8BCE2617D4B0A621FD98AED5659981EC6658C2F8A`,
+- Demo v2 from `d4bfe92`: `build\release\QuartzMIDI-demo-v2.zip` (426 MB),
+  SHA256 `BF4F7447F32F9F8DB73D930FD2BF0D74B59875E4F27F191F6D30FB54A000A08E`,
   and the staged folder `build\release\QuartzMIDI\` the owner runs from.
 - Never commit `x64/Release/midi/`, `build/`, `MIDI++/MIDI++/`, `.claude/`,
   `tools/mp3-to-midi/cookies.txt` or `tools/mp3-to-midi/browser/`.
 
 ## Next action
 
-Ask the owner what they found on the `f783ccc` demo v2 build and fix the first
+Ask the owner what they found on the `d4bfe92` demo v2 build and fix the first
 thing they name on this branch, then repackage with `.\tools\make-release.ps1`.
