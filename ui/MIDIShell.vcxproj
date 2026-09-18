@@ -54,6 +54,7 @@
     <ClInclude Include="ShellEngine.hpp" />
     <ClInclude Include="AutoVolume.hpp" />
     <ClInclude Include="VelocityModel.hpp" />
+    <ClInclude Include="HotkeyNames.hpp" />
     <ClInclude Include="..\MIDI++\Skin.hpp" />
   </ItemGroup>
   <ItemGroup><ResourceCompile Include="Shell.rc" /></ItemGroup>

@@ -12,6 +12,7 @@
 #include "../MIDI++/config.hpp"
 #include "../MIDI++/MIDI2Key.hpp"
 #include "../ui/NativeConnectInput.hpp"
+#include "../ui/HotkeyNames.hpp"
 #include <atomic>
 #include <fstream>
 #include <iostream>
@@ -54,6 +55,17 @@ template<class F> void Await(F predicate, const char* message) {
         if (std::chrono::steady_clock::now() >= deadline) throw std::runtime_error(message);
         std::this_thread::sleep_for(5ms);
     }
+}
+
+void HotkeyNameTests() {
+    Require(shell::NameToVK("VK_F1") == VK_F1 && shell::NameToVK("f24") == VK_F24, "function keys keep their names");
+    Require(shell::NameToVK("VK_SPACE") == VK_SPACE && shell::NameToVK("VK_A") == 'A', "named and single-character keys");
+    Require(shell::NameToVK("VK_NOT_A_KEY") == 0 && shell::NameToVK("") == 0 && shell::NameToVK("VK_") == 0,
+            "an unknown name registers nothing");
+    Require(shell::NameToVK("VK_MEDIA_PLAY_PAUSE") == VK_MEDIA_PLAY_PAUSE, "the play or pause media key has a name");
+    Require(shell::NameToVK("VK_MEDIA_STOP") == VK_MEDIA_STOP, "the stop media key has a name");
+    Require(shell::NameToVK("VK_MEDIA_NEXT_TRACK") == VK_MEDIA_NEXT_TRACK, "the next track media key has a name");
+    Require(shell::NameToVK("VK_MEDIA_PREV_TRACK") == VK_MEDIA_PREV_TRACK, "the previous track media key has a name");
 }
 
 void ModelTests(const std::filesystem::path& fixture) {
@@ -3511,9 +3523,11 @@ int wmain(int argc, wchar_t** argv) {
             else if (group == L"audio") AudioToMidiTests(directory);
             else if (group == L"midi-out") MidiOutputTests(directory / L"config.json");
             else if (group == L"vel-mod") VelocityModifierTests(directory / L"config.json");
+            else if (group == L"hotkeys") HotkeyNameTests();
             else throw std::runtime_error("Unknown shell test group");
             return 0;
         }
+        HotkeyNameTests();
         VelocityTelemetryTests();
         WootingMapTests();
         WootingSettingsTests();

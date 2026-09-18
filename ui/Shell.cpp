@@ -15,6 +15,7 @@
 #include "Fonts.hpp"
 #include "Panels.hpp"
 #include "NativeConnectInput.hpp"
+#include "HotkeyNames.hpp"
 #include "imgui.h"
 #include "backends/imgui_impl_dx11.h"
 #include "backends/imgui_impl_win32.h"
@@ -55,30 +56,6 @@ struct Registered {
     std::array<std::string, 4> names;
 };
 
-// Config names are the upstream "VK_F1" spelling. Unknown names register
-// nothing rather than guessing at a keycode.
-int NameToVK(std::string name) {
-    if (name.rfind("VK_", 0) == 0) name.erase(0, 3);
-    if (name.empty()) return 0;
-    std::transform(name.begin(), name.end(), name.begin(),
-                   [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
-    if (name.size() == 1 && (std::isalnum(static_cast<unsigned char>(name[0])) != 0))
-        return static_cast<unsigned char>(name[0]);
-    if (name[0] == 'F' && name.size() <= 3) {
-        const int number = std::atoi(name.c_str() + 1);
-        if (number >= 1 && number <= 24) return VK_F1 + number - 1;
-    }
-    static const std::unordered_map<std::string, int> named{
-        {"SPACE", VK_SPACE}, {"TAB", VK_TAB},     {"PAUSE", VK_PAUSE},
-        {"LEFT", VK_LEFT},   {"RIGHT", VK_RIGHT}, {"UP", VK_UP},
-        {"DOWN", VK_DOWN},   {"HOME", VK_HOME},   {"END", VK_END},
-        {"INSERT", VK_INSERT}, {"DELETE", VK_DELETE},
-        {"PRIOR", VK_PRIOR}, {"NEXT", VK_NEXT},
-    };
-    const auto found = named.find(name);
-    return found == named.end() ? 0 : found->second;
-}
-
 // A key another application already owns simply fails to register. That is
 // reported through the returned flags, never treated as fatal.
 Registered RegisterHotkeys(HWND hwnd, const std::filesystem::path& config) {
@@ -99,7 +76,7 @@ Registered RegisterHotkeys(HWND hwnd, const std::filesystem::path& config) {
         // A missing or malformed config still gets the documented defaults.
     }
     const auto add = [hwnd](int id, const std::string& name) {
-        const int vk = NameToVK(name);
+        const int vk = shell::NameToVK(name);
         return vk != 0 && RegisterHotKey(hwnd, id, MOD_NOREPEAT, static_cast<UINT>(vk)) != FALSE;
     };
     Registered done;
