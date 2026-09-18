@@ -115,6 +115,6 @@ shell (`ui/`) over `PlaybackCore`, replacing the Win32 window (`MIDI++/`).
 
 ## Next action
 
-Ask the owner for the tester's report of the doubled note (autoplay or live,
-the file or device, keystrokes or MIDI output, which build), then reproduce it
-as a failing test in `tests/ShellTests.cpp` before changing any code.
+Rebuild demo v2 and the source zip from `2219610` (neither holds the tap fix)
+once the owner's app is closed, then get shampoojr's MIDI file and replay it
+through `FakeMidiInput` to see whether the doubled and sticking notes remain.
