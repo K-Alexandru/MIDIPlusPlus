@@ -4,6 +4,7 @@
 #endif
 #include "Fonts.hpp"
 #include "ShellEngine.hpp"
+#include "ThemeModel.hpp"
 #include "InputLatency.hpp"
 #include <windows.h>
 
@@ -14,7 +15,10 @@ namespace shell {
 extern std::function<std::filesystem::path(HWND)> PickMidiFile;
 
 struct Preferences {
-    int skin = 0;
+    // A theme by id, built in or the user's, and which half of it. An old
+    // settings file's "skin" index reads as the same pair.
+    std::string theme = "blue";
+    bool dark = false;
     bool autoSolo = false;
     // Never restored from the settings file: the window starts closed every run.
     bool keyMappingOpen = false;
@@ -25,6 +29,10 @@ struct Preferences {
 class Panels {
 public:
     Preferences preferences;
+    // Loaded and saved beside the preferences, as themes.json.
+    ThemeStore themes;
+    skin::Skin ActiveSkin() { return themes.Active(preferences.theme).Shown(preferences.dark); }
+    bool themeEditorOpen = false;
     bool stopHotkeyAvailable = false;
     // Keycap text per hotkey, empty when unbound, and whether the key
     // registered; the shell sets both each time it registers.
@@ -64,6 +72,12 @@ public:
     // draws on demand and asks this before it decides there is nothing to draw.
     bool Animating() const { return measuring_ || hotkeyCapture >= 0; }
 private:
+    std::filesystem::path themesPath_;
+    void SaveThemes() const;
+    void DrawThemeEditor(const Fonts&, const skin::Skin&, float);
+    bool themeEditorWasOpen_ = false;
+    char themeName_[64]{};
+    std::string themeNameFor_;
     char search_[256]{};
     FileSort fileSort_ = FileSort::Name;
     bool descendingFiles_ = false;

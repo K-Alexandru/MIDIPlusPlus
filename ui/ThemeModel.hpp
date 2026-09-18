@@ -173,6 +173,13 @@ inline skin::Skin GenerateSkin(skin::Argb background, skin::Argb text, skin::Arg
     return out;
 }
 
+// Changes when any colour does; never zero, so zero can mean nothing applied.
+inline uint64_t SkinSignature(skin::Skin skin) {
+    uint64_t hash = 1469598103934665603ull ^ (skin.dark ? 1u : 0u);
+    for (const auto& colour : ThemeColours()) hash = (hash ^ colour.at(skin)) * 1099511628211ull;
+    return hash | 1;
+}
+
 inline std::string ColourText(skin::Argb colour) {
     char text[10];
     const unsigned alpha = colour >> 24;
@@ -202,21 +209,32 @@ struct Theme {
     // on screen is OppositeSkin of the one being edited.
     bool paired = true, automatic = true, onlyDark = false;
     skin::Skin light, dark;
+    // The half automatic derives the other from: the one on screen when
+    // automatic was turned on.
+    bool sourceDark = false;
     bool ShowsDark(bool wantDark) const { return paired ? wantDark : onlyDark; }
     const skin::Skin& Shown(bool wantDark) const { return ShowsDark(wantDark) ? dark : light; }
     skin::Skin& Shown(bool wantDark) { return ShowsDark(wantDark) ? dark : light; }
-    // After an edit to the half on screen.
-    void Follow(bool wantDark) {
+    void Derive() { (sourceDark ? light : dark) = OppositeSkin(sourceDark ? dark : light); }
+    // After an edit to the half on screen. The source's other half follows
+    // it. An edit to the derived half is the user taking it over, so
+    // automatic goes off rather than the next edit to the source undoing it.
+    void Edited(bool wantDark) {
         if (!paired || !automatic) return;
-        (ShowsDark(wantDark) ? light : dark) = OppositeSkin(Shown(wantDark));
+        if (ShowsDark(wantDark) == sourceDark) Derive();
+        else automatic = false;
+    }
+    void SetAutomatic(bool on, bool wantDark) {
+        automatic = on;
+        if (on && paired) { sourceDark = ShowsDark(wantDark); Derive(); }
     }
 };
 
 class ThemeStore {
 public:
     ThemeStore() {
-        themes_.push_back({"blue", "Blue", true, true, false, false, skin::Blue(), skin::BlueDark()});
-        themes_.push_back({"orange", "Orange", true, true, false, false, skin::Orange(), skin::OrangeDark()});
+        themes_.push_back({"blue", "Blue", true, true, false, false, skin::Blue(), skin::BlueDark(), false});
+        themes_.push_back({"orange", "Orange", true, true, false, false, skin::Orange(), skin::OrangeDark(), false});
     }
     const std::vector<Theme>& All() const { return themes_; }
     Theme* Find(const std::string& id) {
@@ -254,7 +272,12 @@ public:
                 return colours;
             };
             nlohmann::json entry{{"id", theme.id}, {"name", theme.name}, {"paired", theme.paired}};
-            if (theme.paired) { entry["automatic"] = theme.automatic; entry["light"] = palette(theme.light); entry["dark"] = palette(theme.dark); }
+            if (theme.paired) {
+                entry["automatic"] = theme.automatic;
+                entry["source"] = theme.sourceDark ? "dark" : "light";
+                entry["light"] = palette(theme.light);
+                entry["dark"] = palette(theme.dark);
+            }
             else entry[theme.onlyDark ? "dark" : "light"] = palette(theme.onlyDark ? theme.dark : theme.light);
             list.push_back(std::move(entry));
         }
@@ -274,6 +297,7 @@ public:
             if (theme.id.empty() || theme.name.empty() || Find(theme.id)) continue;
             theme.paired = entry.value("paired", true);
             theme.automatic = entry.value("automatic", false);
+            theme.sourceDark = entry.value("source", std::string("light")) == "dark";
             const auto palette = [&](const char* half, bool dark) {
                 skin::Skin skin = ThemeTemplate(dark);
                 skin.name = {};

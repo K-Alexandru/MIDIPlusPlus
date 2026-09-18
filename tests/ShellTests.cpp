@@ -184,15 +184,18 @@ void ThemeModelTests(const std::filesystem::path& directory) {
         Require(&store.Active("gone") == store.Find("blue"), "a theme that is gone is not Blue");
         Theme& mine = store.Add(*store.Find("orange"), "Mine");
         Require(mine.id == "custom-1" && !mine.builtin && mine.name == "Mine", "a new theme is not the user's own");
-        mine.automatic = true;
+        Require(!mine.automatic, "a copy of a built-in would overwrite the built-in's own other half");
+        mine.SetAutomatic(true, false);
         mine.light.accent.accent = 0xFF8844CC;
-        mine.Follow(false);
+        mine.Edited(false);
         Require(std::abs(ToLch(mine.dark.accent.accent).h - ToLch(0xFF8844CC).h) < 0.05 && mine.dark.dark, "the other half did not follow an edit");
-        mine.automatic = false;
-        const skin::Argb kept = mine.dark.accent.accent;
+        // The derived half, touched by hand, is the user's from then on.
+        mine.dark.surface.card = 0xFF202830;
+        mine.Edited(true);
+        Require(!mine.automatic && mine.light.accent.accent == 0xFF8844CC, "an edit to the derived half rewrote the source");
         mine.light.accent.accent = 0xFF00AA00;
-        mine.Follow(false);
-        Require(mine.dark.accent.accent == kept, "a half edited by hand was overwritten");
+        mine.Edited(false);
+        Require(mine.dark.surface.card == 0xFF202830, "a half edited by hand was overwritten");
         Theme& night = store.Add(*store.Find("blue"), "Night");
         night.paired = false; night.onlyDark = true;
         night.dark.surface.canvas = 0xFF101018;

@@ -94,15 +94,26 @@ int wmain() {
         int pickerCalls = 0;
         shell::PickMidiFile = [&](HWND) { ++pickerCalls; return std::filesystem::path{}; };
         const auto skins = skin::All();
+        // The user's own theme: a plum light half from three colours, and the
+        // dark half automatic guesses from it.
+        const std::string custom = [&] {
+            shell::Theme& theme = panels.themes.Add(*panels.themes.Find("blue"), "Plum");
+            theme.light = shell::GenerateSkin(0xFFE9E2EE, 0xFF231B2B, 0xFF8A3FB8);
+            theme.SetAutomatic(true, false);
+            return theme.id;
+        }();
         // Returning to 100% catches cumulative scaling after a monitor move.
         for (const float dpi : {1.f, 1.25f, 1.5f, 2.f, 1.f}) for (int i = 0; i < 4; ++i)
-        for (int mode = 0; mode < 21; ++mode) {
-            panels.preferences.skin = i;
+        for (int mode = 0; mode < 22; ++mode) {
+            panels.preferences.theme = mode == 21 ? custom : i < 2 ? "blue" : "orange";
+            panels.preferences.dark = (i & 1) != 0;
+            panels.themeEditorOpen = mode == 21;
+            const skin::Skin design = mode == 21 ? panels.ActiveSkin() : skins[i];
             panels.miniMode = mode == 1 || mode == 2 || mode == 8 || mode == 9 || mode == 10 || mode == 20;
             panels.miniAutoplay = mode == 2 || mode == 8 || mode == 10 || mode == 20;
             // All six hotkeys bound, where the legend has the least room.
-            panels.transportKeys[4] = mode >= 19 ? "F5" : "";
-            panels.transportKeys[5] = mode >= 19 ? "F6" : "";
+            panels.transportKeys[4] = mode == 19 || mode == 20 ? "F5" : "";
+            panels.transportKeys[5] = mode == 19 || mode == 20 ? "F6" : "";
             panels.logOpen = mode == 3 || mode == 9;
             panels.velocityExpanded = mode == 11;
             // "minimum" is the smallest window WM_GETMINMAXINFO allows, where
@@ -118,7 +129,10 @@ int wmain() {
                                    // Settings at its Hotkeys section: Back armed, Forward
                                    // held by another program, Next song on a media key.
                                    "settings-hotkeys",
-                                   "minimum-six-keys", "mini-six-keys"};
+                                   "minimum-six-keys", "mini-six-keys",
+                                   // A theme of the user's, built from three colours with
+                                   // its dark half guessed, and the editor open on it.
+                                   "theme-editor"};
             const int picksBefore = pickerCalls;
             if (mode == 7 || mode == 8) {
                 engine.Send({shell::ShellEngine::Action::PlaybackDelay, {}, 0, 0, false, 10});
@@ -130,8 +144,8 @@ int wmain() {
             }
             shell::ShellLog::Instance().Clear();
             if (panels.logOpen) shell::ShellLog::Instance().Append("[error] Kernel Streaming read failed, live input has stopped.\n");
-            skin::ApplyStyle(skins[i], dpi);
-            ImGui::GetIO().FontDefault = fonts.Get(skins[i]);
+            skin::ApplyStyle(design, dpi);
+            ImGui::GetIO().FontDefault = fonts.Get(design);
             const auto desired = mode == 13 || mode == 19 ? shell::Panels::MinimumSize() : panels.DesiredSize();
             const UINT width = static_cast<UINT>(desired.x * dpi);
             const UINT height = static_cast<UINT>(desired.y * dpi);
@@ -145,7 +159,7 @@ int wmain() {
             Check(device->CreateRenderTargetView(texture.Get(), nullptr, &target));
             for (int frame = 0; frame < 7; ++frame) {
                 auto& io = ImGui::GetIO();
-                const auto s = skin::ScaleGeometry(skins[i], dpi);
+                const auto s = skin::ScaleGeometry(design, dpi);
                 const float leftEdge = s.spacing.windowPad + std::clamp(width - 2 * s.spacing.windowPad - s.spacing.s3 - 600 * dpi, 240 * dpi, 336 * dpi) - s.spacing.panelPad;
                 const float buttonY = 24 * dpi + s.metric.controlHeight + s.spacing.windowPad + s.spacing.panelPad + s.metric.controlHeight / 2;
                 // Second control from the right on mini's first body row: the
@@ -166,9 +180,9 @@ int wmain() {
                 // Each capture is independent. Escape only closes a focused
                 // popup and can leave the preceding scenario on screen.
                 if (frame == 0) ImGui::ClosePopupsOverWindow(nullptr, false);
-                ImGui::PushFont(fonts.Get(skins[i]), skins[i].type.body);
+                ImGui::PushFont(fonts.Get(design), design.type.body);
                 // ImGui rounds baked font sizes to whole pixels after scaling.
-                Require(std::abs(ImGui::GetFontSize() - skins[i].type.body * dpi) <= .5f, "font scaled more than once");
+                Require(std::abs(ImGui::GetFontSize() - design.type.body * dpi) <= .5f, "font scaled more than once");
                 ImGui::SetNextWindowPos(ImVec2(0, 0));
                 ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
                 ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
@@ -186,7 +200,7 @@ int wmain() {
                 panels.revealSettingsSwitches = mode == 14;
                 panels.preferences.keyMappingOpen = mode == 15;
                 panels.autoVolumeOpen = mode == 16;
-                panels.Draw(nullptr, fonts, skins[i], dpi, engine);
+                panels.Draw(nullptr, fonts, design, dpi, engine);
                 if (frame == 6) Require(ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) == ((mode >= 4 && mode <= 6) || mode == 12 || mode == 14 || mode == 17 || mode == 18),
                                         "render scenario popup did not open or leaked from a previous capture");
                 ImGui::End(); ImGui::PopFont(); ImGui::Render();

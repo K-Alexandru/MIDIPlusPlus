@@ -55,9 +55,13 @@ bool IconButton(const char* id, Icon icon, const char* tip, const skin::Skin& s,
     if (active) ImGui::PushStyleColor(ImGuiCol_Button, Colour(s.accent.accentSoft));
     const bool clicked = ImGui::Button(id, ImVec2(height, height));
     if (active) ImGui::PopStyleColor();
+    // The icon is drawn here, not by ImGui, so a disabled button has to fade
+    // it by hand: the frame greyed and the icon stayed at full ink.
+    const ImU32 ink = Colour(active ? s.accent.accent : s.ink.secondary);
+    const ImU32 alpha = static_cast<ImU32>((ink >> IM_COL32_A_SHIFT & 0xFF) * ImGui::GetStyle().Alpha);
     DrawIcon(ImGui::GetWindowDrawList(), icon, ImVec2(min.x + (height - 16.f * dpi) / 2,
              min.y + (height - 16.f * dpi) / 2), 16.f * dpi,
-             Colour(active ? s.accent.accent : s.ink.secondary), dpi);
+             (ink & ~IM_COL32_A_MASK) | (alpha << IM_COL32_A_SHIFT), dpi);
     // Shape as well as colour, per the house rules: an outline, not an
     // underline. The underline this replaces read as text decoration sitting
     // under an icon, and it was the only underline anywhere in the app. An
@@ -552,21 +556,35 @@ void Panels::LoadPreferences(const std::filesystem::path& path) {
         std::ifstream stream(path);
         if (!stream) return;
         const auto json = nlohmann::json::parse(stream);
-        preferences.skin = std::clamp(json.value("skin", 0), 0, 3);
+        // Before themes had names a skin was an index: Blue, Blue Dark,
+        // Orange, Orange Dark.
+        const int legacy = std::clamp(json.value("skin", 0), 0, 3);
+        preferences.theme = json.value("theme", std::string(legacy < 2 ? "blue" : "orange"));
+        preferences.dark = json.value("dark", (legacy & 1) != 0);
         preferences.autoSolo = json.value("autoSoloPiano", false);
         preferences.alwaysOnTop = json.value("alwaysOnTop", false);
         preferences.opacity = std::clamp(json.value("opacity", 100), 40, 100);
         const auto folder = json.value("midiFolder", std::string());
         preferences.folder = std::filesystem::path(std::u8string(folder.begin(), folder.end()));
     } catch (const std::exception&) { preferences = {}; }
+    themesPath_ = path.parent_path() / L"themes.json";
+    themes.Load(themesPath_);
 }
 
 void Panels::SavePreferences(const std::filesystem::path& path) const {
-    nlohmann::json json{{"skin", preferences.skin}, {"autoSoloPiano", preferences.autoSolo},
+    SaveThemes();
+    nlohmann::json json{{"theme", preferences.theme}, {"dark", preferences.dark}, {"autoSoloPiano", preferences.autoSolo},
                         {"midiFolder", Utf8(preferences.folder)},
                         {"alwaysOnTop", preferences.alwaysOnTop}, {"opacity", preferences.opacity}};
     std::ofstream stream(path);
     if (stream) stream << json.dump(2) << '\n';
+}
+
+// Only once there is something of the user's to keep, or a file to bring up
+// to date after the last of them was deleted.
+void Panels::SaveThemes() const {
+    if (themesPath_.empty()) return;
+    if (themes.All().size() > 2 || std::filesystem::exists(themesPath_)) themes.Save(themesPath_);
 }
 
 void Panels::DrawKeyMapping(const Fonts& fonts, const skin::Skin& design, float dpi, ShellEngine& engine) {
@@ -749,6 +767,152 @@ void Panels::DrawKeyMapping(const Fonts& fonts, const skin::Skin& design, float 
     ImGui::PopFont();
     ImGui::GetStyle() = previousStyle;
     ImGui::End();
+}
+
+namespace {
+// "Blue custom", then "Blue custom 2": a name that is free.
+std::string NewThemeName(const ThemeStore& themes, const std::string& from) {
+    const std::string base = from + " custom";
+    for (int number = 1;; ++number) {
+        const std::string name = number == 1 ? base : base + " " + std::to_string(number);
+        if (std::none_of(themes.All().begin(), themes.All().end(), [&](const Theme& theme) { return theme.name == name; })) return name;
+    }
+}
+
+// A swatch that opens ImGui's picker, with the role's name beside it. True
+// while the colour is being changed.
+bool ThemeSwatch(const char* label, skin::Argb& colour, bool alpha) {
+    float value[4]{(colour >> 16 & 0xFF) / 255.f, (colour >> 8 & 0xFF) / 255.f, (colour & 0xFF) / 255.f, (colour >> 24) / 255.f};
+    const ImGuiColorEditFlags flags = ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_DisplayHex | ImGuiColorEditFlags_PickerHueWheel |
+        (alpha ? ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreviewHalf : ImGuiColorEditFlags_NoAlpha);
+    const ImVec2 min = ImGui::GetCursorScreenPos();
+    const bool edited = ImGui::ColorEdit4(label, value, flags);
+    // An edge in the text colour, which stands out from any background a
+    // theme can have: a swatch of the window's own colour was invisible.
+    const float side = ImGui::GetFrameHeight();
+    ImGui::GetWindowDrawList()->AddRect(min, ImVec2(min.x + side, min.y + side), ImGui::GetColorU32(ImGuiCol_Text, .28f),
+                                        ImGui::GetStyle().FrameRounding, 0, 1.f);
+    if (!edited) return false;
+    const auto channel = [](float v) { return static_cast<skin::Argb>(std::lround(std::clamp(v, 0.f, 1.f) * 255.f)); };
+    colour = (alpha ? channel(value[3]) : 0xFFu) << 24 | channel(value[0]) << 16 | channel(value[1]) << 8 | channel(value[2]);
+    return true;
+}
+}
+
+// The theme editor. The app is the preview: the theme being edited is the one
+// on screen, so every swatch is seen where it lands. Three colours at the top
+// rebuild the whole palette; under them is every colour a skin holds, by the
+// name of what it paints.
+void Panels::DrawThemeEditor(const Fonts& fonts, const skin::Skin& design, float dpi) {
+    Theme* theme = themes.Find(preferences.theme);
+    if (!themeEditorOpen || !theme || theme->builtin) {
+        if (themeEditorWasOpen_) SaveThemes();
+        themeEditorWasOpen_ = themeEditorOpen = false;
+        return;
+    }
+    if (!themeEditorWasOpen_) {
+        ImGui::SetNextWindowPos(ImVec2(ImGui::GetMainViewport()->Pos.x + 24 * dpi, ImGui::GetMainViewport()->Pos.y + 112 * dpi));
+        themeEditorWasOpen_ = true;
+    }
+    if (themeNameFor_ != theme->id) {
+        snprintf(themeName_, sizeof(themeName_), "%s", theme->name.c_str());
+        themeNameFor_ = theme->id;
+    }
+    ImGuiWindowClass windowClass;
+    windowClass.ViewportFlagsOverrideSet = ImGuiViewportFlags_NoAutoMerge;
+    ImGui::SetNextWindowClass(&windowClass);
+    ImGui::SetNextWindowSizeConstraints(ImVec2(360 * dpi, 0), ImVec2(360 * dpi, 640 * dpi));
+    const auto s = skin::ScaleGeometry(design, dpi);
+    FontScope font(fonts, design, design.type.body * SpecFontScale(design));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16 * dpi, 16 * dpi));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12 * dpi, (s.metric.controlHeight - ImGui::GetTextLineHeight()) / 2));
+    if (ImGui::Begin("Theme", &themeEditorOpen, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking)) {
+        const auto section = [&](const char* label) {
+            FontScope meta(fonts, design, design.type.meta * SpecFontScale(design), Weight::Semibold);
+            ImGui::PushStyleColor(ImGuiCol_Text, Colour(s.ink.secondary));
+            ImGui::TextUnformatted(label); ImGui::PopStyleColor();
+        };
+        ImGui::SetNextItemWidth(-1);
+        if (ImGui::InputText("##theme-name", themeName_, sizeof(themeName_)) && themeName_[0]) theme->name = themeName_;
+
+        bool paired = theme->paired;
+        if (SettingSwitch("Light and dark", paired, nullptr, fonts, design, dpi)) {
+            if (paired) {
+                // The one palette becomes the source and the other half is
+                // guessed from it, so the pair starts whole.
+                preferences.dark = theme->onlyDark;
+                theme->paired = true;
+                theme->SetAutomatic(true, preferences.dark);
+            } else {
+                theme->onlyDark = theme->ShowsDark(preferences.dark);
+                theme->paired = false;
+            }
+        }
+        if (theme->paired) {
+            if (SettingRadio("Light", !preferences.dark, design, dpi)) preferences.dark = false;
+            ImGui::SameLine(0, 16 * dpi);
+            if (SettingRadio("Dark", preferences.dark, design, dpi)) preferences.dark = true;
+            bool automatic = theme->automatic;
+            // Said from the half on screen: the source is followed, and the
+            // half automatic makes follows.
+            const char* other = preferences.dark ? "Light" : "Dark";
+            const bool follower = theme->automatic && theme->sourceDark != preferences.dark;
+            const std::string follow = follower ? std::string("Follows ") + other : std::string(other) + " follows this one";
+            if (SettingSwitch(follow.c_str(), automatic, nullptr, fonts, design, dpi)) theme->SetAutomatic(automatic, preferences.dark);
+        }
+        ImGui::Separator();
+
+        skin::Skin& shown = theme->Shown(preferences.dark);
+        section("Start from");
+        skin::Argb background = shown.surface.canvas, text = shown.ink.primary, accent = shown.accent.accent;
+        bool rebuilt = ThemeSwatch("Background", background, false);
+        ImGui::SameLine(0, 16 * dpi);
+        rebuilt |= ThemeSwatch("Text##start", text, false);
+        ImGui::SameLine(0, 16 * dpi);
+        rebuilt |= ThemeSwatch("Accent##start", accent, false);
+        if (rebuilt) {
+            // A dark background makes a dark palette, which belongs in the
+            // dark half: the editor moves to it rather than filing a dark
+            // palette under Light.
+            const skin::Skin made = GenerateSkin(background, text, accent);
+            if (theme->paired) preferences.dark = made.dark; else theme->onlyDark = made.dark;
+            theme->Shown(preferences.dark) = made;
+            if (theme->paired && theme->automatic) theme->SetAutomatic(true, preferences.dark);
+        }
+        ImGui::Separator();
+
+        skin::Skin& edited = theme->Shown(preferences.dark);
+        const skin::Argb accentBefore = edited.accent.accent, okBefore = edited.accent.ok;
+        bool changed = false;
+        const char* group = "";
+        bool detail = false, detailOpen = false;
+        for (const auto& colour : ThemeColours()) {
+            if (colour.derived && !detail) {
+                detail = true;
+                detailOpen = SettingSection("Fine detail", s, dpi);
+            }
+            if (colour.derived && !detailOpen) continue;
+            if (!colour.derived && std::string_view(group) != colour.group) { group = colour.group; section(group); }
+            ImGui::PushID(colour.key);
+            changed |= ThemeSwatch(colour.label, colour.at(edited), colour.derived);
+            ImGui::PopID();
+        }
+        if (changed) {
+            // The fills and outlines are the accent at an alpha, so a new
+            // accent takes them with it and they keep their alpha.
+            if (edited.accent.accent != accentBefore) {
+                edited.accent.accentSoft = WithAlphaOf(edited.accent.accent, edited.accent.accentSoft);
+                edited.accent.accentLine = WithAlphaOf(edited.accent.accent, edited.accent.accentLine);
+            }
+            if (edited.accent.ok != okBefore) {
+                edited.accent.okSoft = WithAlphaOf(edited.accent.ok, edited.accent.okSoft);
+                edited.accent.okBorder = WithAlphaOf(edited.accent.ok, edited.accent.okBorder);
+            }
+            theme->Edited(preferences.dark);
+        }
+    }
+    ImGui::End();
+    ImGui::PopStyleVar(2);
 }
 
 void Panels::DrawAutoVolume(const Fonts& fonts, const skin::Skin& design, float dpi, ShellEngine& engine) {
@@ -1622,16 +1786,49 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
     ImGui::Separator();
     section("Appearance");
     SettingSlider("Window opacity", "##window-opacity", &preferences.opacity, 40, 100, "%d%%", s, dpi);
-    // The names come from the skins themselves. They were spelled out here as
-    // "Classic" and "Modern", which is two more places to rename and two more
-    // chances for the picker to disagree with what it picks.
-    // Skin::name is a string_view, so it is copied rather than .data()'d: a
-    // view is not required to be null-terminated, and ImGui wants a C string.
-    const auto skins = skin::All();
-    const std::string firstColour(skins[0].name), secondColour(skins[2].name);
-    if (SettingRadio(firstColour.c_str(), preferences.skin < 2, design, dpi)) preferences.skin %= 2;
-    ImGui::SameLine(0, 16 * dpi);
-    if (SettingRadio(secondColour.c_str(), preferences.skin >= 2, design, dpi)) preferences.skin = 2 + preferences.skin % 2;
+    // Every theme by its own name, the built-in two first. Customise opens
+    // the editor on the chosen theme; on a built-in, which is not the user's
+    // to change, it opens on a copy, so there is no disabled button to explain.
+    {
+        const Theme& active = themes.Active(preferences.theme);
+        const bool custom = !active.builtin;
+        const float button = ImGui::CalcTextSize("Customise").x + 24 * dpi, icon = s.metric.controlHeight, gap = 8 * dpi;
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - button - gap - (custom ? icon + gap : 0));
+        const bool open = ImGui::BeginCombo("##theme", active.name.c_str(), ImGuiComboFlags_NoArrowButton);
+        ComboChevron();
+        if (open) {
+            for (const auto& theme : themes.All()) {
+                ImGui::PushID(theme.id.c_str());
+                if (ImGui::Selectable(theme.name.c_str(), theme.id == active.id)) preferences.theme = theme.id;
+                ImGui::PopID();
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::SameLine(0, gap);
+        if (ImGui::Button("Customise", ImVec2(button, s.metric.controlHeight))) {
+            if (active.builtin) preferences.theme = themes.Add(active, NewThemeName(themes, active.name)).id;
+            themeEditorOpen = true;
+            ImGui::CloseCurrentPopup();
+        }
+        if (custom) {
+            ImGui::SameLine(0, gap);
+            if (IconButton("##delete-theme", Icon::Clear, "Delete theme", s, dpi)) ImGui::OpenPopup("##confirm-delete-theme");
+            if (ImGui::BeginPopup("##confirm-delete-theme")) {
+                ImGui::Text("Delete %s?", active.name.c_str());
+                bool remove = ImGui::Button("Delete", ImVec2(96 * dpi, s.metric.controlHeight));
+                ImGui::SameLine(0, gap);
+                if (ImGui::Button("Cancel", ImVec2(96 * dpi, s.metric.controlHeight))) ImGui::CloseCurrentPopup();
+                if (remove) {
+                    ImGui::CloseCurrentPopup();
+                    themes.Remove(preferences.theme);
+                    preferences.theme = "blue";
+                    themeEditorOpen = false;
+                    SaveThemes();
+                }
+                ImGui::EndPopup();
+            }
+        }
+    }
     if (SettingSection("About", s, dpi)) {
         ImGui::TextWrapped("Based on Zephkek/MIDIPlusPlus (GPLv3)");
         ImGui::TextWrapped("Dear ImGui and RtMidi (MIT)");
@@ -1938,7 +2135,9 @@ void Panels::DrawMini(HWND hwnd, const Fonts& fonts, const skin::Skin& design, f
     ImGui::SetCursorScreenPos(ImVec2(utilityX, origin.y + stripPad));
     if (IconButton("##restore-full", Icon::Expand, "Full window", s, dpi)) miniMode = false;
     ImGui::SameLine();
-    if (IconButton("##mini-theme", s.dark ? Icon::Moon : Icon::Sun, s.dark ? "Switch to light" : "Switch to dark", s, dpi)) preferences.skin ^= 1;
+    ImGui::BeginDisabled(!themes.Active(preferences.theme).paired);
+    if (IconButton("##mini-theme", s.dark ? Icon::Moon : Icon::Sun, s.dark ? "Switch to light" : "Switch to dark", s, dpi)) preferences.dark = !preferences.dark;
+    ImGui::EndDisabled();
     ImGui::SameLine();
     SettingsControl(fonts, design, dpi, engine,
                     ImVec2(origin.x + size.x - 344 * dpi - s.spacing.windowPad, origin.y + stripPad + control + 4 * dpi), 544 * dpi);
@@ -2074,6 +2273,7 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     if (miniMode) {
         DrawMini(hwnd, fonts, design, dpi, engine, origin, size);
         DrawAutoVolume(fonts, design, dpi, engine);
+        DrawThemeEditor(fonts, design, dpi);
         DrawLog(hwnd, fonts, design, dpi, engine);
         mappingArmed_ = false;
         return;
@@ -2104,8 +2304,11 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     if (IconButton("##key-mapping", Icon::Keyboard, "Key Mapping", s, dpi, preferences.keyMappingOpen))
         preferences.keyMappingOpen = !preferences.keyMappingOpen;
     ImGui::SameLine();
+    // A theme with one palette has no other half to switch to.
+    ImGui::BeginDisabled(!themes.Active(preferences.theme).paired);
     if (IconButton("##theme", s.dark ? Icon::Moon : Icon::Sun, s.dark ? "Switch to light" : "Switch to dark", s, dpi))
-        preferences.skin ^= 1;
+        preferences.dark = !preferences.dark;
+    ImGui::EndDisabled();
     ImGui::SameLine();
     SettingsControl(fonts, design, dpi, engine,
                     ImVec2(origin.x + size.x - 344 * dpi - s.spacing.windowPad, origin.y + 48 * dpi), size.y - 52 * dpi);
@@ -2633,6 +2836,7 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     if (preferences.keyMappingOpen) DrawKeyMapping(fonts, design, dpi, engine);
     else mappingArmed_ = false;
     DrawAutoVolume(fonts, design, dpi, engine);
+    DrawThemeEditor(fonts, design, dpi);
     DrawLog(hwnd, fonts, design, dpi, engine);
 }
 }

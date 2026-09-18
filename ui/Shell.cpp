@@ -238,8 +238,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     HWND hwnd = ::CreateWindowW(wc.lpszClassName, L"QuartzMIDI",
                                 WS_OVERLAPPEDWINDOW, 100, 100, initial.right - initial.left, initial.bottom - initial.top,
                                 nullptr, nullptr, wc.hInstance, nullptr);
-    auto skins = skin::All();
-    ApplyCaption(hwnd, skins[panels.preferences.skin]);  // before the first paint, so no white flashes
+    ApplyCaption(hwnd, panels.ActiveSkin());  // before the first paint, so no white flashes
     if (!CreateDevice(hwnd)) {
         CleanupDevice();
         ::UnregisterClassW(wc.lpszClassName, wc.hInstance);
@@ -270,7 +269,9 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     ImGui_ImplWin32_Init(hwnd);
     ImGui_ImplDX11_Init(g_device, g_context);
 
-    int appliedSkin = -1;
+    // The colours on screen, as a signature: a theme being edited changes them
+    // under one name, so neither its name nor an index says the style is stale.
+    uint64_t appliedSkin = 0;
     float appliedDpi = 0.f;
     bool appliedMini = false, appliedExpanded = false, appliedMiniAutoplay = false;
     RECT fullRect{}; GetWindowRect(hwnd, &fullRect);
@@ -381,7 +382,8 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
             else panels.preferences.alwaysOnTop = appliedTopmost;
         }
         if (IsIconic(hwnd)) { WaitMessage(); continue; }
-        const int active = panels.preferences.skin;
+        const skin::Skin current = panels.ActiveSkin();
+        const uint64_t active = shell::SkinSignature(current);
         {
             const auto now = std::chrono::steady_clock::now();
             auto snapshot = engine.Snapshot();
@@ -465,9 +467,9 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
             appliedMiniAutoplay = panels.miniAutoplay;
         }
         if (appliedSkin != active || appliedDpi != g_dpi) {
-            skin::ApplyStyle(skins[active], g_dpi);
-            ApplyCaption(hwnd, skins[active]);
-            ImGui::GetIO().FontDefault = fonts.Get(skins[active]);
+            skin::ApplyStyle(current, g_dpi);
+            ApplyCaption(hwnd, current);
+            ImGui::GetIO().FontDefault = fonts.Get(current);
             appliedSkin = active;
             appliedDpi = g_dpi;
         }
@@ -475,7 +477,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
         ImGui_ImplDX11_NewFrame();
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
-        ImGui::PushFont(fonts.Get(skins[appliedSkin]), skins[appliedSkin].type.body);
+        ImGui::PushFont(fonts.Get(current), current.type.body);
 
         const ImGuiViewport* vp = ImGui::GetMainViewport();
         ImGui::SetNextWindowPos(vp->WorkPos);
@@ -486,7 +488,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
                      ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
                      ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
         ImGui::PopStyleVar(2);
-        panels.Draw(hwnd, fonts, skins[appliedSkin], g_dpi, engine);
+        panels.Draw(hwnd, fonts, current, g_dpi, engine);
         ImGui::End();
         ImGui::PopFont();
 
