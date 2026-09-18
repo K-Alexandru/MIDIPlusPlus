@@ -137,8 +137,11 @@ inline Skin Blue() {
     s.name = "Blue";
     s.dark = false;
     Shape(s);
-    s.surface = { Rgb(0xE8EBEF), Rgb(0xF3F5F7), Rgb(0xFFFFFF),
-                  Rgb(0xFFFFFF), Rgb(0xF7F9FB), Rgb(0xE9ECF1) };
+    // No surface is pure white. A tester asked for light a little darker, "not
+    // much but not #FFFFFF"; every step came down together, so the order of the
+    // surfaces, which is what reads as depth, is unchanged.
+    s.surface = { Rgb(0xE0E4E9), Rgb(0xEBEEF2), Rgb(0xF5F7F9),
+                  Rgb(0xFAFBFC), Rgb(0xF0F3F6), Rgb(0xE3E7EC) };
     s.ink = { Rgb(0x1B1E24), Rgb(0x5B636F), Rgb(0x8B929E) };
     s.accent = { Rgb(0x0B6EC4), Rgba(0x0B6EC4, .10), Rgba(0x0B6EC4, .35),
                  Rgb(0x1A7F45), Rgb(0x12652F), Rgba(0x1A7F45, .12), Rgba(0x1A7F45, .34),
@@ -174,8 +177,8 @@ inline Skin Orange() {
     s.name = "Orange";
     s.dark = false;
     Shape(s);
-    s.surface = { Rgb(0xE6E2DB), Rgb(0xF1EEE9), Rgb(0xFBFAF8),
-                  Rgb(0xFFFFFF), Rgb(0xF6F3EE), Rgb(0xECE8E1) };
+    s.surface = { Rgb(0xDFDAD2), Rgb(0xEAE6E0), Rgb(0xF5F3EF),
+                  Rgb(0xFAF8F5), Rgb(0xEFEBE5), Rgb(0xE5E0D8) };
     s.ink = { Rgb(0x1D1B19), Rgb(0x6F675E), Rgb(0x948B81) };
     s.accent = { Rgb(0xB5443A), Rgba(0xB5443A, .10), Rgba(0xB5443A, .32),
                  Rgb(0x3F7A55), Rgb(0x245939), Rgba(0x3F7A55, .12), Rgba(0x3F7A55, .30),
