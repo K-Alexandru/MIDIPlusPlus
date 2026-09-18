@@ -60,8 +60,15 @@ private:
     std::wstring m_selectedDevice;
 
 
-    int m_selectedChannel;
+    // Stops callbacks at the door and waits for the ones already inside, so
+    // the caches they read can be rebuilt. Leaves the path inactive.
+    void Quiesce();
+
+    std::atomic<int> m_selectedChannel;
     std::atomic<bool> m_isActive;
+    // Callbacks inside ProcessMidiMessage. Counted before m_isActive is
+    // read, so Quiesce cannot see zero while one is about to go in.
+    std::atomic<int> m_inFlight{0};
     VirtualPianoPlayer* m_player; // copy 
 
     // Key injection buffers

@@ -312,10 +312,13 @@ void MidiOutputTests(const std::filesystem::path& config) {
     // Collects everything the port has been sent until the predicate is met,
     // because take() drains and a bare call inside a wait would throw away the
     // messages it was waiting for.
+    // Notes only. A restart releases what is held first, and on this target
+    // that is a pedal lift and All Notes Off ahead of the score's first note.
     std::vector<std::vector<uint8_t>> seen;
     const auto awaitMessages = [&](size_t count, const char* failure) {
         Await([&] {
-            for (auto& message : sink.take()) seen.push_back(std::move(message));
+            for (auto& message : sink.take())
+                if (!message.empty() && (message[0] & 0xF0) != 0xB0) seen.push_back(std::move(message));
             return seen.size() >= count;
         }, failure);
     };
@@ -364,6 +367,25 @@ void MidiOutputTests(const std::filesystem::path& config) {
     awaitMessages(1, "the out-of-range note never reached the port");
     Require(seen[0][1] == 22, "an out-of-range note went out folded rather than at its own pitch");
     player.eightyEightKeyModeActive = true;
+
+    // --- stopping is a release too ---------------------------------------
+    //
+    // Stop, pause, seek and load all release what is held, and on this
+    // target that has to reach the wire or the synth rings on.
+    sink.take();
+    seen.clear();
+    player.note_events = { {0ns, "G4", EventType::Press, 90, 0} };
+    player.restart_song();
+    awaitMessages(1, "the note to be stopped never started");
+    sink.take();
+    TakeCaptured();
+    player.release_all_keys();
+    const auto onStop = sink.take();
+    Require(std::any_of(onStop.begin(), onStop.end(), [](const auto& m) {
+                return m.size() == 3 && (m[0] & 0xF0) == 0xB0 && m[1] == 123; }),
+            "releasing on the MIDI target left the held note sounding");
+    for (const auto& event : TakeCaptured())
+        Require(event.input.type != INPUT_KEYBOARD, "releasing on the MIDI target typed key-ups at the game");
 
     // --- switching targets is a release ----------------------------------
     //
@@ -562,6 +584,46 @@ void BuiltinCurveTests(const std::filesystem::path& directory) {
     }
     std::filesystem::remove(config);
     std::cout << "PASS built-in curves reach the top step, S-Curve is the R5 tuning, older saves keep their curve\n";
+}
+
+// A config the player refuses. The file is the user's, mappings and curves
+// included, so it stays as they left it; and a player that never started is
+// reported by the switches that need one, not dereferenced.
+void FailedConfigTests(const std::filesystem::path& directory) {
+    using A = shell::ShellEngine::Action;
+    nlohmann::json settings;
+    { std::ifstream file(directory / L"config.json"); file >> settings; }
+    const auto read = [](const std::filesystem::path& path) {
+        std::ifstream file(path, std::ios::binary);
+        return std::string((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    };
+    const auto invalid = directory / L"invalid-config.json";
+    settings["HOTKEY_SETTINGS"]["VOLUME_UP_KEY"] = "RIGHT";
+    settings["KEY_MAPPINGS"]["FULL"]["C4"] = "z";
+    { std::ofstream file(invalid); file << settings.dump(4); }
+    const auto before = read(invalid);
+    {
+        shell::ShellEngine engine(invalid);
+        Await([&] { return !engine.Snapshot()->curves.empty() || !engine.Snapshot()->error.empty(); }, "the engine did not start on an invalid config");
+    }
+    Require(read(invalid) == before, "a config that failed to validate was overwritten with defaults");
+    std::filesystem::remove(invalid);
+
+    const auto unmapped = directory / L"unmapped-hotkey.json";
+    settings["HOTKEY_SETTINGS"]["VOLUME_UP_KEY"] = "VK_NOT_A_KEY";
+    { std::ofstream file(unmapped); file << settings.dump(4); }
+    {
+        shell::ShellEngine engine(unmapped);
+        Await([&] { return !engine.Snapshot()->error.empty(); }, "a hotkey that maps to nothing was not reported");
+        const bool was = engine.Snapshot()->eightyEightKeys;
+        engine.Send({A::EightyEightKeys, {}, 0, 0, !was});
+        engine.Send({A::OutRange, {}, 0, 0, true});
+        engine.Send({A::Stop});
+        Await([&] { return !engine.Snapshot()->busy; }, "the engine did not survive a layout switch without a player");
+        Require(engine.Snapshot()->eightyEightKeys == was, "the layout switched although no player could be built");
+    }
+    std::filesystem::remove(unmapped);
+    std::cout << "PASS a refused config is left as it was, and a missing player is reported by the layout switches\n";
 }
 
 // Drum detection labels tracks, as the original window does. The fixture's
@@ -2707,6 +2769,27 @@ void OutRangeSwitchTests(const std::filesystem::path& directory) {
         shell::ShellEngine::Command select{A::CurveSelect}; select.track = 1; engine.Send(select);
         Await([&] { return engine.Snapshot()->curveRevision != curveRevision; }, "the curve did not change");
         Require(HasKey(TakeCaptured(), 0x14, false), "a curve change left the held live key down");
+        // Transpose re-arms live input with the device open. The tables are
+        // rebuilt, so a key held across it is released by the tables that
+        // pressed it, and the late note-off finds nothing to do.
+        const auto heldScan = [&](uint8_t note) {
+            WORD scan = 0;
+            input->Deliver({0x90, note, 80});
+            for (const auto& event : TakeCaptured()) if (IsNotePress(event)) scan = event.input.ki.wScan;
+            Require(scan != 0, "a live note did not press a key");
+            return scan;
+        };
+        WORD scan = heldScan(64);
+        { shell::ShellEngine::Command up{A::Transpose}; up.generation = engine.Snapshot()->generation; up.amount = 1; engine.Send(up); }
+        Await([&] { return engine.Snapshot()->transpose == 1; }, "transpose did not apply");
+        Require(HasKey(TakeCaptured(), scan, false), "a transpose left the held live key down");
+        input->Deliver({0x80, 64, 0});
+        Require(!HasKey(TakeCaptured(), scan, false), "the late note-off released a key twice");
+        // The channel filter runs ahead of note-off handling.
+        scan = heldScan(67);
+        { shell::ShellEngine::Command channel{A::LiveChannel}; channel.amount = 5; engine.Send(channel); }
+        Await([&] { return engine.Snapshot()->liveChannel == 5; }, "the live channel did not change");
+        Require(HasKey(TakeCaptured(), scan, false), "a channel change left the held live key down");
         engine.Send({A::Stop});
         Await([&] { return !engine.Snapshot()->liveActive; }, "Stop did not disable live input");
     }
@@ -3163,6 +3246,7 @@ int wmain(int argc, wchar_t** argv) {
         MidiOutputTests(directory / L"config.json");
         VelocityModifierTests(directory / L"config.json");
         DrumDetectionTests(directory);
+        FailedConfigTests(directory);
         VelocityBatchTests(directory / L"config.json");
         ReleaseAllKeysTests(directory / L"config.json");
         ReleaseTests(directory / L"config.json");

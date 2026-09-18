@@ -70,6 +70,7 @@ have not been established by this fork's measurements. See [LATENCY.md](LATENCY.
 * Visual Studio 2022 (Community, Professional, or Enterprise)
 * Windows 10/11 SDK
 * C++ Desktop Development Workload
+* On Visual Studio 2026, also tick "MSVC v143 - VS 2022 C++ x64/x86 build tools" under Individual components.
 
 ### Building with Visual Studio 2022
 1. Clone the repository:

@@ -151,7 +151,11 @@ std::filesystem::path SheetTarget(const std::filesystem::path& root, const std::
     auto relative = midiFolder.empty() ? std::filesystem::path() : std::filesystem::relative(midi, midiFolder, ignored);
     if (relative.empty() || *relative.begin() == L"..") relative = midi.filename();
     auto target = root / relative;
-    target.replace_extension();
+    // A folder may hold a.mid and a.midi, and their sheets would share one
+    // name. The second keeps its extension, so it is a.midi.png.
+    auto extension = target.extension().wstring();
+    std::transform(extension.begin(), extension.end(), extension.begin(), ::towlower);
+    if (extension != L".midi") target.replace_extension();
     return target;
 }
 
@@ -210,7 +214,9 @@ ShellEngine::ShellEngine(std::filesystem::path config, std::shared_ptr<AutoVolum
       worker_([this](std::stop_token stop) { Run(stop); }) {}
 
 ShellEngine::~ShellEngine() {
-    worker_.request_stop();
+    // Under the lock, or the stop can land between the worker reading its
+    // predicate and blocking, and the notification below wakes nobody.
+    { std::lock_guard lock(mutex_); worker_.request_stop(); }
     wake_.notify_all();
     worker_.join(); // Key release and player destruction also happen on the worker.
 }
@@ -1493,7 +1499,9 @@ void ShellEngine::Run(std::stop_token stop) {
                     next.position = state.position; next.playing = false;
                     state = std::move(next); curveHistory = std::move(nextHistory); ++state.curveRevision;
                     applyCurve();
-                    if (!device.empty()) {
+                    // MidiConnect holds the port while it is on, as the layout
+                    // switch below already knows.
+                    if (!device.empty() && !state.midiConnect) {
                         live = std::make_unique<MIDI2Key>(player.get());
                         live->SetMidiChannel(state.liveChannel);
                         live->OpenDevice(device);
@@ -1512,6 +1520,9 @@ void ShellEngine::Run(std::stop_token stop) {
                     const bool layout88 = layoutChange ? command.value : state.eightyEightKeys;
                     auto mappings = configJson.at("KEY_MAPPINGS").at(layout88 ? "FULL" : "LIMITED")
                         .get<decltype(state.keyMappings)>();
+                    // Null after a startup that threw; this throws again
+                    // and the switch reports it rather than dereferencing.
+                    ensurePlayer();
                     const auto device = state.liveDevice;
                     const bool active = state.liveActive;
                     // Closing joins callbacks before any lookup changes. Live
@@ -1568,7 +1579,7 @@ void ShellEngine::Run(std::stop_token stop) {
                     stopPlayback();
                     if (live) { player->release_every_mapped_key(); live.reset(); }
                     state.liveActive = false;
-                    if (!device.empty()) {
+                    if (!device.empty() && !state.midiConnect) {
                         live = std::make_unique<MIDI2Key>(player.get());
                         live->SetMidiChannel(state.liveChannel);
                         live->OpenDevice(device);

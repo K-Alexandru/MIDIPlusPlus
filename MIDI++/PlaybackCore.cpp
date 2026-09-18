@@ -419,11 +419,17 @@ VirtualPianoPlayer::VirtualPianoPlayer(bool listenForHotkeys,
         std::cerr << "Configuration error: " << e.what()
             << "\nLoading default settings...\n";
         midi::Config::getInstance().setDefaults();
-        try {
-            midi::Config::getInstance().saveToFile(configPath);
-        }
-        catch (const midi::ConfigException& e2) {
-            std::cerr << "Failed to save default config: " << e2.what() << "\n";
+        // Defaults are written only where there is no file. One that failed
+        // to load still holds the user's key mappings and curves, and a typo
+        // in it is theirs to fix, not a reason to replace the file.
+        std::error_code missing;
+        if (!std::filesystem::exists(configPath, missing)) {
+            try {
+                midi::Config::getInstance().saveToFile(configPath);
+            }
+            catch (const midi::ConfigException& e2) {
+                std::cerr << "Failed to save default config: " << e2.what() << "\n";
+            }
         }
     }
 
@@ -836,6 +842,15 @@ void VirtualPianoPlayer::release_keys(bool everyMapping) {
     std::lock_guard lock(dispatch_mutex);
     track_note_owners.clear();
     sustain_owners.clear();
+    // On the MIDI target what is held is held on the wire. Stopping, pausing
+    // and seeking all come through here, and none of them is a target switch,
+    // which was the only thing that silenced the port.
+    if (output_target.load(std::memory_order_acquire) == OutputTarget::MidiDevice) {
+        silence_midi_output();
+        isSustainPressed = false;
+        for (auto& [note, state] : pressed_keys) state.store(false, std::memory_order_relaxed);
+        return;
+    }
     if (isSustainPressed) {
         releaseKey(sustain_key_code);
         isSustainPressed = false;

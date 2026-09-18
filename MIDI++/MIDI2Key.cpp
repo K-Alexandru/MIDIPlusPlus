@@ -446,8 +446,19 @@ void MIDI2Key::CloseDevice() {
     m_selectedDevice.clear();
 }
 
+void MIDI2Key::Quiesce() {
+    m_isActive.store(false, std::memory_order_seq_cst);
+    while (m_inFlight.load(std::memory_order_seq_cst) != 0) std::this_thread::yield();
+}
+
 void MIDI2Key::SetMidiChannel(int channel) {
-    m_selectedChannel = channel;
+    if (channel == m_selectedChannel.load(std::memory_order_relaxed)) return;
+    // The filter runs before note-off handling, so a note held on the old
+    // channel would never be let go by the new one.
+    const bool active = m_isActive.load(std::memory_order_acquire);
+    if (active) { Quiesce(); ReleaseHeldKeys(); }
+    m_selectedChannel.store(channel, std::memory_order_release);
+    if (active) m_isActive.store(true, std::memory_order_release);
 }
 
 bool MIDI2Key::IsActive() const {
@@ -455,6 +466,12 @@ bool MIDI2Key::IsActive() const {
 }
 
 void MIDI2Key::SetActive(bool active) {
+    // Re-arming, after a transpose or a remap, rebuilds the tables a callback
+    // may be reading and forgets who owns each scancode. So the callbacks
+    // drain first, and what they hold is released by the tables that
+    // pressed it.
+    const bool rearm = active && m_isActive.load(std::memory_order_acquire);
+    if (rearm) { Quiesce(); ReleaseHeldKeys(); }
     if (active && m_player) {
         precomputeAllMappings(*m_player);
     }
@@ -473,13 +490,19 @@ int MIDI2Key::GetSelectedChannel() const {
 }
 
 void MIDI2Key::ProcessMidiMessage(uint64_t timestampQpc, const uint8_t* bytes, size_t length) {
-    if (!m_isActive.load(std::memory_order_acquire)) return;
+    struct InFlight {
+        std::atomic<int>& count;
+        explicit InFlight(std::atomic<int>& c) : count(c) { count.fetch_add(1, std::memory_order_seq_cst); }
+        ~InFlight() { count.fetch_sub(1, std::memory_order_release); }
+    } inFlight(m_inFlight);
+    if (!m_isActive.load(std::memory_order_seq_cst)) return;
     if (!bytes || length < 3) return;
     if (bytes[1] > 127 || bytes[2] > 127) return;
     uint8_t status = bytes[0];
     uint8_t cmd = status & 0xF0;
     uint8_t channel = status & 0x0F;
-    if (m_selectedChannel >= 0 && channel != (uint8_t)m_selectedChannel) return;
+    const int selectedChannel = m_selectedChannel.load(std::memory_order_relaxed);
+    if (selectedChannel >= 0 && channel != (uint8_t)selectedChannel) return;
     if (cmd != 0x90 && cmd != 0x80 && !(cmd == 0xB0 && bytes[1] == 64)) return;
 
     // After the channel filter, so the histogram describes the part being
