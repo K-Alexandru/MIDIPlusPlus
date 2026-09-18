@@ -1562,8 +1562,7 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
         // The action, its key as a keycap, and a way to take the key off.
         // Armed, the cap is empty inside the accent ring, as in Key Mapping.
         // A key another program holds wears the legend's dead-key ink.
-        const std::string step = std::to_string(state->seekStep) + "s";
-        const std::string actions[kHotkeys]{"Play/Pause", "Back " + step, "Forward " + step, "Stop", "Previous song", "Next song"};
+        const std::string actions[kHotkeys]{"Play/Pause", "Skip back", "Skip forward", "Stop", "Previous song", "Next song"};
         const float height = s.metric.controlHeight, gap = 8 * dpi, capWidth = 112 * dpi;
         auto* draw = ImGui::GetWindowDrawList();
         for (size_t i = 0; i < kHotkeys; ++i) {
@@ -1837,11 +1836,11 @@ void Panels::DrawLog(HWND hwnd, const Fonts& fonts, const skin::Skin& design, fl
 // HintWords, then HintIcons, where each cap is followed by its transport
 // button's own icon, which six bound keys need at the smallest window, then
 // HintCaps alone.
-float Panels::DrawTransportHints(ImDrawList* draw, const skin::Skin& s, float dpi, int seekStep, ImVec2 origin, int detail) const {
-    const auto back = "-" + std::to_string(seekStep) + "s", forward = "+" + std::to_string(seekStep) + "s";
-    const std::string actions[]{"Play/Pause", back, forward, "Stop", "Previous", "Next"};
-    // The seek buttons are their text already, so they keep it.
-    const Icon icons[]{Icon::Play, Icon::Play, Icon::Play, Icon::Close, Icon::Left, Icon::Right};
+float Panels::DrawTransportHints(ImDrawList* draw, const skin::Skin& s, float dpi, ImVec2 origin, int detail) const {
+    // No seconds here: the seek buttons below carry the number. A double
+    // chevron moves within the song and a single one moves between songs.
+    const std::string actions[]{"Play/Pause", "Back", "Forward", "Stop", "Previous", "Next"};
+    const Icon icons[]{Icon::Play, Icon::Back, Icon::Forward, Icon::Close, Icon::Left, Icon::Right};
     const float line = ImGui::GetTextLineHeight(), capPad = 5 * dpi, capHeight = line + 2 * dpi;
     const float pairGap = detail == HintWords ? s.spacing.s4 : detail == HintIcons ? s.spacing.s3 : s.spacing.s2;
     float x = origin.x;
@@ -1849,7 +1848,7 @@ float Panels::DrawTransportHints(ImDrawList* draw, const skin::Skin& s, float dp
         if (transportKeys[i].empty()) continue;
         const float capWidth = ImGui::CalcTextSize(transportKeys[i].c_str()).x + 2 * capPad;
         const bool available = transportKeysAvailable[i];
-        const bool icon = detail == HintIcons && i != 1 && i != 2;
+        const bool icon = detail == HintIcons;
         const ImU32 ink = Colour(available ? s.ink.secondary : s.ink.tertiary);
         if (draw) {
             const ImVec2 min(x, origin.y - dpi), max(x + capWidth, origin.y - dpi + capHeight);
@@ -1995,8 +1994,8 @@ void Panels::DrawMini(HWND hwnd, const Fonts& fonts, const skin::Skin& design, f
             transportY + (control - ImGui::GetTextLineHeight()) / 2), Colour(s.ink.secondary), time.c_str());
         { FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
           int detail = HintWords;
-          while (detail > HintCaps && DrawTransportHints(nullptr, s, dpi, state->seekStep, {}, detail) > size.x - 2 * pad) --detail;
-          DrawTransportHints(draw, s, dpi, state->seekStep, ImVec2(origin.x + pad, transportY + control + gap), detail); }
+          while (detail > HintCaps && DrawTransportHints(nullptr, s, dpi, {}, detail) > size.x - 2 * pad) --detail;
+          DrawTransportHints(draw, s, dpi, ImVec2(origin.x + pad, transportY + control + gap), detail); }
     }
     DrawStatus(fonts, design, dpi, *state, ImVec2(origin.x, origin.y + size.y - status), size.x, status);
     ImGui::PopStyleVar();
@@ -2247,15 +2246,15 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     float hintsWidth = 0;
     { FontScope font(fonts, design, design.type.meta * SpecFontScale(design));
       const float room = contentWidth - sheetButtonWidth - s.spacing.s2 - titleWidth - s.spacing.s3;
-      const float widths[]{DrawTransportHints(nullptr, s, dpi, state->seekStep, {}, HintCaps),
-                           DrawTransportHints(nullptr, s, dpi, state->seekStep, {}, HintIcons),
-                           DrawTransportHints(nullptr, s, dpi, state->seekStep, {}, HintWords)};
+      const float widths[]{DrawTransportHints(nullptr, s, dpi, {}, HintCaps),
+                           DrawTransportHints(nullptr, s, dpi, {}, HintIcons),
+                           DrawTransportHints(nullptr, s, dpi, {}, HintWords)};
       const int detail = widths[HintWords] <= room ? HintWords :
           widths[HintIcons] <= std::max(room, contentWidth * .5f) ? HintIcons :
           widths[HintCaps] <= std::max(room, contentWidth * .25f) ? HintCaps : -1;
       if (detail >= 0 && widths[detail] > 0) {
           hintsWidth = widths[detail] + s.spacing.s3;
-          DrawTransportHints(ImGui::GetWindowDrawList(), s, dpi, state->seekStep,
+          DrawTransportHints(ImGui::GetWindowDrawList(), s, dpi,
               ImVec2(content.x + contentWidth - sheetButtonWidth - hintsWidth + s.spacing.s3 - s.spacing.s2,
                      content.y + (titleHeight - ImGui::GetTextLineHeight()) / 2), detail);
       } }
