@@ -5,8 +5,8 @@ Updated 2026-09-18 on `claude/consolidate-2026-09-15`, the one branch. Read
 
 ## Goal
 
-A tester reports one note sounding as two: find it, fix it under a test,
-rebuild demo v2, then finish publishing the source. QuartzMIDI is the ImGui
+Build what `SHELL-GAPS.md` lists under "Asked for on 2026-09-18", hotkeys
+first; publishing the source waits for the owner. QuartzMIDI is the ImGui
 shell (`ui/`) over `PlaybackCore`, replacing the Win32 window (`MIDI++/`).
 
 ## Seats
@@ -47,11 +47,12 @@ shell (`ui/`) over `PlaybackCore`, replacing the Win32 window (`MIDI++/`).
 
 ## Verified facts
 
-- Changed on the note path on 2026-09-18 and not yet examined for this bug:
-  autoplay batches inject inline on the playback thread and wait on a
-  high-resolution timer; `MIDI2Key` drains callbacks and releases held keys on
-  re-arm and channel change; the shell now compiles RtMidi's WinMM backend
-  (`__WINDOWS_MM__`), so a device can appear on WinRT and on WinMM.
+- `play_notes` runs a batch's releases before its presses; a release whose own
+  press is in the batch runs after them (`a187c94`). That order, not the load
+  sort, is what stuck a tester's key. `ShellTests.exe` stops at its first
+  failure and buffers output: run the exe itself to read what it printed.
+- The game owns the key protocol: Alt is velocity, Ctrl is the 88-key notes,
+  and the velocity keys are the note keys. A fix never changes a bind.
 - `gh` holds two accounts, K-Alexandru active. Git itself uses Credential
   Manager, which now offers greasebob and is refused by `origin`; push with
   `git -c credential.helper= -c credential.helper="!gh auth git-credential"`.
@@ -73,9 +74,9 @@ shell (`ui/`) over `PlaybackCore`, replacing the Win32 window (`MIDI++/`).
 
 ## Unresolved
 
-- **Doubled notes, and sticking at high velocity**: a MIDI player into loopMIDI
-  and autoplay. The 0 key stuck on his song: a note of no length, fixed.
-- **Publishing, staged in `build\publish`, owner's yes owed.** Unzip `QuartzMIDI-source-ae67469.zip`,
+- **Tester shampoojr** to confirm on a build from `4fafdb7` or later: Wooting
+  velocity, tab-out, the 0 key on Everything Will Freeze, AutoVol's list.
+- **Publishing, staged in `build\publish`, owner's yes owed.** Unzip `QuartzMIDI-source-b0b5d22.zip`,
   add a short README (upstream's claims latency this fork never measured)
   and a `.gitignore`, commit as above, show the owner, then
   `gh repo create greasebob/QuartzMIDI --public`.
@@ -83,7 +84,7 @@ shell (`ui/`) over `PlaybackCore`, replacing the Win32 window (`MIDI++/`).
   put the new address in the notebook's three `PROJECT_URL`s, get the owner's
   yes on its wording, edit it in place in their Chrome so the link holds.
   The extension is connected; whether it is signed in as the owner is unchecked.
-- **Tester on Visual Studio 2026** to build `ae67469`, or send the error text.
+- **Tester on Visual Studio 2026** to build the next source zip, or send the error text.
 - **Owner to read** the text redrawn (UI, in the review) and test `8baf9bd`:
   velocity editor, WinMM, mini, sheets, game, Wooting, MIDI out, mixed DPI.
 
@@ -95,10 +96,10 @@ shell (`ui/`) over `PlaybackCore`, replacing the Win32 window (`MIDI++/`).
 - `5b12020`: the source zip builds on both SDKs; the zip before the fix shows
   the tester's LNK2019 on 26100; every suite PASSes built on 26100.
 - `d813c05`, after demo v2: AutoVol across a load, `ShellTests.exe` PASS.
-- `b674608`, a tester's Wooting report: strike speed measured
-  over 10 to 20ms, not one poll (`WootingPollStep`); with Roblox running, key
-  downs go out only while it is in front (`InputInjector.cpp`). `-Render` PASS.
-  Neither has met a Wooting or Roblox. Then: a tap skips held keys; stable load sort.
+- `b674608` to `4fafdb7`, all from one tester, `-Render` PASS at each: Wooting
+  strike speed over 10 to 20ms; key downs only with Roblox in front; a tap
+  skips held keys; notes of no length; one strike for two hands on a key;
+  Roblox first in AutoVol; darker light skins. None has met a Wooting or Roblox.
 
 ## Repository state
 
@@ -107,14 +108,14 @@ shell (`ui/`) over `PlaybackCore`, replacing the Win32 window (`MIDI++/`).
   asking is authorized; creating the public repository is not.
 - The main checkout is on this branch, pushed, clean apart from the owner's
   `x64\Release\MIDI++.exe` and `x64\Release\midi\`; leave `D:\Dev\mpp-panels`.
-- Demo v2 from `ae67469`: `build\release\QuartzMIDI-demo-v2.zip` (426 MB,
-  SHA256 `13299AE1DDC469BFA43DE98BD4027CF70D6487A4D6C56EC9BB3D2B22962341BA`)
-  and `QuartzMIDI-source-ae67469.zip`, all four fixes in; send no older source zip.
+- Demo v2 from `b0b5d22`: `build\release\QuartzMIDI-demo-v2.zip` (426 MB,
+  SHA256 `B7D2238071C760BEC28FB0E9AFEAB91D6433BA5A15B14446ED23D8A3E18DCB72`)
+  and `QuartzMIDI-source-b0b5d22.zip`; both are two commits behind, see Next.
 - Never commit `x64/Release/midi/`, `build/`, `MIDI++/MIDI++/`, `.claude/`,
   `tools/mp3-to-midi/cookies.txt` or `tools/mp3-to-midi/browser/`.
 
 ## Next action
 
-Send shampoojr the `2864d9a` zips. He reports the doubled and sticking notes
-gone on `bef9436`, cause never found; if they return, get his MIDI file and
-replay it through `FakeMidiInput`. Then finish publishing the source.
+Rebuild both zips from `4fafdb7` or later once the owner's app is closed (the
+`b0b5d22` pair lacks `a187c94`, the real sticky-key fix, and the darker light
+skins). Then item 1 of the 2026-09-18 list in `SHELL-GAPS.md`: hotkeys.

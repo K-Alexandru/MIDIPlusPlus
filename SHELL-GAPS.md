@@ -487,3 +487,37 @@ checks, which need the owner at the keyboard. The duplicate
 `calibrate_volume()` in the original window's handler was removed on
 2026-09-09; the fix was the order rather than the deletion, because the sweep
 that survived a bare deletion would have been the one that runs unfocused.
+
+## Asked for on 2026-09-18, none started
+
+From the owner and a tester in one session. Nothing here is optional.
+
+1. **Rebindable hotkeys, with media keys.** Today `RegisterHotkeys` in
+   `ui/Shell.cpp` reads four names from `HOTKEY_SETTINGS` once at startup (play
+   or pause, back 10s, forward 10s, stop) and there is no control for them.
+   Wanted: six actions, adding previous song and next song, each bindable in
+   Settings to any key including the four media keys. The new two start
+   unbound. Media keys are never a default: a global hotkey takes them from
+   every other application while the app is open. `NameToVK` has to learn
+   `VK_MEDIA_PLAY_PAUSE`, `_STOP`, `_NEXT_TRACK` and `_PREV_TRACK`. The engine
+   owns `config.json`, so a rebind is an engine action that writes the field
+   and bumps a revision the shell loop re-registers from, on the thread that
+   owns the window. Capture by polling `GetAsyncKeyState` with the hotkeys
+   unregistered, because Settings can be its own OS window and a registered
+   key never reaches `WM_KEYDOWN`.
+2. **Custom colour themes**, the owner's words: everything customisable in a
+   friendly way, text colours included, with the change seen live. A custom
+   theme either has a light and a dark version or does not. Without one, the
+   light/dark toggle is greyed out while that theme is selected. With one, the
+   other version is either customised by hand or chosen automatically, and
+   automatic guesses the opposite of the version being worked on. `Skin.hpp`
+   says a skin is colour only and `All()` is a fixed array of four whose order
+   preferences store by index; both have to give.
+3. **Legit mode** is a reminder carried over from upstream, where it was
+   removed for being poor. The owner wants it rethought entirely, not tuned. A
+   tester found it laggy.
+4. **AutoVol's keys.** `HOTKEY_SETTINGS` carries `VOLUME_UP_KEY` and
+   `VOLUME_DOWN_KEY` and the live path in `MIDI2Key.cpp` hardcodes the arrows.
+   A tester will name a piano with other volume keys if they find one.
+5. **Native network MIDI.** rtpMIDI already gives a session a Windows port, so
+   this waits on the tester saying what sends the MIDI and which way it flows.
