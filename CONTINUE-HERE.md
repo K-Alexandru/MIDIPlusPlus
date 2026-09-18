@@ -6,7 +6,7 @@ Updated 2026-09-18 on `claude/consolidate-2026-09-15`, the one branch. Read
 ## Goal
 
 Build the five items `SHELL-GAPS.md` lists under "Asked for on 2026-09-18", in
-its order. Rebindable hotkeys are built (`f8929c0`); custom colour themes are next.
+its order. Rebindable hotkeys are built (`ed08fca`); custom colour themes are next.
 QuartzMIDI is the ImGui shell (`ui/`) over `PlaybackCore`. The panel seat owns
 `ui/` (`SEATS.md`); the owner asked for these controls, so their `ui/` work is in scope.
 
@@ -24,7 +24,7 @@ QuartzMIDI is the ImGui shell (`ui/`) over `PlaybackCore`. The panel seat owns
 - UI copy is the owner's voice (`HANDOFF.md` section 15): no explanatory text,
   not even why a control is disabled; redesign the control.
 - Hotkeys, built: `SHELL-GAPS.md` item 1. No media key is ever a default, and
-  the legend and Settings never show the seek seconds.
+  the legend is icons only and never shows the seek seconds.
 - Custom themes: every colour editable in a friendly way, text included, seen
   live. A theme has a light and dark pair or not; without one the light/dark
   toggle is greyed out while it is selected; with one the other half is edited
@@ -64,9 +64,9 @@ QuartzMIDI is the ImGui shell (`ui/`) over `PlaybackCore`. The panel seat owns
   10 to 20ms; the Roblox tab-out gate; a velocity tap never lands on a held
   note key; a stable load sort; notes of no length released in playback; one
   strike for two tracks on a key; Roblox preselected in AutoVol; darker light skins.
-- 2026-09-18, `3fc9e86` to `f8929c0`: six rebindable hotkeys with media keys;
-  the legend pairs a key and its action in one outline, steps from words to
-  icons to caps, shows no seek seconds; `make-source.py` drops `MIDI++.APS`.
+- 2026-09-18, `3fc9e86` to `ed08fca`: six rebindable hotkeys with media keys;
+  the legend is a key and its action's icon in one outline at every width,
+  never words, caps alone or seek seconds; `make-source.py` drops `MIDI++.APS`.
 
 ## Unresolved
 
@@ -76,7 +76,7 @@ QuartzMIDI is the ImGui shell (`ui/`) over `PlaybackCore`. The panel seat owns
   capture with Settings as its own window in mini mode.
 - **Owner to say** whether a note key may be a hotkey: bound, it is taken from
   the game while the app is open, and nothing stops it today.
-- **Tester shampoojr** to confirm that list on the `f8929c0` build; none of it
+- **Tester shampoojr** to confirm that list on the `ed08fca` build; none of it
   has met a real Wooting or Roblox. His doubled note was never reproduced.
 - **Owner to say** whether light mode is dark enough; then `skin-system.html`,
   which shows the old values, takes the new ones.
@@ -93,7 +93,7 @@ QuartzMIDI is the ImGui shell (`ui/`) over `PlaybackCore`. The panel seat owns
   Wooting, tap, load sort, playback and one-strike tests fail with their fix
   reverted; the AutoVol preselect has no test. The tester's own MIDI leaves no
   key owned through the real loader.
-- `319740e` to `f8929c0`: `run-shell-tests.ps1 -Render` PASS at each, 420 render
+- `319740e` to `ed08fca`: `run-shell-tests.ps1 -Render` PASS at each, 420 render
   scenarios; `settings-hotkeys`, `minimum-six-keys` and `mini-six-keys` read at
   125% in one skin each. The restart test fails with the `validate` change
   reverted. Capture is tested against a key table, never `GetAsyncKeyState`.
@@ -106,9 +106,9 @@ QuartzMIDI is the ImGui shell (`ui/`) over `PlaybackCore`. The panel seat owns
   asking is authorized; creating the public repository is not.
 - This branch is pushed and clean apart from the owner's
   `x64\Release\MIDI++.exe` and `x64\Release\midi\`; leave `D:\Dev\mpp-panels`.
-- Demo v2 from `f8929c0`: `build\release\QuartzMIDI-demo-v2.zip`, SHA256
-  `DA6337CDBAF578DF297C81B9553367091D9BEF276A0ADB2B62F7B294B68B1D9C`, and
-  `QuartzMIDI-source-f8929c0.zip`; send no older pair.
+- Demo v2 from `ed08fca`: `build\release\QuartzMIDI-demo-v2.zip`, SHA256
+  `2DCB46AE4202FFC5DFC58603AE69752AA2DD792993F3948127D4DDB06BED6DAD`, and
+  `QuartzMIDI-source-ed08fca.zip`; send no older pair.
 - Never commit `x64/Release/midi/`, `build/`, `MIDI++/MIDI++/`, `.claude/`,
   `tools/mp3-to-midi/cookies.txt` or `tools/mp3-to-midi/browser/`.
 
