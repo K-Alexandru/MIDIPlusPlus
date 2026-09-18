@@ -74,7 +74,7 @@ shell (`ui/`) over `PlaybackCore`, replacing the Win32 window (`MIDI++/`).
 ## Unresolved
 
 - **Doubled notes, and sticking at high velocity**: a MIDI player into loopMIDI
-  into live keys. He reports it gone on `bef9436`; cause unknown, no file yet.
+  and autoplay. The 0 key stuck on his song: a note of no length, fixed.
 - **Publishing, stopped before staging.** Unzip `QuartzMIDI-source-2864d9a.zip`,
   add a short README (upstream's claims latency this fork never measured)
   and a `.gitignore`, commit as above, show the owner, then
@@ -98,7 +98,7 @@ shell (`ui/`) over `PlaybackCore`, replacing the Win32 window (`MIDI++/`).
 - `b674608`, a tester's Wooting report: strike speed measured
   over 10 to 20ms, not one poll (`WootingPollStep`); with Roblox running, key
   downs go out only while it is in front (`InputInjector.cpp`). `-Render` PASS.
-  Neither has met a Wooting or Roblox. Then: a velocity tap skips held keys.
+  Neither has met a Wooting or Roblox. Then: a tap skips held keys; stable load sort.
 
 ## Repository state
 

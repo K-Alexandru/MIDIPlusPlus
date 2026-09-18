@@ -2460,6 +2460,40 @@ private:
     std::wstring opened_;
 };
 
+// A tester's song left the 0 key down. Its left hand plays E3 while its right
+// hand plays the same E3 as a note of no length, on and off on one tick. The
+// loader ordered a tick's events with an unstable sort, so that off could be
+// read before its own on: the off found nothing to close, the on opened a note
+// that nothing closed, and the right hand owned the key for the rest of the song.
+void ZeroLengthNoteTests(const std::filesystem::path& config) {
+    VirtualPianoPlayer player(false, config);
+    MidiFile file;
+    file.division = 480;
+    file.tracks.resize(2);
+    const auto event = [](uint64_t tick, uint8_t status, uint8_t note, uint8_t velocity) {
+        MidiEvent e; e.absoluteTick = tick; e.status = status; e.data1 = note; e.data2 = velocity; return e;
+    };
+    // Long enough that the sort is past the size it handles by insertion.
+    for (uint64_t beat = 0; beat < 2000; ++beat) {
+        const uint64_t tick = beat * 240;
+        file.tracks[0].events.push_back(event(tick, 0x90, 52, 100));
+        file.tracks[0].events.push_back(event(tick, 0x80, 52, 0));
+        file.tracks[1].events.push_back(event(tick, 0x90, 52, 106));
+        file.tracks[1].events.push_back(event(tick + 227, 0x80, 52, 0));
+    }
+    player.process_tracks(file);
+
+    // What execute_note_event does with them: a track owns the key from its
+    // press to its release, and the key comes up when nobody owns it.
+    std::map<int, int> owners;
+    for (const auto& e : player.note_events) {
+        if (e.action == EventType::Press) ++owners[e.trackIndex];
+        else if (owners.count(e.trackIndex) && --owners[e.trackIndex] == 0) owners.erase(e.trackIndex);
+    }
+    Require(owners.empty(), "a note of no length left its key owned, so the key never comes up");
+    std::cout << "PASS a note of no length is released, whatever shares its tick\n";
+}
+
 // The game's velocity keys are its note keys. A tap is a key down and a key up,
 // so a tap on a key that is being held as a note lets that note go in the game
 // while the app still believes it is down. The tap takes the nearest velocity
@@ -3419,6 +3453,7 @@ int wmain(int argc, wchar_t** argv) {
         ControllerTests(directory / L"config.json", fixture);
         LayoutTests(directory);
         VelocityTapOnHeldKeyTests(directory / L"config.json");
+        ZeroLengthNoteTests(directory / L"config.json");
         AutoVolumeTests(directory / L"config.json", fixture);
         DeviceGroupingTests();
         ShellLogTests(directory / L"config.json");

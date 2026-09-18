@@ -1796,11 +1796,15 @@ void VirtualPianoPlayer::process_tracks(const MidiFile& mid) {
             all_events.push_back({evt.absoluteTick, trackIndex, evt});
         }
     }
-    std::sort(all_events.begin(),
-              all_events.end(),
-              [](auto& a, auto& b) {
-                  return std::get<0>(a) < std::get<0>(b);
-              });
+    // Stable, because a tick's events mean something in the order the file
+    // gives them. A note of no length is an on and an off on one tick; read
+    // the other way round the off closes nothing and the on is never closed,
+    // and its track owns the key for the rest of the song.
+    std::stable_sort(all_events.begin(),
+                     all_events.end(),
+                     [](auto& a, auto& b) {
+                         return std::get<0>(a) < std::get<0>(b);
+                     });
 
     size_t totalEvents = all_events.size();
     string_storage.reserve(totalEvents * 3);
