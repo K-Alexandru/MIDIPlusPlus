@@ -2460,6 +2460,96 @@ private:
     std::wstring opened_;
 };
 
+// The game's velocity keys are its note keys. A tap is a key down and a key up,
+// so a tap on a key that is being held as a note lets that note go in the game
+// while the app still believes it is down. The tap takes the nearest velocity
+// key that is free instead.
+void VelocityTapOnHeldKeyTests(const std::filesystem::path& config) {
+    constexpr WORD ALT_SCAN = 0x38;
+    VirtualPianoPlayer player(false, config);
+    player.eightyEightKeyModeActive = true;
+    player.enable_velocity_keypress = true;
+    player.legit_mode_active = false;
+    player.trackMuted.push_back(std::make_shared<std::atomic<bool>>(false));
+    player.trackSoloed.push_back(std::make_shared<std::atomic<bool>>(false));
+
+    const auto nameOf = [](int note) {
+        static const char* names[12] = {"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
+        return std::string(names[note % 12]) + std::to_string(note / 12 - 1);
+    };
+
+    // A held note and a velocity whose tap lands on that note's key.
+    int heldNote = -1, clashing = -1;
+    for (int note = 48; note <= 72 && heldNote < 0; ++note) {
+        const std::string key = player.full_key_mappings[nameOf(note)];
+        if (key.size() != 1) continue;
+        for (int velocity = 1; velocity <= 127; ++velocity)
+            if (player.getVelocityKey(velocity) == key) { heldNote = note; clashing = velocity; break; }
+    }
+    Require(heldNote >= 0, "no note shares a key with a velocity, so this test proves nothing");
+    const int other = heldNote + 12;
+    int quiet = 1;
+    while (player.getVelocityKey(quiet) == player.getVelocityKey(clashing)) ++quiet;
+
+    const auto check = [&](const std::vector<Captured>& first, const std::vector<Captured>& second, const char* path) {
+        WORD heldScan = 0;
+        for (const auto& event : first) if (IsNotePress(event)) heldScan = event.input.ki.wScan;
+        Require(heldScan != 0, path);
+        bool tapped = false;
+        for (size_t i = 0; i < second.size(); ++i) {
+            const auto& key = second[i].input.ki;
+            Require(!(key.wScan == heldScan && (key.dwFlags & KEYEVENTF_KEYUP)),
+                    "a velocity tap let go of a note that was being held");
+            if (key.wScan == ALT_SCAN && !(key.dwFlags & KEYEVENTF_KEYUP) && i + 1 < second.size()) {
+                tapped = true;
+                Require(second[i + 1].input.ki.wScan != heldScan, "the tap landed on a held note's key");
+            }
+        }
+        Require(tapped, "the louder note still sends a velocity tap");
+    };
+
+    // Live input.
+    {
+        auto* fake = new FakeMidiInput();
+        SetMidiInputFactory([fake](MidiBackend) { return std::unique_ptr<IMidiInput>(fake); });
+        struct Restore { ~Restore() { SetMidiInputFactory({}); } } restore;
+        MIDI2Key live(&player);
+        live.SetActive(true);
+        live.OpenDevice(L"winmm:0|Test piano");
+        TakeCaptured();
+        fake->Deliver({0x90, static_cast<uint8_t>(heldNote), static_cast<uint8_t>(quiet)});
+        const auto first = TakeCaptured();
+        fake->Deliver({0x90, static_cast<uint8_t>(other), static_cast<uint8_t>(clashing)});
+        check(first, TakeCaptured(), "the live note did not press");
+        fake->Deliver({0x80, static_cast<uint8_t>(heldNote), 0});
+        fake->Deliver({0x80, static_cast<uint8_t>(other), 0});
+        live.SetActive(false);
+        live.CloseDevice();
+    }
+
+    // Autoplay.
+    {
+        const std::string heldName = nameOf(heldNote), otherName = nameOf(other);
+        player.note_events = {
+            {0ns, heldName, EventType::Press, quiet, 0},
+            {120ms, otherName, EventType::Press, clashing, 0},
+            {500ms, heldName, EventType::Release, 0, 0},
+            {500ms, otherName, EventType::Release, 0, 0},
+        };
+        TakeCaptured();
+        player.restart_song();
+        std::vector<Captured> first;
+        Await([&] { for (auto& event : TakeCaptured()) first.push_back(event);
+                     return std::any_of(first.begin(), first.end(), IsNotePress); }, "the autoplay note did not press");
+        std::this_thread::sleep_for(300ms);
+        check(first, TakeCaptured(), "the autoplay note did not press");
+        player.should_stop = true;
+        SetEvent(player.command_event); player.playback_cv.notify_all();
+        player.playback_thread->join(); player.playback_thread.reset();
+    }
+    std::cout << "PASS a velocity tap never lands on a key that is held as a note\n";
+}
+
 int ArrowPresses(const std::vector<Captured>& events) {
     int count = 0;
     for (const auto& event : events)
@@ -3328,6 +3418,7 @@ int wmain(int argc, wchar_t** argv) {
         FolderScanTests(directory / L"config.json");
         ControllerTests(directory / L"config.json", fixture);
         LayoutTests(directory);
+        VelocityTapOnHeldKeyTests(directory / L"config.json");
         AutoVolumeTests(directory / L"config.json", fixture);
         DeviceGroupingTests();
         ShellLogTests(directory / L"config.json");

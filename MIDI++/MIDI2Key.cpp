@@ -563,7 +563,13 @@ void MIDI2Key::ProcessMidiMessage(uint64_t timestampQpc, const uint8_t* bytes, s
         bool batchSent = false;
         if (p.enable_velocity_keypress.load(std::memory_order_relaxed)) {
             char newVelKey = g_velocityMapping[velocity];
-            if (newVelKey != m_lastVelocityKey) {
+            // Only when a tap is owed: a velocity the game already has needs no
+            // key at all, held or not.
+            if (newVelKey != m_lastVelocityKey)
+                newVelKey = VirtualPianoPlayer::nearest_free_velocity_key(newVelKey, [](char key) {
+                    return scancodeCount[SCAN_TABLE[(unsigned char)key] & 0xFF].load(std::memory_order_relaxed) > 0;
+                });
+            if (newVelKey && newVelKey != m_lastVelocityKey) {
                 m_lastVelocityKey = newVelKey;
                 WORD sc = SCAN_TABLE[(unsigned char)newVelKey];
                 // The modifier is configurable and ALT is only its default, so

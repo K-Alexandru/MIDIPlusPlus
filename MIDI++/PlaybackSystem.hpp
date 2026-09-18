@@ -313,6 +313,25 @@ public:
     // describes: see press_key.
     static size_t build_velocity_tap(char velocityKey, INPUT* out) noexcept;
     static constexpr size_t VELOCITY_TAP_INPUTS = 4;
+    // The game's velocity keys are its note keys, and a tap is a key down and a
+    // key up, so a tap on a key held as a note lets that note go in the game
+    // while the app still has it down. This answers with the nearest velocity
+    // key that held(key) does not claim, quieter before louder, or 0 when all
+    // thirty-two are held and there is no tap to send.
+    template <class Held>
+    static char nearest_free_velocity_key(char wanted, Held&& held) noexcept {
+        static constexpr char keys[] = "1234567890qwertyuiopasdfghjklzxc";
+        constexpr int count = static_cast<int>(sizeof(keys)) - 1;
+        int index = -1;
+        for (int i = 0; i < count; ++i) if (keys[i] == wanted) { index = i; break; }
+        if (index < 0) return wanted;
+        for (int distance = 0; distance < count; ++distance) {
+            const int quieter = index - distance, louder = index + distance;
+            if (quieter >= 0 && !held(keys[quieter])) return keys[quieter];
+            if (louder < count && !held(keys[louder])) return keys[louder];
+        }
+        return 0;
+    }
 
     // Sustain settings
     SustainMode currentSustainMode{ SustainMode::IG };
@@ -421,6 +440,8 @@ private:
     // or 0 for none. It is a parameter rather than a separate call because the
     // two have to reach the system as one batch.
     void press_key(std::string_view note, char velocityKey = 0) noexcept;
+    // True when a note that is down is typed on this velocity key's own key.
+    bool velocity_key_is_held(char velocityKey) noexcept;
     void release_key(std::string_view note) noexcept;
     std::string sounding_note(std::string_view note);
     std::string transpose_note(std::string_view note);

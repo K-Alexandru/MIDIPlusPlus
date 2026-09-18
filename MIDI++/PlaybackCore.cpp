@@ -1156,6 +1156,22 @@ std::string VirtualPianoPlayer::sounding_note(std::string_view note) {
     return ENABLE_OUT_OF_RANGE_TRANSPOSE ? transpose_note(note) : std::string(note);
 }
 
+bool VirtualPianoPlayer::velocity_key_is_held(char velocityKey) noexcept {
+    INPUT tap[VELOCITY_TAP_INPUTS];
+    if (!build_velocity_tap(velocityKey, tap)) return false;
+    const WORD scan = tap[1].ki.wScan;
+    const auto& mappings = eightyEightKeyModeActive ? full_key_mappings : limited_key_mappings;
+    for (const auto& [note, down] : pressed_keys) {
+        if (!down.load(std::memory_order_relaxed)) continue;
+        const auto mapped = mappings.find(note);
+        if (mapped == mappings.end() || mapped->second.empty()) continue;
+        // A shifted or ctrl note is still typed on its letter's key.
+        for (const auto& event : cachedSequence(mapped->second).events_press)
+            if (event.ki.wScan == scan) return true;
+    }
+    return false;
+}
+
 void VirtualPianoPlayer::press_key(std::string_view note, char velocityKey) noexcept {
     std::string actual = sounding_note(note);
     const std::string& key = (eightyEightKeyModeActive
@@ -2182,8 +2198,15 @@ void VirtualPianoPlayer::execute_note_event(const NoteEvent& event) noexcept {
             {
                 std::string velocityKey = "alt+" + getVelocityKey(event.velocity);
                 if (velocityKey != lastPressedKey) {
-                    velocityTap = velocityKey.back();
-                    lastPressedKey = velocityKey;
+                    // Only when a tap is owed: a velocity the game already has
+                    // needs no key at all, held or not.
+                    const char free = nearest_free_velocity_key(velocityKey.back(),
+                        [this](char key) { return velocity_key_is_held(key); });
+                    velocityKey.back() = free;
+                    if (free && velocityKey != lastPressedKey) {
+                        velocityTap = free;
+                        lastPressedKey = velocityKey;
+                    }
                 }
             }
             press_key(event.note, velocityTap);
