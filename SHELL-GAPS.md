@@ -588,10 +588,13 @@ From the owner and a tester in one session. Nothing here is optional.
    - The owner, same day: a harder song has more issues live, and how many
      depends on the player we assume, one who practised it a lot or one who
      struggles with it. The presets are that assumed player, names not settled.
-     The app does not score difficulty: it is hard to calculate and the user
-     knows the song, so the user picks the player for it and the app says
-     nothing about the song. Hesitation and falling behind belong to the
-     loosest preset only, as plan offsets, bounded and recovered, never a sleep.
+     Difficulty is scored (notes per second, chord size, leaps) but it is hard
+     to calculate and the user knows the song, so the score is shown as an
+     estimate and is only where a Difficulty slider starts: a mark labelled
+     Estimated on the track, the handle the user's to move. The profile along
+     the song decides where variation and mistakes gather; the slider decides
+     how much. Hesitation and falling behind belong to the loosest preset
+     only, as plan offsets, bounded and recovered, never a sleep.
      Nothing in the app is saved per song today, so whether the choice sticks
      to a file is open.
    - Old `LEGIT_MODE_SETTINGS` keys still load and are ignored.
