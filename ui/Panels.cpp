@@ -799,9 +799,13 @@ bool ThemeSwatch(const char* label, skin::Argb& colour, bool alpha) {
     const bool edited = ImGui::ColorEdit4(label, value, flags);
     // An edge in the text colour, which stands out from any background a
     // theme can have: a swatch of the window's own colour was invisible.
+    // At the swatch's own radius: ColorButton caps its rounding at half a
+    // checker square, a sixth of its side, and an edge at the full frame
+    // radius left the swatch's corners outside it.
     const float side = ImGui::GetFrameHeight();
+    const float rounding = std::min(ImGui::GetStyle().FrameRounding, side / 2.99f * .5f);
     ImGui::GetWindowDrawList()->AddRect(min, ImVec2(min.x + side, min.y + side), ImGui::GetColorU32(ImGuiCol_Text, .28f),
-                                        ImGui::GetStyle().FrameRounding, 0, 1.f);
+                                        rounding, 0, 1.f);
     if (!edited) return false;
     const auto channel = [](float v) { return static_cast<skin::Argb>(std::lround(std::clamp(v, 0.f, 1.f) * 255.f)); };
     colour = (alpha ? channel(value[3]) : 0xFFu) << 24 | channel(value[0]) << 16 | channel(value[1]) << 8 | channel(value[2]);
