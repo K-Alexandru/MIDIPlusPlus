@@ -1827,21 +1827,14 @@ void Panels::DrawLog(HWND hwnd, const Fonts& fonts, const skin::Skin& design, fl
     ImGui::End();
 }
 
-// Keycaps, not a run of text. "F1 Play/Pause   F2 -10s   F3 +10s   F4 Stop"
-// read as one sentence in the meta face; a bordered cap round each key
-// separates the key from what it does, and a wider gap separates the pairs.
-// A key another program holds is drawn as a dead key, flat and in the
-// faintest ink, rather than labelled: the words pushed the song title out of
-// its own row. The legend gives way in steps as the title needs the width:
-// HintWords, then HintIcons, where each cap is followed by its transport
-// button's own icon, which six bound keys need at the smallest window, then
-// HintCaps alone. A key and what it does share one outline, the key as the
-// filled end of it: with the box round the key only, the icon beside it
-// belonged to neither neighbour.
-float Panels::DrawTransportHints(ImDrawList* draw, const skin::Skin& s, float dpi, ImVec2 origin, int detail) const {
+// A keycap and its transport button's own icon, in one outline with the key
+// as the filled end of it. One form at every width and for any number of
+// bound keys: it used to spell the actions out when four keys left room and
+// fall back to icons for six, and the same legend read two ways. A key
+// another program holds is drawn as a dead key, flat and in the faintest ink.
+float Panels::DrawTransportHints(ImDrawList* draw, const skin::Skin& s, float dpi, ImVec2 origin) const {
     // No seconds here: the seek buttons below carry the number. A double
     // chevron moves within the song and a single one moves between songs.
-    const std::string actions[]{"Play/Pause", "Back", "Forward", "Stop", "Previous", "Next"};
     const Icon icons[]{Icon::Play, Icon::Back, Icon::Forward, Icon::Close, Icon::Left, Icon::Right};
     const float line = ImGui::GetTextLineHeight(), capPad = 5 * dpi, capHeight = line + 2 * dpi;
     const float pairGap = s.spacing.s2;
@@ -1850,23 +1843,20 @@ float Panels::DrawTransportHints(ImDrawList* draw, const skin::Skin& s, float dp
         if (transportKeys[i].empty()) continue;
         const float capWidth = ImGui::CalcTextSize(transportKeys[i].c_str()).x + 2 * capPad;
         const bool available = transportKeysAvailable[i];
-        const bool icon = detail == HintIcons;
         const ImU32 ink = Colour(available ? s.ink.secondary : s.ink.tertiary);
-        const float labelWidth = detail == HintCaps ? 0 : capPad + (icon ? line : ImGui::CalcTextSize(actions[i].c_str()).x) + capPad;
+        const float labelWidth = capPad + line + capPad;
         if (draw) {
             const ImVec2 min(x, origin.y - dpi), capMax(x + capWidth, origin.y - dpi + capHeight), max(capMax.x + labelWidth, capMax.y);
-            if (available) draw->AddRectFilled(min, capMax, Colour(s.surface.elevated), 4 * dpi,
-                                               labelWidth > 0 ? ImDrawFlags_RoundCornersLeft : 0);
+            if (available) draw->AddRectFilled(min, capMax, Colour(s.surface.elevated), 4 * dpi, ImDrawFlags_RoundCornersLeft);
             draw->AddRect(min, max, Colour(s.border.hairline), 4 * dpi, 0, dpi);
             // The light skins' key fill is almost the card's, so the line
             // is what divides the key from its action there.
-            if (labelWidth > 0) draw->AddLine(ImVec2(capMax.x, min.y), ImVec2(capMax.x, max.y), Colour(s.border.hairline), dpi);
+            draw->AddLine(ImVec2(capMax.x, min.y), ImVec2(capMax.x, max.y), Colour(s.border.hairline), dpi);
             draw->AddText(ImVec2(x + capPad, origin.y), Colour(available ? s.ink.primary : s.ink.tertiary), transportKeys[i].c_str());
             // Lucide's play fills 18 of its 24 units and a chevron 12, so at
             // one size the triangle read as the larger control.
             const float side = icons[i] == Icon::Play ? line * .78f : line;
-            if (icon) DrawIcon(draw, icons[i], ImVec2(capMax.x + capPad + (line - side) / 2, origin.y + (line - side) / 2), side, ink, dpi);
-            else if (detail != HintCaps) draw->AddText(ImVec2(capMax.x + capPad, origin.y), ink, actions[i].c_str());
+            DrawIcon(draw, icons[i], ImVec2(capMax.x + capPad + (line - side) / 2, origin.y + (line - side) / 2), side, ink, dpi);
         }
         x += capWidth + labelWidth + pairGap;
     }
@@ -2001,9 +1991,7 @@ void Panels::DrawMini(HWND hwnd, const Fonts& fonts, const skin::Skin& design, f
         draw->AddText(ImVec2(origin.x + size.x - pad - ImGui::CalcTextSize(time.c_str()).x,
             transportY + (control - ImGui::GetTextLineHeight()) / 2), Colour(s.ink.secondary), time.c_str());
         { FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
-          int detail = HintWords;
-          while (detail > HintCaps && DrawTransportHints(nullptr, s, dpi, {}, detail) > size.x - 2 * pad) --detail;
-          DrawTransportHints(draw, s, dpi, ImVec2(origin.x + pad, transportY + control + gap), detail); }
+          DrawTransportHints(draw, s, dpi, ImVec2(origin.x + pad, transportY + control + gap)); }
     }
     DrawStatus(fonts, design, dpi, *state, ImVec2(origin.x, origin.y + size.y - status), size.x, status);
     ImGui::PopStyleVar();
@@ -2243,10 +2231,10 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     const float contentWidth = ImGui::GetContentRegionAvail().x;
     const char* sheetLabel = "Export";
     const float sheetButtonWidth = 2 * 12 * dpi + 16 * dpi + s.spacing.s2 + ImGui::CalcTextSize(sheetLabel).x;
-    // The title is the song and the legend is the same keys every day, so the
-    // legend gives way: words, then icons, then caps only, then not at all.
-    // Icons may take the title's room up to half the row, because a cap with
-    // nothing after it says a key exists and not what it does.
+    // The legend has one form, so the title is what gives way, cut short with
+    // an ellipsis: six keys at the smallest window are 60% of this row. Past
+    // two thirds of it the legend is left out rather than drawn as bare caps,
+    // which say a key exists and not what it does.
     const std::string title = state->loaded.empty() ? "Playback" : Utf8(state->loaded.stem());
     float titleWidth = 0;
     { FontScope font(fonts, design, 20 * SpecFontScale(design), Weight::Medium);
@@ -2254,17 +2242,12 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     float hintsWidth = 0;
     { FontScope font(fonts, design, design.type.meta * SpecFontScale(design));
       const float room = contentWidth - sheetButtonWidth - s.spacing.s2 - titleWidth - s.spacing.s3;
-      const float widths[]{DrawTransportHints(nullptr, s, dpi, {}, HintCaps),
-                           DrawTransportHints(nullptr, s, dpi, {}, HintIcons),
-                           DrawTransportHints(nullptr, s, dpi, {}, HintWords)};
-      const int detail = widths[HintWords] <= room ? HintWords :
-          widths[HintIcons] <= std::max(room, contentWidth * .5f) ? HintIcons :
-          widths[HintCaps] <= std::max(room, contentWidth * .25f) ? HintCaps : -1;
-      if (detail >= 0 && widths[detail] > 0) {
-          hintsWidth = widths[detail] + s.spacing.s3;
+      const float width = DrawTransportHints(nullptr, s, dpi, {});
+      if (width > 0 && width <= std::max(room, contentWidth * .67f)) {
+          hintsWidth = width + s.spacing.s3;
           DrawTransportHints(ImGui::GetWindowDrawList(), s, dpi,
               ImVec2(content.x + contentWidth - sheetButtonWidth - hintsWidth + s.spacing.s3 - s.spacing.s2,
-                     content.y + (titleHeight - ImGui::GetTextLineHeight()) / 2), detail);
+                     content.y + (titleHeight - ImGui::GetTextLineHeight()) / 2));
       } }
     { FontScope font(fonts, design, 20 * SpecFontScale(design), Weight::Medium);
       DrawEllipsis(title,
