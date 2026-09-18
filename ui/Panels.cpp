@@ -782,8 +782,18 @@ std::string NewThemeName(const ThemeStore& themes, const std::string& from) {
 // A swatch that opens ImGui's picker, with the role's name beside it. True
 // while the colour is being changed.
 bool ThemeSwatch(const char* label, skin::Argb& colour, bool alpha) {
+    // The picker's own floats, kept for as long as the colour is still the
+    // one they produced. Rebuilt from the saved 8-bit colour every frame, the
+    // hue moved with the rounding, and the picker's hue moved with it: the
+    // cursor shook, and near grey, where hue is barely defined, it jumped.
+    struct Live { ImGuiID id = 0; float value[4]{}; skin::Argb result = 0; };
+    static Live live;
+    const ImGuiID id = ImGui::GetID(label);
     float value[4]{(colour >> 16 & 0xFF) / 255.f, (colour >> 8 & 0xFF) / 255.f, (colour & 0xFF) / 255.f, (colour >> 24) / 255.f};
-    const ImGuiColorEditFlags flags = ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_DisplayHex | ImGuiColorEditFlags_PickerHueWheel |
+    if (live.id == id && live.result == colour) std::copy(std::begin(live.value), std::end(live.value), value);
+    // The square and a hue bar, not the wheel: nothing in it turns under the
+    // mouse while a colour is dragged.
+    const ImGuiColorEditFlags flags = ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_DisplayHex | ImGuiColorEditFlags_PickerHueBar |
         (alpha ? ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreviewHalf : ImGuiColorEditFlags_NoAlpha);
     const ImVec2 min = ImGui::GetCursorScreenPos();
     const bool edited = ImGui::ColorEdit4(label, value, flags);
@@ -795,6 +805,9 @@ bool ThemeSwatch(const char* label, skin::Argb& colour, bool alpha) {
     if (!edited) return false;
     const auto channel = [](float v) { return static_cast<skin::Argb>(std::lround(std::clamp(v, 0.f, 1.f) * 255.f)); };
     colour = (alpha ? channel(value[3]) : 0xFFu) << 24 | channel(value[0]) << 16 | channel(value[1]) << 8 | channel(value[2]);
+    live.id = id;
+    std::copy(std::begin(value), std::end(value), live.value);
+    live.result = colour;
     return true;
 }
 }

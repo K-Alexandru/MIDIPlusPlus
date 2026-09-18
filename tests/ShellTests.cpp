@@ -163,6 +163,15 @@ void ThemeModelTests(const std::filesystem::path& directory) {
                     "a palette generated from a built-in's own colours is not that built-in");
         }
     }
+    // The three colours come back as they were given, to the bit: the editor
+    // shows them in its swatches and keeps a picker's floats only while the
+    // colour is still the one they made. Held today; not a regression test.
+    for (uint32_t step = 0; step < 4096; ++step) {
+        const skin::Argb given = 0xFF000000u | (step * 2654435761u >> 8 & 0xFFFFFF), other = 0xFF000000u | (~given & 0xFFFFFF);
+        const skin::Skin made = GenerateSkin(given, other, given ^ 0x00555555);
+        Require(made.surface.canvas == given && made.ink.primary == other && made.accent.accent == (given ^ 0x00555555),
+                "a starting colour did not come back as it was given");
+    }
     // A warm background carries its hue into every surface and keeps them in order.
     skin::Skin warm = GenerateSkin(0xFF2A1F1A, 0xFFF2E6DA, 0xFFE0705F);
     Require(warm.dark && ToLch(warm.surface.card).l > ToLch(warm.surface.canvas).l && ToLch(warm.surface.recessed).l < ToLch(warm.surface.canvas).l,
