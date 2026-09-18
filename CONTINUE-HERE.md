@@ -65,14 +65,9 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
 - 2026-09-16: the rename, caption, icon, Orange skins, keycap legend, Solo
   Piano toggle (owner confirmed), Export relabelled with a confirmed library
   save, `tools/make-source.py`, the copy pass down to no explanatory text.
-- 2026-09-17, owner-asked, both windows smaller. Mini: width is the pill row,
-  8dpi gaps, no dead Key Mapping button, no resize or maximize box. Full: a
-  one-row strip (pills left, device pill by the utility buttons), the sheet
-  result in the status bar, Files 240 to 336 after the right column's 600.
-- Fixed on the way: the wider "Velocity unavailable" pill and its reason
-  tooltip; disabled pills drawn like off ones; the sustain value off the
-  panel at the floor; a false maximized window from mini or the editor.
-
+- 2026-09-17, owner-asked, both windows smaller: mini is the pill row wide
+  with no resize or maximize box; full has a one-row strip, the sheet result
+  in the status bar, and Files 240 to 336 after the right column's 600.
 - 2026-09-18, a bug pass: a custom curve played the curve before it, a curve
   change stuck a held live key, sheets inherited the playback speed, a failed
   config save pinned a core. Fixed, the first three under mutation-checked
@@ -83,8 +78,7 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
 - **Owner to choose from `REVIEW-2026-09-18.md`:** the `ui/` items are the
   panel seat's or owner-asked; demo v2 predates the four fixes.
 - **Owner to test the `3aeea33` build:** the velocity editor while maximized;
-  Miphas Court's Flutes reading Flute. Mini and back, maximized too, passed
-  on the driven shell.
+  Miphas Court's Flutes reading Flute.
 - **Owner to read the text:** Settings, pills, Export, the sheet editor page.
 - **Owner to test:** Solo Piano in mini; sections on a real file; Save image
   from a page opened off disk.
