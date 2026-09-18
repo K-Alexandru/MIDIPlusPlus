@@ -56,6 +56,8 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
   `$ErrorActionPreference = 'Stop'`; run `run-shell-tests.ps1` bare.
 - A `RenderTests` scenario opens a popup through a `Panels` flag, as
   `openConvert` does; its click positions follow the strip and Files width.
+- `make-source.py` builds the zip it wrote; the shell project falls back from
+  v143 to the installed toolset, and v145 is untried.
 - `build\shell\config.json` is rewritten by every run of the built shell. A
   release copies the tracked `x64\Release\config.json` and refuses if it is
   modified. `/d1trimfile` keeps the repository path out of the exe.
@@ -80,6 +82,7 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
   velocity editor while maximized; Miphas Court's Flutes reading Flute.
 - **Owner to test:** Solo Piano in mini; sections on a real file; Save image
   from a page opened off disk.
+- **Tester on Visual Studio 2026** to build `398de08`, or send the error text.
 - **Owner at the keyboard:** game delivery, Wooting, two devices, MIDI out,
   live curve reconnection, mixed DPI.
 
@@ -108,8 +111,8 @@ python .\tools\make-source.py
   `x64\Release\MIDI++.exe` and `x64\Release\midi\`; leave `D:\Dev\mpp-panels`.
 - Demo v2 from `8baf9bd`: `build\release\QuartzMIDI-demo-v2.zip` (426 MB,
   SHA256 `14237B7FCDD2D6C98604CA83D472BCCC885B9E9A5186FFFFB5AA6F3E4DC4164C`),
-  the staged folder beside it, and `QuartzMIDI-source-8baf9bd.zip` (2.4 MB);
-  older source zips are still there.
+  the staged folder beside it, and `QuartzMIDI-source-398de08.zip` (2.4 MB),
+  the first with `QuartzMIDI.sln` and `BUILD.txt`; do not send an older one.
 - Never commit `x64/Release/midi/`, `build/`, `MIDI++/MIDI++/`, `.claude/`,
   `tools/mp3-to-midi/cookies.txt` or `tools/mp3-to-midi/browser/`.
 
