@@ -75,18 +75,20 @@ QuartzMIDI is the ImGui shell (`ui/`) over `PlaybackCore`. The panel seat owns
   note key; a stable load sort; notes of no length released in playback; one
   strike for two tracks on a key; Roblox preselected in AutoVol; light skins
   darker with no pure white.
-- 2026-09-18, `3fc9e86` and `319740e`: six rebindable hotkeys with media keys,
-  and `make-source.py` drops `MIDI++.APS`.
+- 2026-09-18, `3fc9e86` to `0e8b7ba`: six rebindable hotkeys with media keys;
+  the legend steps from words to its buttons' icons to bare caps, the owner
+  having found six keys left bare at the smallest window; `make-source.py`
+  drops `MIDI++.APS`.
 
 ## Unresolved
 
-- **Hotkeys have never been pressed in the running app.** The Sol seat or the
-  owner: bind each action, a media key, a key another program holds, move a
-  key between actions, unbind, Escape out, hold the key past its repeat, and
+- **Hotkeys: the owner bound F5 and F6 in the app; the rest is unpressed.** The
+  Sol seat or the owner: a media key, a key another program holds, move a key
+  between actions, unbind, Escape out, hold the key past its repeat, and
   capture with Settings as its own window in mini mode.
 - **Owner to say** whether a note key may be a hotkey: bound, it is taken from
   the game while the app is open, and nothing stops it today.
-- **Tester shampoojr** to confirm that list on the `319740e` build; none of it
+- **Tester shampoojr** to confirm that list on the `0e8b7ba` build; none of it
   has met a real Wooting or Roblox. His doubled note was never reproduced.
 - **Owner to say** whether light mode is dark enough; then `skin-system.html`,
   which shows the old values, takes the new ones.
@@ -106,7 +108,9 @@ QuartzMIDI is the ImGui shell (`ui/`) over `PlaybackCore`. The panel seat owns
 - `319740e`: `run-shell-tests.ps1 -Render` PASS, 380 render scenarios with
   `settings-hotkeys`, read at Blue Dark 125%. The restart test fails with the
   `validate` change reverted. Capture is tested against a key table only,
-  never `GetAsyncKeyState`. The source zip builds on both SDKs.
+  never `GetAsyncKeyState`.
+- `0e8b7ba`: the same PASS, 420 scenarios with `minimum-six-keys` and
+  `mini-six-keys`, read at Blue 125%. The source zip builds on both SDKs.
 
 ## Repository state
 
@@ -115,9 +119,9 @@ QuartzMIDI is the ImGui shell (`ui/`) over `PlaybackCore`. The panel seat owns
   asking is authorized; creating the public repository is not.
 - This branch is pushed and clean apart from the owner's
   `x64\Release\MIDI++.exe` and `x64\Release\midi\`; leave `D:\Dev\mpp-panels`.
-- Demo v2 from `319740e`: `build\release\QuartzMIDI-demo-v2.zip`, SHA256
-  `9DE2F3268F40017585D5D0286B622316A93C9DCCFB7998D1D47BAFE40764E689`, and
-  `QuartzMIDI-source-319740e.zip`; send no older pair.
+- Demo v2 from `0e8b7ba`: `build\release\QuartzMIDI-demo-v2.zip`, SHA256
+  `CB56D2D2D77CEBD31E19750961663649371EAED30CC9022E63A90FDF1284AE3C`, and
+  `QuartzMIDI-source-0e8b7ba.zip`; send no older pair.
 - Never commit `x64/Release/midi/`, `build/`, `MIDI++/MIDI++/`, `.claude/`,
   `tools/mp3-to-midi/cookies.txt` or `tools/mp3-to-midi/browser/`.
 
