@@ -69,10 +69,8 @@ shell (`ui/`) over `PlaybackCore`, replacing the Win32 window (`MIDI++/`).
 
 ## Work completed
 
-- To 2026-09-17: see `HANDOFF.md`.
-- 2026-09-18: a bug, UI and performance pass, recorded with what is left in
-  `REVIEW-2026-09-18.md`, timing in `LATENCY.md`; a source zip a tester can
-  build, their Visual Studio 2026 LNK2019 reproduced and fixed; the notice.
+- To 2026-09-17: `HANDOFF.md`. 2026-09-18: `REVIEW-2026-09-18.md`, `LATENCY.md`,
+  a source zip that builds on Visual Studio 2026, the Colab notice.
 
 ## Unresolved
 
@@ -98,6 +96,10 @@ shell (`ui/`) over `PlaybackCore`, replacing the Win32 window (`MIDI++/`).
 - `5b12020`: the source zip builds on both SDKs; the zip before the fix shows
   the tester's LNK2019 on 26100; every suite PASSes built on 26100.
 - `d813c05`, after demo v2: AutoVol across a load, `ShellTests.exe` PASS.
+- `b674608`, after demo v2, a tester's Wooting report: strike speed measured
+  over 10 to 20ms, not one poll (`WootingPollStep`); with Roblox running, key
+  downs go out only while it is in front (`InputInjector.cpp`). `-Render` PASS.
+  Neither has met a Wooting or Roblox; no rebuild, the owner's app was running.
 
 ## Repository state
 
