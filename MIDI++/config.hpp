@@ -127,6 +127,9 @@ namespace midi {
         std::string REWIND_KEY = "VK_F2";          // Added default for rewind
         std::string SKIP_KEY = "VK_F3";            // Added default for skip
         std::string EMERGENCY_EXIT_KEY = "VK_F4"; // Added default for emergency exit
+        // The shell's. Empty is unbound, which the four above may be as well.
+        std::string PREVIOUS_SONG_KEY;
+        std::string NEXT_SONG_KEY;
         void validate() const;
     };
 

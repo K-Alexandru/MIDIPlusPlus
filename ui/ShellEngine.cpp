@@ -306,6 +306,8 @@ void ShellEngine::Run(std::stop_token stop) {
         state.playbackDelay = std::clamp(configJson.value("SHELL_PLAYBACK_DELAY", 3), 0, 10);
         state.seekStep = std::clamp(configJson.value("SHELL_SEEK_STEP", 10), 1, 60);
         state.shuffle = configJson.value("SHELL_SHUFFLE", false);
+        if (const auto keys = configJson.find("HOTKEY_SETTINGS"); keys != configJson.end() && keys->is_object())
+            for (size_t i = 0; i < kHotkeys; ++i) state.hotkeys[i] = keys->value(kHotkeyFields[i], std::string(kHotkeyDefaults[i]));
         state.sheetsFolder = PathFromJson(configJson, "SHELL_SHEETS_FOLDER");
         state.sheetStylePage = PathFromJson(configJson, "SHELL_SHEET_STYLE_PAGE");
         if (configJson.contains("SHELL_SHEET_FILES") && configJson["SHELL_SHEET_FILES"].is_object()) {
@@ -730,6 +732,24 @@ void ShellEngine::Run(std::stop_token stop) {
                         touchConfig();
                     }
                     break;
+                case Action::Hotkey: {
+                    if (command.track >= kHotkeys) break;
+                    if (!command.key.empty() && NameToVK(command.key) == 0)
+                        throw std::runtime_error("That key cannot be a hotkey.");
+                    if (!command.key.empty() && command.key.rfind("VK_", 0) != 0) command.key.insert(0, "VK_");
+                    if (state.hotkeys[command.track] == command.key) break;
+                    const int vk = NameToVK(command.key);
+                    for (size_t i = 0; i < kHotkeys; ++i) {
+                        // Compared as keys, not names: VK_a and VK_A are one key.
+                        const bool taken = i != command.track && vk != 0 && NameToVK(state.hotkeys[i]) == vk;
+                        if (taken) state.hotkeys[i].clear();
+                        if (taken || i == command.track) configJson["HOTKEY_SETTINGS"][kHotkeyFields[i]] = taken ? std::string() : command.key;
+                    }
+                    state.hotkeys[command.track] = command.key;
+                    ++state.hotkeyRevision;
+                    touchConfig();
+                    break;
+                }
                 case Action::PlayCountdown:
                     if (command.generation != state.generation) break;
                     if (state.playing || state.playbackCountdown) { stopPlayback(); break; }

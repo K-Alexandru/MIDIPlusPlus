@@ -59,10 +59,10 @@ namespace midi {
         validateKey(SUSTAIN_KEY);
         validateKey(VOLUME_UP_KEY);
         validateKey(VOLUME_DOWN_KEY);
-        validateKey(PLAY_PAUSE_KEY);
-        validateKey(REWIND_KEY);
-        validateKey(SKIP_KEY);
-        validateKey(EMERGENCY_EXIT_KEY);
+        // The shell can unbind these six; the three above are keys it types.
+        for (const auto* key : {&PLAY_PAUSE_KEY, &REWIND_KEY, &SKIP_KEY, &EMERGENCY_EXIT_KEY,
+                                &PREVIOUS_SONG_KEY, &NEXT_SONG_KEY})
+            if (!key->empty()) validateKey(*key);
     }
 
     void PlaybackSettings::validate() const {
@@ -308,7 +308,9 @@ namespace midi {
             {"PLAY_PAUSE_KEY", h.PLAY_PAUSE_KEY},
             {"REWIND_KEY", h.REWIND_KEY},
             {"SKIP_KEY", h.SKIP_KEY},
-            {"EMERGENCY_EXIT_KEY", h.EMERGENCY_EXIT_KEY}
+            {"EMERGENCY_EXIT_KEY", h.EMERGENCY_EXIT_KEY},
+            {"PREVIOUS_SONG_KEY", h.PREVIOUS_SONG_KEY},
+            {"NEXT_SONG_KEY", h.NEXT_SONG_KEY}
         };
     }
 
@@ -320,6 +322,8 @@ namespace midi {
         j.at("REWIND_KEY").get_to(h.REWIND_KEY);
         j.at("SKIP_KEY").get_to(h.SKIP_KEY);
         j.at("EMERGENCY_EXIT_KEY").get_to(h.EMERGENCY_EXIT_KEY);
+        h.PREVIOUS_SONG_KEY = j.value("PREVIOUS_SONG_KEY", std::string());
+        h.NEXT_SONG_KEY = j.value("NEXT_SONG_KEY", std::string());
         h.validate();
     }
     void to_json(json& j, const PlaybackSettings& p) {

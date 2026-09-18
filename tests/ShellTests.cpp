@@ -66,6 +66,104 @@ void HotkeyNameTests() {
     Require(shell::NameToVK("VK_MEDIA_STOP") == VK_MEDIA_STOP, "the stop media key has a name");
     Require(shell::NameToVK("VK_MEDIA_NEXT_TRACK") == VK_MEDIA_NEXT_TRACK, "the next track media key has a name");
     Require(shell::NameToVK("VK_MEDIA_PREV_TRACK") == VK_MEDIA_PREV_TRACK, "the previous track media key has a name");
+    // Capture reads a virtual key and saves its name, so every key that has a
+    // name has to come back as the key it was.
+    int named = 0;
+    for (int vk = 1; vk < 256; ++vk) {
+        const auto name = shell::VKToName(vk);
+        if (name.empty()) continue;
+        ++named;
+        Require(name.rfind("VK_", 0) == 0 && shell::NameToVK(name) == vk, "a key's name did not lead back to the key");
+    }
+    Require(named > 80, "capture knows too few keys");
+    Require(shell::VKToName(VK_MEDIA_STOP) == "VK_MEDIA_STOP" && shell::VKToName('Q') == "VK_Q" && shell::VKToName(VK_F13) == "VK_F13",
+            "media, character and function keys have the config's spelling");
+    // Escape leaves capture, a modifier alone is half a chord, and a mouse
+    // button is a click on the control: none of them is a hotkey.
+    for (const int vk : {VK_ESCAPE, VK_SHIFT, VK_LSHIFT, VK_CONTROL, VK_RCONTROL, VK_MENU, VK_LMENU, VK_LWIN, VK_RWIN,
+                         VK_LBUTTON, VK_RBUTTON, VK_MBUTTON, VK_XBUTTON1, VK_XBUTTON2})
+        Require(shell::VKToName(vk).empty(), "a key that cannot be a hotkey has a name");
+    Require(shell::HotkeyLabel("VK_F1") == "F1" && shell::HotkeyLabel("VK_MEDIA_PLAY_PAUSE") == "Media Play" &&
+            shell::HotkeyLabel("VK_NUMPAD7") == "Num 7" && shell::HotkeyLabel("").empty(), "a keycap reads as the key");
+
+    std::array<bool, 256> keys{};
+    const auto down = [&](int vk) { return keys[vk]; };
+    shell::HotkeyCapture capture;
+    // Enter pressed the control, and the mouse is still down on it.
+    keys[VK_RETURN] = keys[VK_LBUTTON] = true;
+    capture.Begin(down);
+    Require(capture.Poll(down) == shell::HotkeyCapture::None, "the key that opened the capture was taken as the answer");
+    keys[VK_RETURN] = keys[VK_LBUTTON] = false;
+    keys[VK_SHIFT] = keys[VK_LSHIFT] = true;
+    Require(capture.Poll(down) == shell::HotkeyCapture::None, "a modifier alone was captured");
+    keys[VK_SHIFT] = keys[VK_LSHIFT] = false;
+    keys[VK_RETURN] = true;
+    Require(capture.Poll(down) == VK_RETURN, "a key released and pressed again was not captured");
+    keys[VK_RETURN] = false;
+    keys[VK_MEDIA_PLAY_PAUSE] = true;
+    Require(capture.Poll(down) == VK_MEDIA_PLAY_PAUSE, "a media key was not captured");
+    keys[VK_MEDIA_PLAY_PAUSE] = false;
+    keys[VK_ESCAPE] = true;
+    Require(capture.Poll(down) == shell::HotkeyCapture::Cancelled, "Escape did not leave the capture");
+    std::cout << "PASS hotkey names, keycaps and capture\n";
+}
+
+// A rebind is the engine's: it owns config.json. The shell re-registers from
+// the revision, on the thread that owns the window.
+void HotkeyRebindTests(const std::filesystem::path& source) {
+    using A = shell::ShellEngine::Action;
+    const auto config = source.parent_path() / L"config-hotkeys.json";
+    std::filesystem::copy_file(source, config, std::filesystem::copy_options::overwrite_existing);
+    const auto saved = [&](const char* field) {
+        std::ifstream input(config);
+        return nlohmann::json::parse(input).at("HOTKEY_SETTINGS").value(field, std::string("missing"));
+    };
+    const auto bind = [](shell::ShellEngine& engine, size_t action, const char* key) {
+        shell::ShellEngine::Command command{A::Hotkey};
+        command.track = action; command.key = key; engine.Send(std::move(command));
+    };
+    {
+        shell::ShellEngine engine(config);
+        Await([&] { return !engine.Snapshot()->curves.empty() || !engine.Snapshot()->error.empty(); }, "the engine did not start");
+        const auto start = engine.Snapshot();
+        Require(start->hotkeys == std::array<std::string, 6>{"VK_F1", "VK_F2", "VK_F3", "VK_F4", "", ""},
+                "the four transport keys keep their defaults and the two song keys start unbound");
+        const uint64_t revision = start->hotkeyRevision;
+
+        bind(engine, 5, "VK_MEDIA_NEXT_TRACK");
+        Await([&] { return engine.Snapshot()->hotkeyRevision == revision + 1; }, "a rebind did not reach the snapshot");
+        Require(engine.Snapshot()->hotkeys[5] == "VK_MEDIA_NEXT_TRACK", "next song did not take the media key");
+
+        // One key, one action: the key moves, the action it left is unbound.
+        bind(engine, 4, "VK_F1");
+        Await([&] { return engine.Snapshot()->hotkeyRevision == revision + 2; }, "the second rebind did not reach the snapshot");
+        Require(engine.Snapshot()->hotkeys[4] == "VK_F1" && engine.Snapshot()->hotkeys[0].empty(),
+                "a key already bound did not move to the new action");
+
+        bind(engine, 1, "VK_NOT_A_KEY");
+        Await([&] { return !engine.Snapshot()->error.empty(); }, "a name that is no key was not refused");
+        Require(engine.Snapshot()->hotkeys[1] == "VK_F2" && engine.Snapshot()->hotkeyRevision == revision + 2,
+                "a refused rebind changed a hotkey");
+        bind(engine, 6, "VK_F9");
+        bind(engine, 3, "");
+        Await([&] { return engine.Snapshot()->hotkeyRevision == revision + 3; }, "an unbind did not reach the snapshot");
+        Require(engine.Snapshot()->hotkeys[3].empty(), "stop was not unbound");
+        Require(engine.Snapshot()->hotkeys == std::array<std::string, 6>{"", "VK_F2", "VK_F3", "", "VK_F1", "VK_MEDIA_NEXT_TRACK"},
+                "an action past the sixth changed a hotkey");
+    }
+    Require(saved("PLAY_PAUSE_KEY").empty() && saved("EMERGENCY_EXIT_KEY").empty() && saved("REWIND_KEY") == "VK_F2" &&
+            saved("PREVIOUS_SONG_KEY") == "VK_F1" && saved("NEXT_SONG_KEY") == "VK_MEDIA_NEXT_TRACK",
+            "the rebinds were not saved under HOTKEY_SETTINGS");
+    {
+        // An unbound transport key is a config the player still accepts.
+        shell::ShellEngine engine(config);
+        Await([&] { return !engine.Snapshot()->curves.empty() || !engine.Snapshot()->error.empty(); }, "the engine did not restart");
+        Require(engine.Snapshot()->error.empty(), "a config with an unbound hotkey was refused");
+        Require(engine.Snapshot()->hotkeys == std::array<std::string, 6>{"", "VK_F2", "VK_F3", "", "VK_F1", "VK_MEDIA_NEXT_TRACK"},
+                "the saved hotkeys were not read back");
+    }
+    std::filesystem::remove(config);
+    std::cout << "PASS hotkeys rebind, move, unbind, refuse an unknown key and survive a restart\n";
 }
 
 void ModelTests(const std::filesystem::path& fixture) {
@@ -3523,11 +3621,12 @@ int wmain(int argc, wchar_t** argv) {
             else if (group == L"audio") AudioToMidiTests(directory);
             else if (group == L"midi-out") MidiOutputTests(directory / L"config.json");
             else if (group == L"vel-mod") VelocityModifierTests(directory / L"config.json");
-            else if (group == L"hotkeys") HotkeyNameTests();
+            else if (group == L"hotkeys") { HotkeyNameTests(); HotkeyRebindTests(directory / L"config.json"); }
             else throw std::runtime_error("Unknown shell test group");
             return 0;
         }
         HotkeyNameTests();
+        HotkeyRebindTests(directory / L"config.json");
         VelocityTelemetryTests();
         WootingMapTests();
         WootingSettingsTests();

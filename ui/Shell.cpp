@@ -50,50 +50,32 @@ static shell::Panels* g_panels = nullptr;
 // HANDOFF.md section 4 forbids sharing a thread between injection and the
 // message loop, and that is the bug this rewrite exists to avoid.
 namespace {
-enum Hotkey { HotkeyPlayPause = 1, HotkeyRewind, HotkeySkip, HotkeyStop };
+// The hotkey id is its place in shell::kHotkeyFields plus one. The names come
+// from the engine's snapshot, because the engine owns config.json; `names` is
+// what was asked for, so a key that failed is not asked for again every frame.
 struct Registered {
-    bool playPause = false, rewind = false, skip = false, stop = false;
-    std::array<std::string, 4> names;
+    std::array<bool, shell::kHotkeys> held{};
+    std::array<std::string, shell::kHotkeys> names;
+    bool any = false;
 };
 
-// A key another application already owns simply fails to register. That is
-// reported through the returned flags, never treated as fatal.
-Registered RegisterHotkeys(HWND hwnd, const std::filesystem::path& config) {
-    std::string playPause = "VK_F1", rewind = "VK_F2", skip = "VK_F3", stop = "VK_F4";
-    try {
-        std::ifstream file(config);
-        if (file) {
-            const auto json = nlohmann::json::parse(file, nullptr, true, true);
-            const auto keys = json.find("HOTKEY_SETTINGS");
-            if (keys != json.end() && keys->is_object()) {
-                playPause = keys->value("PLAY_PAUSE_KEY", playPause);
-                rewind    = keys->value("REWIND_KEY", rewind);
-                skip      = keys->value("SKIP_KEY", skip);
-                stop      = keys->value("EMERGENCY_EXIT_KEY", stop);
-            }
-        }
-    } catch (const std::exception&) {
-        // A missing or malformed config still gets the documented defaults.
-    }
-    const auto add = [hwnd](int id, const std::string& name) {
-        const int vk = shell::NameToVK(name);
-        return vk != 0 && RegisterHotKey(hwnd, id, MOD_NOREPEAT, static_cast<UINT>(vk)) != FALSE;
-    };
-    Registered done;
-    done.playPause = add(HotkeyPlayPause, playPause);
-    done.rewind    = add(HotkeyRewind, rewind);
-    done.skip      = add(HotkeySkip, skip);
-    done.stop      = add(HotkeyStop, stop);
-    done.names = {playPause, rewind, skip, stop};
-    for (auto& name : done.names) if (name.rfind("VK_", 0) == 0) name.erase(0, 3);
-    return done;
+void UnregisterHotkeys(HWND hwnd, Registered& done) {
+    for (size_t i = 0; i < shell::kHotkeys; ++i)
+        if (done.held[i]) UnregisterHotKey(hwnd, static_cast<int>(i) + 1);
+    done.held.fill(false);
+    done.any = false;
 }
 
-void UnregisterHotkeys(HWND hwnd, const Registered& done) {
-    if (done.playPause) UnregisterHotKey(hwnd, HotkeyPlayPause);
-    if (done.rewind)    UnregisterHotKey(hwnd, HotkeyRewind);
-    if (done.skip)      UnregisterHotKey(hwnd, HotkeySkip);
-    if (done.stop)      UnregisterHotKey(hwnd, HotkeyStop);
+// A key another application already owns simply fails to register. That is
+// reported through the flags, never treated as fatal.
+void RegisterHotkeys(HWND hwnd, Registered& done, const std::array<std::string, shell::kHotkeys>& names) {
+    UnregisterHotkeys(hwnd, done);
+    for (size_t i = 0; i < shell::kHotkeys; ++i) {
+        const int vk = shell::NameToVK(names[i]);
+        done.held[i] = vk != 0 && RegisterHotKey(hwnd, static_cast<int>(i) + 1, MOD_NOREPEAT, static_cast<UINT>(vk)) != FALSE;
+    }
+    done.names = names;
+    done.any = true;
 }
 }
 
@@ -157,20 +139,10 @@ static LRESULT WINAPI WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         if (!g_engine) return 0;
         // Only enqueue. The engine worker owns the player.
         const uint64_t generation = g_engine->Snapshot()->generation;
-        switch (wp) {
-        case HotkeyPlayPause:
-            g_engine->Send({shell::ShellEngine::Action::TogglePlayPause, {}, generation});
-            break;
-        case HotkeyRewind:
-            g_engine->Send({shell::ShellEngine::Action::Back10, {}, generation});
-            break;
-        case HotkeySkip:
-            g_engine->Send({shell::ShellEngine::Action::Forward10, {}, generation});
-            break;
-        case HotkeyStop:
-            g_engine->Send({shell::ShellEngine::Action::Stop});
-            break;
-        }
+        using Action = shell::ShellEngine::Action;
+        static constexpr std::array<Action, shell::kHotkeys> actions{
+            Action::TogglePlayPause, Action::Back10, Action::Forward10, Action::Stop, Action::Previous, Action::Next};
+        if (wp >= 1 && wp <= shell::kHotkeys) g_engine->Send({actions[wp - 1], {}, generation});
         return 0;
     }
     case WM_DROPFILES: {
@@ -277,10 +249,15 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     ::ShowWindow(hwnd, SW_SHOWDEFAULT);
     ::UpdateWindow(hwnd);
     DragAcceptFiles(hwnd, TRUE);
-    const Registered hotkeys = RegisterHotkeys(hwnd, directory / L"config.json");
-    panels.stopHotkeyAvailable = hotkeys.stop;
-    panels.transportKeys = hotkeys.names;
-    panels.transportKeysAvailable = {hotkeys.playPause, hotkeys.rewind, hotkeys.skip, hotkeys.stop};
+    // Registered in the loop, from the engine's snapshot, and again whenever
+    // a rebind changes it: RegisterHotKey belongs to the thread that owns hwnd.
+    Registered hotkeys;
+    shell::HotkeyCapture capture;
+    bool capturing = false;
+    // The key a capture ended on, until it comes up: its repeats would press
+    // whichever control has the keyboard focus.
+    WPARAM capturedKey = 0;
+    const auto keyDown = [](int vk) { return (GetAsyncKeyState(vk) & 0x8000) != 0; };
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -329,12 +306,54 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
         MSG msg;
         bool input = false;
         while (::PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
+            // A key pressed for a rebind is the answer, not input: Escape
+            // would close Settings and Space would press the keycap again.
+            // Filtered here because Settings can be its own OS window.
+            const bool keyDownMessage = msg.message == WM_KEYDOWN || msg.message == WM_SYSKEYDOWN;
+            if ((msg.message == WM_KEYUP || msg.message == WM_SYSKEYUP) && msg.wParam == capturedKey) capturedKey = 0;
+            if (keyDownMessage && (capturing || (capturedKey != 0 && msg.wParam == capturedKey))) { input = true; continue; }
             ::TranslateMessage(&msg);
             ::DispatchMessageW(&msg);
             if (msg.message == WM_QUIT) running = false;
             input = true;
         }
         if (!running) break;
+        {
+            DWORD foreground = 0;
+            GetWindowThreadProcessId(GetForegroundWindow(), &foreground);
+            // GetAsyncKeyState hears every application, so a capture ends
+            // when the app is no longer the one being typed into.
+            if (panels.hotkeyCapture >= 0 && foreground != GetCurrentProcessId()) panels.hotkeyCapture = -1;
+            if (capturedKey != 0 && !keyDown(static_cast<int>(capturedKey))) capturedKey = 0;
+            if (panels.hotkeyCapture >= 0) {
+                if (!capturing) { UnregisterHotkeys(hwnd, hotkeys); capture.Begin(keyDown); capturing = true; }
+                const int pressed = capture.Poll(keyDown);
+                if (pressed > 0) {
+                    shell::ShellEngine::Command command{shell::ShellEngine::Action::Hotkey};
+                    command.track = static_cast<size_t>(panels.hotkeyCapture);
+                    command.key = shell::VKToName(pressed);
+                    engine.Send(std::move(command));
+                }
+                if (pressed != shell::HotkeyCapture::None) {
+                    capturedKey = pressed > 0 ? static_cast<WPARAM>(pressed) : VK_ESCAPE;
+                    panels.hotkeyCapture = -1;
+                }
+            }
+            if (panels.hotkeyCapture < 0) capturing = false;
+            // Polled until the key is up. Registered while it is still held,
+            // its repeat would fire the action it was just given.
+            if (capturedKey != 0) drawUntil = std::chrono::steady_clock::now() + std::chrono::milliseconds(750);
+            else if (!capturing) {
+                const auto wanted = engine.Snapshot()->hotkeys;
+                if (!hotkeys.any || wanted != hotkeys.names) {
+                    RegisterHotkeys(hwnd, hotkeys, wanted);
+                    panels.stopHotkeyAvailable = hotkeys.held[3];
+                    panels.transportKeysAvailable = hotkeys.held;
+                    for (size_t i = 0; i < shell::kHotkeys; ++i) panels.transportKeys[i] = shell::HotkeyLabel(wanted[i]);
+                    drawUntil = std::chrono::steady_clock::now() + std::chrono::milliseconds(750);
+                }
+            }
+        }
         if (appliedOpacity != panels.preferences.opacity) {
             // Layered only while it is translucent. The style costs a
             // composition pass on every present, and it used to stay on

@@ -26,8 +26,13 @@ class Panels {
 public:
     Preferences preferences;
     bool stopHotkeyAvailable = false;
-    std::array<std::string, 4> transportKeys{"F1", "F2", "F3", "F4"};
-    std::array<bool, 4> transportKeysAvailable{};
+    // Keycap text per hotkey, empty when unbound, and whether the key
+    // registered; the shell sets both each time it registers.
+    std::array<std::string, kHotkeys> transportKeys{"F1", "F2", "F3", "F4", "", ""};
+    std::array<bool, kHotkeys> transportKeysAvailable{};
+    // The hotkey Settings is reading a key for, or -1. The shell owns the
+    // read: it unregisters the hotkeys, polls, and sends the rebind.
+    int hotkeyCapture = -1;
     bool velocityExpanded = false;
     bool miniMode = false;
     bool miniAutoplay = false;
@@ -43,6 +48,8 @@ public:
     // Scrolls the open Settings popover to the drum and auto-transpose
     // switches, which sit below the fold; a render scenario captures them.
     bool revealSettingsSwitches = false;
+    // The same for the Hotkeys section, further down still.
+    bool revealSettingsHotkeys = false;
     ~Panels();
     ImVec2 DesiredSize() const;
     // The smallest full window: Files at its 240 and the right column at its
@@ -55,7 +62,7 @@ public:
     // Something on screen moves by the clock alone, with no input and no new
     // snapshot behind it: the timing readout polls every 200 ms. The shell
     // draws on demand and asks this before it decides there is nothing to draw.
-    bool Animating() const { return measuring_; }
+    bool Animating() const { return measuring_ || hotkeyCapture >= 0; }
 private:
     char search_[256]{};
     FileSort fileSort_ = FileSort::Name;

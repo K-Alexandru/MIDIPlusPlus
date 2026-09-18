@@ -6,6 +6,7 @@
 #include "ShellLog.hpp"
 #include "ConnectInput.hpp"
 #include "DeviceModel.hpp"
+#include "HotkeyNames.hpp"
 #include "../MIDI++/VelocityTelemetry.hpp"
 #include "../MIDI++/SheetExport.hpp"
 #include <atomic>
@@ -33,6 +34,10 @@ struct EngineSnapshot {
     int playbackDelay = 3;
     // Seconds the -Ns / +Ns transport buttons and the F2/F3 hotkeys move by.
     int seekStep = 10;
+    // The global hotkeys by config name, in kHotkeyFields order; empty is
+    // unbound. The shell registers them again when the revision moves.
+    std::array<std::string, kHotkeys> hotkeys{"VK_F1", "VK_F2", "VK_F3", "VK_F4", "", ""};
+    uint64_t hotkeyRevision = 0;
     bool typingAcknowledged = true;
     bool legitMode = false;
     bool shuffle = false;
@@ -176,7 +181,11 @@ public:
                         // text and track an audio_to_midi::Status::Kind.
                         ConvertAudio, ConvertCancel, ConvertProgress,
                         // Opens tools/mp3-to-midi/signin.py; ConvertCancel closes it.
-                        YouTubeSignIn };
+                        YouTubeSignIn,
+                        // track is the hotkey's place in kHotkeyFields and key
+                        // its new config name, empty to unbind. A key another
+                        // hotkey holds moves here and leaves that one unbound.
+                        Hotkey };
     struct Command {
         Action action;
         std::filesystem::path path;

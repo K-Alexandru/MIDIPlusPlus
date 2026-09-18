@@ -62,7 +62,8 @@ for name in os.listdir(os.path.join(root, 'ui')):
 # project on its first configuration: Debug|Win32, which has no /std:c++20
 # and fails on its first header. QuartzMIDI needs MIDI++/'s sources, not its
 # project. One solution at the top, holding the one project, is what opens.
-for name in ('MIDI++.vcxproj', 'MIDI++.vcxproj.filters', 'MIDI++.vcxproj.user'):
+# MIDI++.APS is upstream's resource editor cache, holding upstream's user path.
+for name in ('MIDI++.vcxproj', 'MIDI++.vcxproj.filters', 'MIDI++.vcxproj.user', 'MIDI++.APS'):
     path = os.path.join(root, 'MIDI++', name)
     if os.path.exists(path):
         os.remove(path)

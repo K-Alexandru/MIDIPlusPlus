@@ -488,23 +488,24 @@ checks, which need the owner at the keyboard. The duplicate
 2026-09-09; the fix was the order rather than the deletion, because the sweep
 that survived a bare deletion would have been the one that runs unfocused.
 
-## Asked for on 2026-09-18, none started
+## Asked for on 2026-09-18
 
 From the owner and a tester in one session. Nothing here is optional.
 
-1. **Rebindable hotkeys, with media keys.** Today `RegisterHotkeys` in
-   `ui/Shell.cpp` reads four names from `HOTKEY_SETTINGS` once at startup (play
-   or pause, back 10s, forward 10s, stop) and there is no control for them.
-   Wanted: six actions, adding previous song and next song, each bindable in
-   Settings to any key including the four media keys. The new two start
-   unbound. Media keys are never a default: a global hotkey takes them from
-   every other application while the app is open. `NameToVK` has to learn
-   `VK_MEDIA_PLAY_PAUSE`, `_STOP`, `_NEXT_TRACK` and `_PREV_TRACK`. The engine
-   owns `config.json`, so a rebind is an engine action that writes the field
-   and bumps a revision the shell loop re-registers from, on the thread that
-   owns the window. Capture by polling `GetAsyncKeyState` with the hotkeys
-   unregistered, because Settings can be its own OS window and a registered
-   key never reaches `WM_KEYDOWN`.
+1. **Rebindable hotkeys, with media keys. Built 2026-09-18, not yet pressed
+   in the running app.** Six actions (play or pause, back, forward, stop,
+   previous song, next song) under Settings, Hotkeys: a keycap per action,
+   click it and press a key, the cross unbinds. The song keys start unbound
+   and no media key is a default. `ui/HotkeyNames.hpp` holds the names both
+   ways, the keycap text and `HotkeyCapture`. `Action::Hotkey` writes
+   `HOTKEY_SETTINGS`, moves a key that another action held, and bumps
+   `hotkeyRevision`; the shell loop registers again whenever the snapshot's
+   names differ from the ones it asked for. Capture polls `GetAsyncKeyState`
+   with the hotkeys unregistered, swallows key-downs in the message pump so
+   Escape and Space do not reach Settings, ends when the app loses the
+   foreground, and registers only once the captured key is up.
+   `HotkeySettings::validate` accepts an empty transport key. Open: a note
+   key can be bound, which takes that key from the game while the app runs.
 2. **Custom colour themes**, the owner's words: everything customisable in a
    friendly way, text colours included, with the change seen live. A custom
    theme either has a light and a dark version or does not. Without one, the

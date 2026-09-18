@@ -1556,6 +1556,42 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
     ImGui::EndDisabled();
     SettingSwitch("Always on top", preferences.alwaysOnTop, nullptr, fonts, design, dpi);
     ImGui::Separator();
+    section("Hotkeys");
+    if (revealSettingsHotkeys) ImGui::SetScrollHereY(0.f);
+    {
+        // The action, its key as a keycap, and a way to take the key off.
+        // Armed, the cap is empty inside the accent ring, as in Key Mapping.
+        // A key another program holds wears the legend's dead-key ink.
+        const std::string step = std::to_string(state->seekStep) + "s";
+        const std::string actions[kHotkeys]{"Play/Pause", "Back " + step, "Forward " + step, "Stop", "Previous song", "Next song"};
+        const float height = s.metric.controlHeight, gap = 8 * dpi, capWidth = 112 * dpi;
+        auto* draw = ImGui::GetWindowDrawList();
+        for (size_t i = 0; i < kHotkeys; ++i) {
+            ImGui::PushID(static_cast<int>(i));
+            const auto min = ImGui::GetCursorScreenPos();
+            const float width = ImGui::GetContentRegionAvail().x;
+            const bool armed = hotkeyCapture == static_cast<int>(i), bound = !state->hotkeys[i].empty();
+            DrawEllipsis(actions[i], width - capWidth - height - 2 * gap,
+                         ImVec2(min.x, min.y + (height - ImGui::GetTextLineHeight()) / 2));
+            ImGui::SetCursorScreenPos(ImVec2(min.x + width - height - gap - capWidth, min.y));
+            const bool dead = bound && !armed && !transportKeysAvailable[i];
+            if (dead) ImGui::PushStyleColor(ImGuiCol_Text, Colour(s.ink.tertiary));
+            const std::string cap = (armed ? std::string() : HotkeyLabel(state->hotkeys[i])) + "##cap";
+            if (ImGui::Button(cap.c_str(), ImVec2(capWidth, height))) hotkeyCapture = armed ? -1 : static_cast<int>(i);
+            if (dead) ImGui::PopStyleColor();
+            if (armed) draw->AddRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), Colour(s.accent.accent), s.radius.control, 0, 2 * dpi);
+            ImGui::SameLine(0, gap);
+            // Nothing to take off an unbound key, so nothing is offered.
+            if (!bound) ImGui::Dummy(ImVec2(height, height));
+            else if (IconButton("##unbind", Icon::Close, "Unbind", s, dpi)) {
+                ShellEngine::Command command{ShellEngine::Action::Hotkey};
+                command.track = i; engine.Send(std::move(command));
+                hotkeyCapture = -1;
+            }
+            ImGui::PopID();
+        }
+    }
+    ImGui::Separator();
     section("Appearance");
     SettingSlider("Window opacity", "##window-opacity", &preferences.opacity, 40, 100, "%d%%", s, dpi);
     // The names come from the skins themselves. They were spelled out here as
@@ -1602,10 +1638,13 @@ void Panels::SettingsControl(const Fonts& fonts, const skin::Skin& design, float
     if (ImGui::BeginPopup("Settings")) {
         DrawSettings(fonts, design, dpi, engine);
         ImGui::EndPopup();
-    } else if (measuring_) {
-        input_latency::stop();
-        measuring_ = false;
-        timingSummary_ = {};
+    } else {
+        hotkeyCapture = -1;
+        if (measuring_) {
+            input_latency::stop();
+            measuring_ = false;
+            timingSummary_ = {};
+        }
     }
 }
 
@@ -1798,11 +1837,12 @@ void Panels::DrawLog(HWND hwnd, const Fonts& fonts, const skin::Skin& design, fl
 // the width.
 float Panels::DrawTransportHints(ImDrawList* draw, const skin::Skin& s, float dpi, int seekStep, ImVec2 origin, bool labels) const {
     const auto back = "-" + std::to_string(seekStep) + "s", forward = "+" + std::to_string(seekStep) + "s";
-    const std::string actions[]{"Play/Pause", back, forward, "Stop"};
+    const std::string actions[]{"Play/Pause", back, forward, "Stop", "Previous", "Next"};
     const float line = ImGui::GetTextLineHeight(), capPad = 5 * dpi, capHeight = line + 2 * dpi;
     const float pairGap = labels ? s.spacing.s4 : s.spacing.s2;
     float x = origin.x;
     for (size_t i = 0; i < transportKeys.size(); ++i) {
+        if (transportKeys[i].empty()) continue;
         const float capWidth = ImGui::CalcTextSize(transportKeys[i].c_str()).x + 2 * capPad;
         const bool available = transportKeysAvailable[i];
         if (draw) {
@@ -1816,7 +1856,7 @@ float Panels::DrawTransportHints(ImDrawList* draw, const skin::Skin& s, float dp
         x += capWidth + pairGap;
         if (labels) x += s.spacing.s1 + ImGui::CalcTextSize(actions[i].c_str()).x;
     }
-    return x - origin.x - pairGap;
+    return std::max(0.f, x - origin.x - pairGap);
 }
 
 void Panels::DrawMini(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float dpi, ShellEngine& engine,
