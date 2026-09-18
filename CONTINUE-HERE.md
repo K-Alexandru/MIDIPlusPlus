@@ -61,10 +61,9 @@ QuartzMIDI is the ImGui shell (`ui/`) over `PlaybackCore`. The panel seat owns
   10 to 20ms; the Roblox tab-out gate; a velocity tap never lands on a held
   note key; a stable load sort; notes of no length released in playback; one
   strike for two tracks on a key; Roblox preselected in AutoVol; darker light skins.
-- 2026-09-18, `3fc9e86` to `f866071`: six rebindable hotkeys with media keys;
-  the legend is a key and its action's icon in one outline at every width,
-  never words or seek seconds; custom themes with an editor; Settings rows'
-  hover fill widened; Legit Mode tagged; `make-source.py` drops `MIDI++.APS`.
+- 2026-09-18, `3fc9e86` to `f866071`: six rebindable hotkeys with media keys and
+  an icon legend; custom themes with an editor; Settings rows' hover fill
+  widened; Legit Mode tagged; `make-source.py` drops `MIDI++.APS`.
 
 ## Unresolved
 
