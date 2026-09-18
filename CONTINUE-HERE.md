@@ -55,12 +55,12 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
   `$ErrorActionPreference = 'Stop'`; run `run-shell-tests.ps1` bare.
 - A `RenderTests` scenario opens a popup through a `Panels` flag, as
   `openConvert` does; its click positions follow the strip and Files width.
-- `make-source.py` builds the zip it wrote, but only against this PC's SDK
-  (10.0.22621) and v143: a newer SDK links C++/WinRT where this one does not,
-  which is why `<winrt/>` files name `runtimeobject.lib`. v145 is untried.
-- `build\shell\config.json` is rewritten by every run of the built shell. A
-  release copies the tracked `x64\Release\config.json` and refuses if it is
-  modified. `/d1trimfile` keeps the repository path out of the exe.
+- SDK 10.0.26100 was installed 2026-09-18 beside 10.0.22621, and the projects'
+  `10.0` now means 26100, the next demo build included. 26100 links C++/WinRT
+  where 22621 loads it, so `<winrt/>` files name `runtimeobject.lib`.
+  `make-source.py` builds its zip on every SDK installed. v145 is untried.
+- `build\shell\config.json` is rewritten by every run; a release copies the
+  tracked `x64\Release\config.json` and refuses if that one is modified.
 
 ## Work completed
 
@@ -82,7 +82,7 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
 - **Owner to test:** Solo Piano in mini; sections on a real file; Save image
   from a page opened off disk; game delivery, Wooting, two devices, MIDI
   out, live curve reconnection, mixed DPI.
-- **Tester on Visual Studio 2026** to build `8c95e40`, or send the error text.
+- **Tester on Visual Studio 2026** to build `5b12020`, or send the error text.
 
 ## Validation actually run
 
@@ -90,7 +90,8 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
   `run-native-tests.ps1` (DPI move skipped) and `LatencyTests.exe --loopback`
   PASS; the original window builds; eleven new tests fail with their fix
   reverted; the release exe carries no account, assistant or path string.
-- The source zip builds on its own at `8c95e40`, as every one now must.
+- `5b12020`: the source zip builds on both SDKs, the zip before the fix shows
+  the tester's LNK2019 on 26100, and every suite PASSes built on 26100.
 
 ## Build and test
 
@@ -108,8 +109,7 @@ python .\tools\make-source.py
   `x64\Release\MIDI++.exe` and `x64\Release\midi\`; leave `D:\Dev\mpp-panels`.
 - Demo v2 from `8baf9bd`: `build\release\QuartzMIDI-demo-v2.zip` (426 MB,
   SHA256 `14237B7FCDD2D6C98604CA83D472BCCC885B9E9A5186FFFFB5AA6F3E4DC4164C`),
-  the staged folder beside it, and `QuartzMIDI-source-8c95e40.zip` (2.4 MB),
-  the first with `QuartzMIDI.sln` and `BUILD.txt`; do not send an older one.
+  the staged folder, and `QuartzMIDI-source-5b12020.zip`; send no older one.
 - Never commit `x64/Release/midi/`, `build/`, `MIDI++/MIDI++/`, `.claude/`,
   `tools/mp3-to-midi/cookies.txt` or `tools/mp3-to-midi/browser/`.
 
