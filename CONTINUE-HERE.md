@@ -73,8 +73,9 @@ shell (`ui/`) over `PlaybackCore`, replacing the Win32 window (`MIDI++/`).
 
 ## Unresolved
 
-- **The doubled note.** Nothing is known yet: autoplay or live, which file or
-  device, keystrokes or MIDI output, which build.
+- **The doubled note, and notes sticking at high velocity** (shampoojr): another
+  MIDI player into loopMIDI into live keystrokes. Owed: Velocity and AutoVol
+  off, the file, the build. Suspect: the tap types a key that is also a note.
 - **Publishing, stopped before staging.** Unzip `QuartzMIDI-source-95fd689.zip`,
   add a short README (upstream's claims latency this fork never measured)
   and a `.gitignore`, commit as above, show the owner, then
