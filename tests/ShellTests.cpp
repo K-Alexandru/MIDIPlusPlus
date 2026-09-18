@@ -504,6 +504,18 @@ void VelocityCurveDrawingTests(const std::filesystem::path& config) {
         Require(std::abs(shell::VelocityCurveAt(preset, 0.f) -
                          shell::VelocityBucket(preset.thresholds, 1) / 31.f) < 1e-4f,
                 "the curve does not start where the softest input lands");
+        // The first press in the anchor tool turns the preset into anchors,
+        // and the curve through them is what the editor then draws and what
+        // one real anchor commits. It has to be the preset: within an output
+        // step, everywhere. Seeded from a simplified polyline, Linear Fine
+        // came back an eighth of the range low in the middle.
+        const auto anchors = shell::VelocityAnchorsFor(preset, shell::VelocityEdit{});
+        Require(anchors.size() >= 2 && anchors.size() <= 12, "a preset seeds an unreasonable number of anchors");
+        for (int i = 0; i <= 127; ++i) {
+            const float x = i / 127.f;
+            Require(std::abs(shell::VelocityPchipPrepared(anchors, x) - shell::VelocityCurveAt(preset, x)) <= 1.f / 31.f,
+                    "the curve through a preset's seeded anchors is not the preset");
+        }
         float previous = -1;
         for (int i = 0; i <= 1270; ++i) {
             const float y = shell::VelocityCurveAt(preset, i / 1270.f);
