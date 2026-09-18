@@ -6,7 +6,7 @@ Updated 2026-09-18 on `claude/consolidate-2026-09-15`, the one branch. Read
 ## Goal
 
 Build the five items `SHELL-GAPS.md` lists under "Asked for on 2026-09-18", in
-its order. Hotkeys and custom themes are built (`04d4c44`), neither fully pressed; Legit mode is next.
+its order. Hotkeys and custom themes are built (`42066a7`), neither fully pressed; Legit mode is next.
 QuartzMIDI is the ImGui shell (`ui/`) over `PlaybackCore`. The panel seat owns
 `ui/` (`SEATS.md`); the owner asked for these controls, so their `ui/` work is in scope.
 
@@ -61,7 +61,7 @@ QuartzMIDI is the ImGui shell (`ui/`) over `PlaybackCore`. The panel seat owns
   10 to 20ms; the Roblox tab-out gate; a velocity tap never lands on a held
   note key; a stable load sort; notes of no length released in playback; one
   strike for two tracks on a key; Roblox preselected in AutoVol; darker light skins.
-- 2026-09-18, `3fc9e86` to `04d4c44`: six rebindable hotkeys with media keys and
+- 2026-09-18, `3fc9e86` to `42066a7`: six rebindable hotkeys with media keys and
   an icon legend; custom themes with an editor; Settings rows' hover fill
   widened; Legit Mode tagged; `make-source.py` drops `MIDI++.APS`.
 
@@ -76,7 +76,7 @@ QuartzMIDI is the ImGui shell (`ui/`) over `PlaybackCore`. The panel seat owns
   and restart to see `themes.json` come back.
 - **Owner to say** whether a note key may be a hotkey: bound, it is taken from
   the game while the app is open, and nothing stops it today.
-- **Tester shampoojr** to confirm that list on the `04d4c44` build; none of it
+- **Tester shampoojr** to confirm that list on the `42066a7` build; none of it
   has met a real Wooting or Roblox. His doubled note was never reproduced.
 - **Owner to say** whether light mode is dark enough; then `skin-system.html`,
   which shows the old values, takes the new ones.
@@ -93,7 +93,7 @@ QuartzMIDI is the ImGui shell (`ui/`) over `PlaybackCore`. The panel seat owns
   Wooting, tap, load sort, playback and one-strike tests fail with their fix
   reverted; the AutoVol preselect has no test. The tester's own MIDI leaves no
   key owned through the real loader.
-- `319740e` to `04d4c44`: `run-shell-tests.ps1 -Render` PASS at each, 440 render
+- `319740e` to `42066a7`: `run-shell-tests.ps1 -Render` PASS at each, 440 render
   scenarios; the hotkey, six-key, `settings-switches` and `theme-editor` ones
   read at 125% in one or two skins each. The theme model has its own tests. The restart test fails with the `validate` change
   reverted. Capture is tested against a key table, never `GetAsyncKeyState`.
@@ -106,9 +106,9 @@ QuartzMIDI is the ImGui shell (`ui/`) over `PlaybackCore`. The panel seat owns
   asking is authorized; creating the public repository is not.
 - This branch is pushed and clean apart from the owner's
   `x64\Release\MIDI++.exe` and `x64\Release\midi\`; leave `D:\Dev\mpp-panels`.
-- Demo v2 from `04d4c44`: `build\release\QuartzMIDI-demo-v2.zip`, SHA256
-  `700FD523042D0E5EEA0A9D4067D0F3A8E917C44BC4B601CBA02B0D34795A66CA`, and
-  `QuartzMIDI-source-04d4c44.zip`; send no older pair.
+- Demo v2 from `42066a7`: `build\release\QuartzMIDI-demo-v2.zip`, SHA256
+  `6AA6C39EC525B0BED145EAD5EC6F964C160DA0497F39B04B3F50FF0FBD47D6DA`, and
+  `QuartzMIDI-source-42066a7.zip`; send no older pair.
 - Never commit `x64/Release/midi/`, `build/`, `MIDI++/MIDI++/`, `.claude/`,
   `tools/mp3-to-midi/cookies.txt` or `tools/mp3-to-midi/browser/`.
 
