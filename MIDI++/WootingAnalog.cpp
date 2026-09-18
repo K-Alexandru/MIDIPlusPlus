@@ -8,6 +8,7 @@
 #include <windows.h>
 
 #include <atomic>
+#include <cmath>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -227,6 +228,28 @@ size_t WootingPollStep(WootingPollState& state,
         const float previousDepth = state.lastDepth[code];
         state.lastDepth[code] = depth;
 
+        auto& recent = state.recent[code];
+        auto& older = state.older[code];
+        // The buffer leaves out a key at rest, so a key with no previous depth
+        // left the rest during this poll.
+        if (previousDepth <= 0.0f) {
+            recent = older = {};
+            state.resting[code] = false;
+        }
+        if (state.resting[code] && std::fabs(depth - older.depth) < kWootingRestingTravel) {
+            recent.age = older.age = 0.0;
+        } else {
+            state.resting[code] = false;
+            recent.age += seconds;
+            older.age += seconds;
+        }
+        const WootingPollState::Anchor from = older;
+        if (recent.age >= kWootingStrikeWindow) {
+            state.resting[code] = std::fabs(depth - recent.depth) < kWootingRestingTravel;
+            older = state.resting[code] ? WootingPollState::Anchor{depth, 0.0} : recent;
+            recent = {depth, 0.0};
+        }
+
         if (state.sounding[code] < 0 && depth >= settings.trigger) {
             // A shift that pushes a key off the MIDI range has no note to send,
             // so the key stays silent rather than wrapping round to a pitch
@@ -235,7 +258,7 @@ size_t WootingPollStep(WootingPollState& state,
             const int shifted = note + shift;
             if (shifted < 0 || shifted > 127) continue;
             state.sounding[code] = static_cast<int16_t>(shifted);
-            emit(true, shifted, WootingVelocityFor(depth, previousDepth, seconds, settings.velocityScale));
+            emit(true, shifted, WootingVelocityFor(depth, from.depth, from.age, settings.velocityScale));
         }
         else if (state.sounding[code] >= 0 && depth <= release) {
             emit(false, state.sounding[code], 0);
@@ -243,10 +266,13 @@ size_t WootingPollStep(WootingPollState& state,
         }
     }
 
-    // A key that drops out of the buffer has been let go.
+    // A key that drops out of the buffer has been let go. Its depth goes back
+    // to rest whether or not it sounded, or the next press would be measured
+    // from wherever the last one gave up.
     for (size_t code = 0; code < state.sounding.size(); ++code) {
-        if (state.sounding[code] < 0 || seen[code]) continue;
+        if (seen[code]) continue;
         state.lastDepth[code] = 0.0f;
+        if (state.sounding[code] < 0) continue;
         emit(false, state.sounding[code], 0);
         state.sounding[code] = -1;
     }

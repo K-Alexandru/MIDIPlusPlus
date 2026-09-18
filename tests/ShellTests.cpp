@@ -1655,6 +1655,37 @@ void WootingPollTests() {
         Require(quick[0].velocity > gentle[0].velocity, "a faster strike is a louder note");
     }
 
+    // The loop polls at 1kHz and a keyboard reports when it likes. Measured
+    // over one poll, a press read as full strength or as nothing depending on
+    // whether that poll happened to carry a new report, which is what a tester
+    // called "way too sensitive or not sensitive at all".
+    {
+        // One press, 0 to 0.6 in 60ms: half of full strength at scale 5.
+        const auto press = [&](int reportEveryMs) {
+            WootingPollState state;
+            for (int ms = 1; ms <= 60; ++ms) {
+                const int reported = ms / reportEveryMs * reportEveryMs;
+                if (reported == 0) { poll(state, {}, {}); continue; }
+                auto events = poll(state, {SC_1}, {0.01f * static_cast<float>(reported)});
+                if (!events.empty()) return static_cast<int>(events[0].velocity);
+            }
+            return -1;
+        };
+        const int everyPoll = press(1), everyFourth = press(4);
+        Require(everyPoll >= 54 && everyPoll <= 74, "a half-strength press reads as half strength");
+        Require(std::abs(everyPoll - everyFourth) <= 10,
+                "and reads the same when the keyboard reports every fourth poll");
+
+        // A finger resting part way down and then striking is a strike from
+        // where it rested, not a slow press from the top.
+        WootingPollState rested;
+        for (int ms = 0; ms < 500; ++ms) poll(rested, {SC_1}, {0.30f});
+        std::vector<WootingPollEvent> struck;
+        for (int ms = 1; ms <= 10 && struck.empty(); ++ms)
+            struck = poll(rested, {SC_1}, {0.30f + 0.03f * static_cast<float>(ms)});
+        Require(!struck.empty() && struck[0].velocity == 127, "a strike from a resting finger is still a strike");
+    }
+
     std::cout << "PASS wooting poll: trigger, release gap, shift, dropped keys and strike velocity\n";
 }
 

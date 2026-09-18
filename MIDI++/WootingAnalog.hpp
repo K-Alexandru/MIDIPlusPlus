@@ -62,6 +62,11 @@ inline constexpr uint16_t kWootingShiftScancode = 0x2A; // Left Shift
 // and this does not.
 uint8_t WootingVelocityFor(float depth, float previousDepth, double seconds, float velocityScale);
 
+// How far back strike speed looks, and how little travel in that time counts as
+// a key that has stopped.
+inline constexpr double kWootingStrikeWindow = 0.010;
+inline constexpr float kWootingRestingTravel = 0.01f;
+
 // What one poll of the analog buffer decides, with no SDK and no clock in it.
 //
 // The loop that calls this needs a Wooting on the desk; this does not, and it
@@ -75,6 +80,17 @@ struct WootingPollState {
     // shift can be let go while the key is still held, and a note off that does
     // not match its note on leaves the game holding a key down forever.
     std::array<int16_t, 256> sounding{};
+    // Where each key was 10 to 20ms ago, which is what strike speed is measured
+    // against. One poll is 1ms and a keyboard reports when it likes, so the
+    // travel since the previous poll is either nothing or several reports'
+    // worth, and a velocity taken from it is either silence or full strength.
+    // recent becomes older every kWootingStrikeWindow; a key that has stopped
+    // moving keeps its anchor at the present, so a finger resting part way
+    // down is measured from where it rested.
+    struct Anchor { float depth = 0.0f; double age = 0.0; };
+    std::array<Anchor, 256> recent{};
+    std::array<Anchor, 256> older{};
+    std::array<bool, 256> resting{};
 
     WootingPollState() { lastDepth.fill(0.0f); sounding.fill(-1); }
 };
