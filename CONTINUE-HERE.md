@@ -87,12 +87,10 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
 
 ## Validation actually run
 
-- 2026-09-18: `ShellTests.exe`, parity and all 360 `RenderTests.exe` scenarios
-  PASS with the fixes; `run-native-tests.ps1` all PASS at `9d05e76` (one
-  monitor, so the DPI move was skipped).
-- At `1de8a50`, not repeated since: no account, assistant or path string in
-  the exe or package text; default config; no settings, session or MIDI in
-  the zip; the source zip built `QuartzMIDI.exe` on its own elsewhere.
+- 2026-09-18: `ShellTests.exe`, parity and all 360 render scenarios PASS with
+  the fixes; `run-native-tests.ps1` PASS at `9d05e76`, DPI move skipped.
+- At `1de8a50`, not repeated since: the package scrub (no names, paths,
+  settings or MIDI) and the source zip building on its own.
 
 ## Build and test
 
@@ -117,6 +115,5 @@ python .\tools\make-source.py
 
 ## Next action
 
-Ask the owner which `REVIEW-2026-09-18.md` items to take and what they found
-in the smaller windows, fix those, then run `make-release.ps1` and
-`make-source.py`.
+Ask the owner which `REVIEW-2026-09-18.md` items to take, fix those, then
+run `make-release.ps1` and `make-source.py`.
