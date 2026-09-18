@@ -204,20 +204,36 @@ if '--no-build' not in sys.argv:
         msbuild = found[0].strip() if found and found[0].strip() else msbuild
     if not os.path.exists(msbuild):
         sys.exit('MSBuild was not found, so the zip was written but not built. Pass --no-build to accept that.')
+    # Once for each Windows SDK installed, not only the newest, which is what
+    # the project's "10.0" picks. A tester's Visual Studio brings its own SDK,
+    # and the two here differ where it matters: 10.0.22621's C++/WinRT finds
+    # its runtime functions with GetProcAddress and later ones link them, so
+    # a zip that built on one stopped at LNK2019 on the other.
+    include = os.path.expandvars(r'%ProgramFiles(x86)%\Windows Kits\10\Include')
+    sdks = sorted(name for name in (os.listdir(include) if os.path.isdir(include) else [])
+                  if os.path.exists(os.path.join(include, name, 'um', 'Windows.h')))
     check = tempfile.mkdtemp(prefix='quartz-source-check-')
     with zipfile.ZipFile(out) as bundle:
         bundle.extractall(check)
-    built = subprocess.run([msbuild, os.path.join(check, 'QuartzMIDI-source', 'QuartzMIDI.sln'), '/p:Configuration=Release',
-                            '/p:Platform=x64', '/m', '/v:minimal', '/nologo'], capture_output=True, text=True)
     exe = os.path.join(check, 'QuartzMIDI-source', 'build', 'shell', 'QuartzMIDI.exe')
-    ok = built.returncode == 0 and os.path.exists(exe)
-    if not ok:
-        print(built.stdout[-4000:])
+    failed = None
+    for sdk in sdks or [None]:
+        if os.path.exists(exe):
+            os.remove(exe)
+        command = [msbuild, os.path.join(check, 'QuartzMIDI-source', 'QuartzMIDI.sln'), '/t:Rebuild',
+                   '/p:Configuration=Release', '/p:Platform=x64', '/m', '/v:minimal', '/nologo']
+        if sdk:
+            command.append('/p:WindowsTargetPlatformVersion=' + sdk)
+        built = subprocess.run(command, capture_output=True, text=True)
+        if built.returncode != 0 or not os.path.exists(exe):
+            print(built.stdout[-4000:])
+            failed = sdk or 'the default SDK'
+            break
+        print('Built  QuartzMIDI.exe from the zip, through QuartzMIDI.sln, Windows SDK', sdk or 'default')
     shutil.rmtree(check, ignore_errors=True)
-    if not ok:
+    if failed:
         os.remove(out)
-        sys.exit('The zip did not build on its own, so it was removed.')
-    print('Built  QuartzMIDI.exe from the zip, through QuartzMIDI.sln')
+        sys.exit('The zip did not build on its own with ' + failed + ', so it was removed.')
 
 digest = hashlib.sha256(open(out, 'rb').read()).hexdigest().upper()
 print('Zip   ', out, '({:,} bytes)'.format(os.path.getsize(out)))
