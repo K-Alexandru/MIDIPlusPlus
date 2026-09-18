@@ -7,7 +7,7 @@ Updated 2026-09-18 on `claude/consolidate-2026-09-15`, the one branch. Read
 
 Build the five items `SHELL-GAPS.md` lists under "Asked for on 2026-09-18", in
 its order. Hotkeys and custom themes are built (`9d0f64f`), not fully pressed.
-Legit mode is next: the owner wants it rethought entirely, not tuned. The panel
+Legit mode is next: its redesign is agreed with the owner, not built. The panel
 seat owns `ui/` (`SEATS.md`); what the owner asks for there is in scope.
 
 ## Decisions made, do not reopen
@@ -28,7 +28,10 @@ seat owns `ui/` (`SEATS.md`); what the owner asks for there is in scope.
   key plus icon in one outline at every width, never words or seek seconds.
 - Custom themes (item 2): colour only, like every skin; the swatches and the
   picker are the app's own drawing, not ImGui's widgets.
-- Legit Mode wears an Experimental tag in Settings until it is rethought.
+- Legit Mode (`SHELL-GAPS.md` item 3) is a fresh live take of a human
+  recording, never a repair of a poor file. Presets are the assumed player:
+  Pro, Student, Beginner. Difficulty is an estimate the user overrides. The
+  Experimental tag stays until the owner says it convinces.
 - The game owns the key protocol: Alt is velocity, Ctrl is the 88-key notes,
   the velocity keys are the note keys. A fix or a test never changes a bind.
 - Test builds stay on this PC: `make-release.ps1` zips to `build\release\`.
@@ -45,11 +48,9 @@ seat owns `ui/` (`SEATS.md`); what the owner asks for there is in scope.
 
 ## Verified facts
 
-- Legit mode today is three memoryless uniform draws at dispatch: a late-only
-  press offset of up to 5 ms at the default, a 2% dropped note-on, and on 5%
-  of batches a 50 to 200 ms hesitation. The offsets and the hesitation are
-  `sleep_for` on the dispatch thread itself, so everything due in that window
-  waits behind them; a tester called it laggy.
+- Legit mode today is three memoryless uniform draws at dispatch (press offset,
+  2% dropped note-on, a 50 to 200 ms hesitation), done as `sleep_for` on the
+  dispatch thread, so everything due waits behind them; a tester called it laggy.
 - `ShellTests.exe` stops at its first failure; run the exe to read its output.
 - `gh` holds two accounts, K-Alexandru active. Credential Manager offers
   greasebob and `origin` refuses it; push with
@@ -57,27 +58,27 @@ seat owns `ui/` (`SEATS.md`); what the owner asks for there is in scope.
 - A running `QuartzMIDI.exe` blocks the shell link and `make-release.ps1`.
   Ask the owner to close theirs; never kill it.
 - The display runs at 125%; read `tests/NativeShell.ps1` before scripting a
-  click. PowerShell 5.1: never redirect a native exe with `2>&1` under
-  `$ErrorActionPreference = 'Stop'`; run `run-shell-tests.ps1` bare.
+  click. PowerShell 5.1: no `2>&1` on a native exe; run the test script bare.
 
 ## Work completed
 
-- To 2026-09-17: `HANDOFF.md`; then `REVIEW-2026-09-18.md` and `LATENCY.md`.
-- 2026-09-18, `b674608` to `4fafdb7`: eight tester fixes, listed in `git log`.
+- To 2026-09-17: `HANDOFF.md`, `REVIEW-2026-09-18.md`, `LATENCY.md`; then
+  `b674608` to `4fafdb7`, eight tester fixes; Legit redesign agreed 2026-09-18.
 - 2026-09-18, `3fc9e86` to `9d0f64f`: rebindable hotkeys with an icon legend,
   custom themes with the app's own picker, wider hover fills in Settings, the
   Legit Mode tag, and `make-source.py` dropping `MIDI++.APS`.
 
 ## Unresolved
 
-- **Hotkeys: the owner bound F5 and F6 in the app; the rest is unpressed.** The
-  Sol seat or the owner: a media key, a key another program holds, move a key
-  between actions, unbind, Escape out, hold the key past its repeat, and
-  capture with Settings as its own window in mini mode.
-- **Themes: the app's own picker has never been dragged.** Drag the field and
-  the bars, an alpha bar under Fine detail, type a colour, the three starting
-  colours, both halves, an unpaired theme, delete, and restart to see
-  `themes.json` come back.
+- **Legit mode: owner to say** whether the preset and Difficulty are remembered
+  per file (nothing is saved per song today), and to drop three or four usual
+  recordings into `x64\Release\midi\`, which holds two files.
+- **Hotkeys: the owner bound F5 and F6; the rest is unpressed.** A media key, a
+  key another program holds, move a key, unbind, Escape out, hold past repeat,
+  and capture with Settings as its own window in mini mode.
+- **Themes: the app's own picker has never been dragged.** The field and bars,
+  an alpha bar under Fine detail, a typed colour, the three starting colours,
+  both halves, an unpaired theme, delete, and `themes.json` after a restart.
 - **Owner to say** whether a note key may be a hotkey: bound, it is taken from
   the game while the app is open, and nothing stops it today.
 - **Tester shampoojr** to confirm the tester list on the `9d0f64f` build; none
@@ -94,9 +95,8 @@ seat owns `ui/` (`SEATS.md`); what the owner asks for there is in scope.
 - `8baf9bd`: `ShellTests.exe`, parity, 360 render scenarios, the native suite
   and `LatencyTests.exe --loopback` PASS.
 - `b674608` to `9d0f64f`: `run-shell-tests.ps1 -Render` PASS at each commit, 460
-  render scenarios at the last; the new renders were read at 125% in one or
-  two skins each, and none shows an alpha bar. Hotkey capture is tested against
-  a key table, never `GetAsyncKeyState`. The source zip builds on both SDKs.
+  render scenarios at the last; new renders read at 125% in one or two skins.
+  Hotkey capture is tested against a key table. The source zip builds on both SDKs.
 - Legit mode: nothing run; `LatencyTests.exe --legit` last ran before 2026-09-18.
 
 ## Repository state
@@ -114,6 +114,7 @@ seat owns `ui/` (`SEATS.md`); what the owner asks for there is in scope.
 
 ## Next action
 
-Read `LEGIT-MODE.md` and `HANDOFF.md` line 352, then write under `SHELL-GAPS.md`
-item 3 what Legit mode is for and a redesign that starts from its verdict, and
-show that to the owner before changing `MIDI++/PlaybackCore.cpp`.
+Read `SHELL-GAPS.md` item 3 and `LEGIT-MODE.md`. First measure whether plain
+playback flattens a human recording (`LatencyTests.exe`, the owner's files),
+then build the plan schedule beside `note_buffer` in `MIDI++/PlaybackCore.cpp`
+with its tests, then the Settings controls, then rewrite `LEGIT-MODE.md`.

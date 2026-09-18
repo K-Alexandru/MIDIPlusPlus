@@ -580,14 +580,17 @@ From the owner and a tester in one session. Nothing here is optional.
      up before its next press.
    - Dropped notes and the random hesitation are cut from the default. Mistakes
      stays as a slider at 0: an inner chord note, never the top or the bottom.
-   - Settings: the switch, presets Subtle, Natural and Loose, and sliders
-     Timing, Tempo, Dynamics, Note Length, Mistakes; a moved slider reads
-     Custom. No text. Natural is sized to how much one player differs between
-     two takes of the same piece, which is small. Loose is what a quantised
-     file wants, and the user picks it; the app does not guess the file's kind.
+   - Settings: the switch, presets Pro, Student and Beginner, a Difficulty
+     slider, and sliders Timing, Tempo, Dynamics, Note Length, Mistakes; a
+     moved slider reads Custom. No text. Pro is sized to how much one player
+     differs between two takes of the same piece, which is small. A quantised
+     file wants a looser preset, and the user picks it; the app does not guess
+     the file's kind.
    - The owner, same day: a harder song has more issues live, and how many
      depends on the player we assume, one who practised it a lot or one who
-     struggles with it. The presets are that assumed player, names not settled.
+     struggles with it. The presets are that assumed player, named by the
+     owner: Pro, Student, Beginner. (The velocity curve once called Pro is
+     S-Curve since 2026-09-11, so the name is free.)
      Difficulty is scored (notes per second, chord size, leaps) but it is hard
      to calculate and the user knows the song, so the score is shown as an
      estimate and is only where a Difficulty slider starts: a mark labelled
