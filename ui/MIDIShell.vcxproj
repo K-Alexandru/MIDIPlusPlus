@@ -5,7 +5,11 @@
   </ItemGroup>
   <PropertyGroup Label="Globals"><ProjectGuid>{8f2c1a77-3d6e-4a91-b0c2-51d7e9a4f310}</ProjectGuid><WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion></PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
-  <PropertyGroup Label="Configuration"><ConfigurationType>Application</ConfigurationType><PlatformToolset>v143</PlatformToolset><CharacterSet>Unicode</CharacterSet></PropertyGroup>
+  <!-- v143 where it is installed, which is what this is built and tested
+       with. Where it is not, the toolset that came with the Visual Studio
+       doing the build: a newer Visual Studio installs its own and not v143,
+       and a fixed v143 stopped there with MSB8020 before compiling a line. -->
+  <PropertyGroup Label="Configuration"><ConfigurationType>Application</ConfigurationType><PlatformToolset>v143</PlatformToolset><PlatformToolset Condition="!Exists('$(VCTargetsPath)\Platforms\x64\PlatformToolsets\v143\Toolset.props') And '$(DefaultPlatformToolset)' != ''">$(DefaultPlatformToolset)</PlatformToolset><CharacterSet>Unicode</CharacterSet></PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <PropertyGroup><TargetName>QuartzMIDI</TargetName><OutDir>$(MSBuildThisFileDirectory)..\build\shell\</OutDir><IntDir>$(MSBuildThisFileDirectory)..\build\shell-obj\</IntDir></PropertyGroup>
   <ItemDefinitionGroup>
