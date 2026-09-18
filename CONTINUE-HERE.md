@@ -107,14 +107,14 @@ shell (`ui/`) over `PlaybackCore`, replacing the Win32 window (`MIDI++/`).
   asking is authorized; creating the public repository is not.
 - The main checkout is on this branch, pushed, clean apart from the owner's
   `x64\Release\MIDI++.exe` and `x64\Release\midi\`; leave `D:\Dev\mpp-panels`.
-- Demo v2 from `b0b5d22`: `build\release\QuartzMIDI-demo-v2.zip` (426 MB,
-  SHA256 `B7D2238071C760BEC28FB0E9AFEAB91D6433BA5A15B14446ED23D8A3E18DCB72`)
-  and `QuartzMIDI-source-b0b5d22.zip`; both are two commits behind, see Next.
+- Demo v2 from `cfcaa99`: `build\release\QuartzMIDI-demo-v2.zip` (426 MB,
+  SHA256 `6688FD93758FD67CE7F9B7D50CA50BAA0CAE92DF7ACBCA89F210417AF00D36B3`)
+  and `QuartzMIDI-source-cfcaa99.zip`, every 2026-09-18 fix in; send no older.
 - Never commit `x64/Release/midi/`, `build/`, `MIDI++/MIDI++/`, `.claude/`,
   `tools/mp3-to-midi/cookies.txt` or `tools/mp3-to-midi/browser/`.
 
 ## Next action
 
-Rebuild both zips from `4fafdb7` or later once the owner's app is closed (the
-`b0b5d22` pair lacks `a187c94`, the real sticky-key fix, and the darker light
-skins). Then item 1 of the 2026-09-18 list in `SHELL-GAPS.md`: hotkeys.
+Item 1 of the 2026-09-18 list in `SHELL-GAPS.md`: rebindable hotkeys with
+media keys, a failing test first. `MIDI++\MIDI++.APS` in the source zip is an
+upstream resource cache naming upstream's user path; drop it from the zip.
