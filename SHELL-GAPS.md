@@ -602,10 +602,24 @@ From the owner and a tester in one session. Nothing here is optional.
      to a file is open.
    - Old `LEGIT_MODE_SETTINGS` keys still load and are ignored.
 
-   **First, before the model:** measure whether plain playback flattens a
-   recording (one batch fires everything due together; velocity falls to 32
-   levels). Needs a few of the owner's usual recordings;
-   `x64\Release\midi\` holds two files.
+   **Measured 2026-09-18** with `python tools\measure-midi.py x64\Release\midi`
+   on eight of the owner's recordings, one each from Chewie Melodies,
+   ViddyWell, The Flaming Piano, Theishter, FrankTedesco and SL K out of
+   `D:\MIDI++ 1.0.4.R5 Release\midi`, plus the two already there:
+   - All eight are played: 0 to 4% of onsets sit on a 1/48 grid.
+   - Median chord spread is 7 to 20 ms, so a take's per-note offset has to stay
+     well under that, a few milliseconds, or it rewrites the player's chords.
+   - Chords whose notes share one tick are 0 to 15% in seven files and 81% in
+     the Chewie file. Same-instant presses are in real recordings; Legit mode
+     does not forbid them.
+   - 3 to 26% of distinct onsets are under 3 ms apart, which is what the
+     dispatch batch could merge. Not yet measured on the playback side.
+   - Velocities use 19 to 31 of the game's 32 levels, so one level is a
+     meaningful Dynamics step.
+
+   **First, before the model:** measure whether plain playback flattens those
+   close onsets (one batch fires everything due together), with
+   `LatencyTests.exe` and these files.
 
    **Proof:** the existing `--legit` tests, plus dispatch lateness on equals
    off, two seeds differ, a fixed seed repeats, offsets stay inside their
