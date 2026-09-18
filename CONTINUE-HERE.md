@@ -76,9 +76,8 @@ seat owns `ui/` (`SEATS.md`); what the owner asks for there is in scope.
 - **Hotkeys: the owner bound F5 and F6; the rest is unpressed.** A media key, a
   key another program holds, move a key, unbind, Escape out, hold past repeat,
   and capture with Settings as its own window in mini mode.
-- **Themes: the app's own picker has never been dragged.** The field and bars,
-  an alpha bar under Fine detail, a typed colour, the three starting colours,
-  both halves, an unpaired theme, delete, and `themes.json` after a restart.
+- **Themes: the picker has never been dragged.** Field, bars, alpha under Fine
+  detail, typed colour, both halves, unpaired, delete, `themes.json` on restart.
 - **Owner to say** whether a note key may be a hotkey: bound, it is taken from
   the game while the app is open, and nothing stops it today.
 - **Tester shampoojr** to confirm the tester list on the `9d0f64f` build; none
@@ -87,8 +86,8 @@ seat owns `ui/` (`SEATS.md`); what the owner asks for there is in scope.
   which shows the old values and knows nothing of themes, takes the new ones.
 - **Publishing**, parked, and the Colab notice behind it. `build\publish` holds a
   staged commit whose README and `.gitignore` are to keep; restage it first.
-- **Tester on Visual Studio 2026** to build the source zip or send the error.
-- **Owner to test**: velocity editor, WinMM, mini, sheets, MIDI out, mixed DPI.
+- **Tester on VS 2026** to build the source zip. **Owner to test**: velocity
+  editor, WinMM, mini, sheets, MIDI out, mixed DPI.
 
 ## Validation actually run
 
