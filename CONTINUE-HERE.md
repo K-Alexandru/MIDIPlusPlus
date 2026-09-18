@@ -75,7 +75,7 @@ shell (`ui/`) over `PlaybackCore`, replacing the Win32 window (`MIDI++/`).
 
 - **Doubled notes, and sticking at high velocity**: a MIDI player into loopMIDI
   into live keys. Owed: Velocity off, 88 keys off, the file. Tap fix untried.
-- **Publishing, stopped before staging.** Unzip `QuartzMIDI-source-95fd689.zip`,
+- **Publishing, stopped before staging.** Unzip `QuartzMIDI-source-2864d9a.zip`,
   add a short README (upstream's claims latency this fork never measured)
   and a `.gitignore`, commit as above, show the owner, then
   `gh repo create greasebob/QuartzMIDI --public`.
@@ -83,7 +83,7 @@ shell (`ui/`) over `PlaybackCore`, replacing the Win32 window (`MIDI++/`).
   put the new address in the notebook's three `PROJECT_URL`s, get the owner's
   yes on its wording, edit it in place in their Chrome so the link holds.
   The extension is connected; whether it is signed in as the owner is unchecked.
-- **Tester on Visual Studio 2026** to build `95fd689`, or send the error text.
+- **Tester on Visual Studio 2026** to build `2864d9a`, or send the error text.
 - **Owner to read** the text redrawn (UI, in the review) and test `8baf9bd`:
   velocity editor, WinMM, mini, sheets, game, Wooting, MIDI out, mixed DPI.
 
@@ -107,9 +107,9 @@ shell (`ui/`) over `PlaybackCore`, replacing the Win32 window (`MIDI++/`).
   asking is authorized; creating the public repository is not.
 - The main checkout is on this branch, pushed, clean apart from the owner's
   `x64\Release\MIDI++.exe` and `x64\Release\midi\`; leave `D:\Dev\mpp-panels`.
-- Demo v2 from `bef9436`: `build\release\QuartzMIDI-demo-v2.zip` (426 MB,
-  SHA256 `28ABF2FCCCB47FA14E41A4A64B52D933D4EFF5A9E43DF4F216EB9F9FBD89088D`)
-  and `QuartzMIDI-source-95fd689.zip`, both fixes in; send no older source zip.
+- Demo v2 from `2864d9a`: `build\release\QuartzMIDI-demo-v2.zip` (426 MB,
+  SHA256 `F4EAE9B2F25648594A74E1C484ADC0E2ECED997FBF1F6883FB0C46CF972E8644`)
+  and `QuartzMIDI-source-2864d9a.zip`, all three fixes in; send no older source zip.
 - Never commit `x64/Release/midi/`, `build/`, `MIDI++/MIDI++/`, `.claude/`,
   `tools/mp3-to-midi/cookies.txt` or `tools/mp3-to-midi/browser/`.
 
