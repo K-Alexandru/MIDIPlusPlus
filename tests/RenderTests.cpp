@@ -155,6 +155,8 @@ int wmain() {
                 if (mode == 5) io.AddMousePosEvent(leftEdge - 1.5f * s.metric.controlHeight - s.spacing.s2, buttonY);
                 else if (mode == 6) io.AddMousePosEvent(width - s.spacing.windowPad - s.spacing.panelPad - 40 * dpi, buttonY);
                 else if (mode == 10) io.AddMousePosEvent(openX, openY);
+                // Over a switch, so the capture shows the row's hover fill.
+                else if (mode == 14) io.AddMousePosEvent(width - 180 * dpi, 120 * dpi);
                 else io.AddMousePosEvent(-1000, -1000);
                 io.AddMouseButtonEvent(0, (mode == 5 || mode == 6 || mode == 10) && frame == 3);
                 ImGui::GetIO().DisplaySize = ImVec2(static_cast<float>(width), static_cast<float>(height));

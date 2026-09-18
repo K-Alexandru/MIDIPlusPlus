@@ -203,8 +203,10 @@ bool SettingSection(const char* label, const skin::Skin& s, float dpi) {
     if (ImGui::InvisibleButton("##section", size)) { open = !open; storage->SetBool(key, open); }
     ImGui::PopID();
     auto* draw = ImGui::GetWindowDrawList();
+    // A step wider than the row, like the switches' fill.
+    const float bleed = std::min(8 * dpi, ImGui::GetStyle().WindowPadding.x / 2);
     if (ImGui::IsItemHovered() || ImGui::IsItemFocused())
-        draw->AddRectFilled(min, ImVec2(min.x + size.x, min.y + size.y), Colour(s.surface.recessed), s.radius.control);
+        draw->AddRectFilled(ImVec2(min.x - bleed, min.y), ImVec2(min.x + size.x + bleed, min.y + size.y), Colour(s.surface.recessed), s.radius.control);
     const float side = 16 * dpi;
     const ImU32 ink = ImGui::GetColorU32(ImGuiCol_Text);
     DrawIcon(draw, open ? Icon::Down : Icon::Right, ImVec2(min.x + 4 * dpi, min.y + (size.y - side) / 2), side, ink, dpi);
@@ -348,12 +350,23 @@ bool SettingSwitch(const char* label, bool& value, const char* description,
     const auto min = ImGui::GetCursorScreenPos();
     const float width = ImGui::GetContentRegionAvail().x;
     ImGui::PushID(label);
+    // The button's own hover fill is exactly the row, so it ended where the
+    // label starts and where the rail ends, with nothing between the fill's
+    // edge and either. Drawn here instead, a step wider on both sides, into
+    // the popover's padding; the clip rect allows half of that padding.
     ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, IM_COL32(0, 0, 0, 0));
     ImGui::PushStyleColor(ImGuiCol_Border, IM_COL32(0, 0, 0, 0));
     const bool clicked = ImGui::Button("##switch", ImVec2(width, s.metric.controlHeight));
-    ImGui::PopStyleColor(2);
+    ImGui::PopStyleColor(4);
     if (clicked) value = !value;
     auto* draw = ImGui::GetWindowDrawList();
+    if (ImGui::IsItemHovered() || ImGui::IsItemFocused()) {
+        const float bleed = std::min(8 * dpi, ImGui::GetStyle().WindowPadding.x / 2);
+        draw->AddRectFilled(ImVec2(min.x - bleed, min.y), ImVec2(min.x + width + bleed, min.y + s.metric.controlHeight),
+                            ImGui::GetColorU32(ImGui::IsItemActive() ? ImGuiCol_ButtonActive : ImGuiCol_ButtonHovered), s.radius.control);
+    }
     DrawEllipsis(label, width - 44 * dpi, ImVec2(min.x, min.y + (s.metric.controlHeight - ImGui::GetTextLineHeight()) / 2));
     const ImVec2 rail(min.x + width - 32 * dpi, min.y + (s.metric.controlHeight - 16 * dpi) / 2);
     draw->AddRectFilled(rail, ImVec2(rail.x + 32 * dpi, rail.y + 16 * dpi), Colour(value ? s.accent.okSoft : s.surface.recessed), 8 * dpi);
@@ -1499,14 +1512,30 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
         ImGui::CloseCurrentPopup();
     }
     SettingSwitch("Solo piano tracks on load", preferences.autoSolo, nullptr, fonts, design, dpi);
+    if (revealSettingsSwitches) ImGui::SetScrollHereY(0.f);
     bool legit = state->legitMode;
+    const ImVec2 legitMin = ImGui::GetCursorScreenPos();
+    const float legitLabel = ImGui::CalcTextSize("Legit Mode").x;
     if (SettingSwitch("Legit Mode", legit,
         nullptr, fonts, design, dpi))
         engine.Send({ShellEngine::Action::LegitMode, {}, 0, 0, legit});
+    {
+        // Carried over from upstream and owed a rethink (SHELL-GAPS.md), so
+        // it wears a tag in the warning colour: one word, where a sentence
+        // about what is wrong with it would be the app explaining itself.
+        FontScope meta(fonts, design, design.type.meta * SpecFontScale(design), Weight::Semibold);
+        const char* tag = "Experimental";
+        const ImVec2 text = ImGui::CalcTextSize(tag);
+        const float padX = 6 * dpi, height = text.y + 4 * dpi;
+        const ImVec2 tagMin(legitMin.x + legitLabel + s.spacing.s2, legitMin.y + (s.metric.controlHeight - height) / 2);
+        const ImVec2 tagMax(tagMin.x + text.x + 2 * padX, tagMin.y + height);
+        auto* draw = ImGui::GetWindowDrawList();
+        draw->AddRect(tagMin, tagMax, Colour(s.accent.warn), height / 2, 0, dpi);
+        draw->AddText(ImVec2(tagMin.x + padX, tagMin.y + 2 * dpi), Colour(s.accent.warn), tag);
+    }
     bool shuffle = state->shuffle;
     if (SettingSwitch("Shuffle Play", shuffle, nullptr, fonts, design, dpi))
         engine.Send({ShellEngine::Action::Shuffle, {}, 0, 0, shuffle});
-    if (revealSettingsSwitches) ImGui::SetScrollHereY(0.f);
     bool detectDrums = state->detectDrums;
     if (SettingSwitch("Detect drum tracks", detectDrums, nullptr, fonts, design, dpi))
         engine.Send({ShellEngine::Action::DetectDrums, {}, 0, 0, detectDrums});
