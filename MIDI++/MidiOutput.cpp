@@ -16,6 +16,10 @@
 #include <winrt/Windows.Devices.Midi.h>
 #include <winrt/Windows.Storage.Streams.h>
 
+// As in MidiInput.cpp: newer Windows SDKs link C++/WinRT's runtime functions
+// instead of finding them at run time.
+#pragma comment(lib, "runtimeobject.lib")
+
 #include "RtMidi.h"
 
 #include <algorithm>

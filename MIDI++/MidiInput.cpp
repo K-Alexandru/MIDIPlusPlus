@@ -10,6 +10,14 @@
 #include <winrt/Windows.Devices.Midi.h>
 #include <winrt/Windows.Storage.Streams.h>
 
+// C++/WinRT reaches RoGetActivationFactory and RoOriginateLanguageException.
+// The Windows SDK's 10.0.22621 headers find them with GetProcAddress, so
+// nothing had to be linked and no project names a library for them. Newer
+// SDKs link them, and the build stopped at LNK2019 on any machine with one.
+// runtimeobject.lib is those functions and nothing else; windowsapp.lib is
+// an umbrella that would also re-route the Win32 imports it shares.
+#pragma comment(lib, "runtimeobject.lib")
+
 #include "RtMidi.h"
 #include "WootingAnalog.hpp"
 

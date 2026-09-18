@@ -144,6 +144,24 @@ for top in ('MIDI++', 'ui'):
             if new != text:
                 open(path, 'wb').write(new.encode(encoding))
 
+# This machine's Windows SDK (10.0.22621) finds C++/WinRT's runtime functions
+# with GetProcAddress; newer SDKs link them. A file that includes <winrt/...>
+# without naming runtimeobject.lib therefore builds here and stops at LNK2019
+# for a tester, which the build below cannot see. RtMidi's UWP backend is
+# behind a define nothing sets.
+unlinked = []
+for top in ('MIDI++', 'ui'):
+    for folder, _, files in os.walk(os.path.join(root, top)):
+        for name in files:
+            if os.path.splitext(name)[1].lower() not in ('.cpp', '.hpp', '.h') or name == 'RtMidi.cpp':
+                continue
+            text = open(os.path.join(folder, name), encoding='utf-8', errors='replace').read()
+            if '#include <winrt/' in text and 'runtimeobject.lib' not in text:
+                unlinked.append(os.path.relpath(os.path.join(folder, name), root))
+if unlinked:
+    shutil.rmtree(work, ignore_errors=True)
+    sys.exit('These use C++/WinRT without #pragma comment(lib, "runtimeobject.lib"): ' + ', '.join(unlinked))
+
 forbidden = re.compile(r'k-alexandru|kailash|viner|\bKAV\b|claude|anthropic|astra\b|codex|gpt-|panel seat|engine seat|'
                        r'\bassistant\b|co-authored|CONTINUE-HERE|HANDOFF|\bSol 5', re.I)
 hits = []
