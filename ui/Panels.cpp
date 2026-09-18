@@ -779,40 +779,146 @@ std::string NewThemeName(const ThemeStore& themes, const std::string& from) {
     }
 }
 
-// A swatch that opens ImGui's picker, with the role's name beside it. True
-// while the colour is being changed.
-bool ThemeSwatch(const char* label, skin::Argb& colour, bool alpha) {
-    // The picker's own floats, kept for as long as the colour is still the
-    // one they produced. Rebuilt from the saved 8-bit colour every frame, the
-    // hue moved with the rounding, and the picker's hue moved with it: the
-    // cursor shook, and near grey, where hue is barely defined, it jumped.
-    struct Live { ImGuiID id = 0; float value[4]{}; skin::Argb result = 0; };
-    static Live live;
+// A colour's swatch with its role's name beside it, and the picker it opens:
+// a saturation and brightness field, a hue bar, an alpha bar for the colours
+// that have one, and the colour as text. All of it is drawn here. ImGui's own
+// swatch rounds to a sixth of its side, squarer than every other control in
+// the app, and its picker is square-cornered and unstyled. True while the
+// colour is being changed.
+//
+// The picker works in hue, saturation and value and keeps them for as long as
+// the colour is still the one they made. Rebuilt from the saved 8-bit colour
+// every frame, the hue moved with the rounding and the cursor shook; near
+// grey, where hue is barely defined, it jumped.
+bool ThemeSwatch(const char* label, skin::Argb& colour, bool alpha, const skin::Skin& s, float dpi) {
+    struct Picker { ImGuiID id = 0; float h = 0, sat = 0, v = 0, a = 1; skin::Argb result = 0; char text[12]{}; };
+    static Picker picker;
     const ImGuiID id = ImGui::GetID(label);
-    float value[4]{(colour >> 16 & 0xFF) / 255.f, (colour >> 8 & 0xFF) / 255.f, (colour & 0xFF) / 255.f, (colour >> 24) / 255.f};
-    if (live.id == id && live.result == colour) std::copy(std::begin(live.value), std::end(live.value), value);
-    // The square and a hue bar, not the wheel: nothing in it turns under the
-    // mouse while a colour is dragged.
-    const ImGuiColorEditFlags flags = ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_DisplayHex | ImGuiColorEditFlags_PickerHueBar |
-        (alpha ? ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreviewHalf : ImGuiColorEditFlags_NoAlpha);
+    const char* labelEnd = ImGui::FindRenderedTextEnd(label);
+    const float side = s.metric.controlHeight, gap = s.spacing.s2;
     const ImVec2 min = ImGui::GetCursorScreenPos();
-    const bool edited = ImGui::ColorEdit4(label, value, flags);
+    const float labelWidth = ImGui::CalcTextSize(label, labelEnd).x;
+    auto* draw = ImGui::GetWindowDrawList();
+    const auto packed = [](skin::Argb argb) { return IM_COL32(argb >> 16 & 0xFF, argb >> 8 & 0xFF, argb & 0xFF, argb >> 24); };
+
+    ImGui::PushID(label);
+    // The name is part of the button: it is the larger target of the two.
+    const bool clicked = ImGui::InvisibleButton("##swatch", ImVec2(side + gap + labelWidth, side));
+    const bool hot = ImGui::IsItemHovered() || ImGui::IsItemFocused() || ImGui::IsPopupOpen("##picker");
+    const ImVec2 max(min.x + side, min.y + side);
+    // Under a translucent colour, the field it will be painted on.
+    draw->AddRectFilled(min, max, Colour(s.surface.card), s.radius.control);
+    draw->AddRectFilled(min, max, packed(colour), s.radius.control);
     // An edge in the text colour, which stands out from any background a
     // theme can have: a swatch of the window's own colour was invisible.
-    // At the swatch's own radius: ColorButton caps its rounding at half a
-    // checker square, a sixth of its side, and an edge at the full frame
-    // radius left the swatch's corners outside it.
-    const float side = ImGui::GetFrameHeight();
-    const float rounding = std::min(ImGui::GetStyle().FrameRounding, side / 2.99f * .5f);
-    ImGui::GetWindowDrawList()->AddRect(min, ImVec2(min.x + side, min.y + side), ImGui::GetColorU32(ImGuiCol_Text, .28f),
-                                        rounding, 0, 1.f);
-    if (!edited) return false;
-    const auto channel = [](float v) { return static_cast<skin::Argb>(std::lround(std::clamp(v, 0.f, 1.f) * 255.f)); };
-    colour = (alpha ? channel(value[3]) : 0xFFu) << 24 | channel(value[0]) << 16 | channel(value[1]) << 8 | channel(value[2]);
-    live.id = id;
-    std::copy(std::begin(value), std::end(value), live.value);
-    live.result = colour;
-    return true;
+    draw->AddRect(min, max, ImGui::GetColorU32(ImGuiCol_Text, hot ? .55f : .28f), s.radius.control, 0, dpi);
+    draw->AddText(ImVec2(max.x + gap, min.y + (side - ImGui::GetTextLineHeight()) / 2), ImGui::GetColorU32(ImGuiCol_Text), label, labelEnd);
+    if (clicked) ImGui::OpenPopup("##picker");
+
+    bool changed = false;
+    ImGui::SetNextWindowPos(ImVec2(min.x, max.y + s.spacing.s1), ImGuiCond_Appearing);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(s.spacing.s3, s.spacing.s3));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(s.spacing.s2, s.spacing.s3));
+    if (ImGui::BeginPopup("##picker")) {
+        const auto toText = [&] { snprintf(picker.text, sizeof(picker.text), "%s", ColourText(colour).c_str()); };
+        if (picker.id != id || picker.result != colour) {
+            ImGui::ColorConvertRGBtoHSV((colour >> 16 & 0xFF) / 255.f, (colour >> 8 & 0xFF) / 255.f, (colour & 0xFF) / 255.f,
+                                        picker.h, picker.sat, picker.v);
+            picker.a = (colour >> 24) / 255.f;
+            picker.id = id;
+            picker.result = colour;
+            toText();
+        }
+        auto* layer = ImGui::GetWindowDrawList();
+        const float width = 232 * dpi, fieldHeight = 148 * dpi, barHeight = 14 * dpi;
+        const auto hsv = [](float h, float sat, float v, float a = 1.f) {
+            float r, g, b;
+            ImGui::ColorConvertHSVtoRGB(h, sat, v, r, g, b);
+            return ImGui::ColorConvertFloat4ToU32(ImVec4(r, g, b, a));
+        };
+        // Columns a pixel wide, each cut short by the corner it falls under:
+        // a gradient rectangle has square corners, and a rounded one has no
+        // vertices between its ends to carry a rainbow.
+        const auto columns = [&](ImVec2 origin, float height, float radius, const auto& paint) {
+            for (float x = 0; x < width; x += 1.f) {
+                const float centre = x + .5f;
+                const float into = centre < radius ? radius - centre : centre > width - radius ? centre - (width - radius) : 0.f;
+                const float inset = into > 0 ? radius - std::sqrt(std::max(0.f, radius * radius - into * into)) : 0.f;
+                paint(x / (width - 1), ImVec2(origin.x + x, origin.y + inset), ImVec2(origin.x + std::min(x + 1.f, width), origin.y + height - inset),
+                      inset / height);
+            }
+        };
+        const auto handle = [&](ImVec2 at, float radius, ImU32 fill) {
+            layer->AddCircleFilled(at, radius, fill);
+            layer->AddCircle(at, radius, IM_COL32(255, 255, 255, 255), 0, 2 * dpi);
+            layer->AddCircle(at, radius + dpi, IM_COL32(0, 0, 0, 90), 0, dpi);
+        };
+        const ImVec2 mouse = ImGui::GetIO().MousePos;
+
+        const ImVec2 field = ImGui::GetCursorScreenPos();
+        ImGui::InvisibleButton("##field", ImVec2(width, fieldHeight));
+        if (ImGui::IsItemActive()) {
+            picker.sat = std::clamp((mouse.x - field.x) / width, 0.f, 1.f);
+            picker.v = 1.f - std::clamp((mouse.y - field.y) / fieldHeight, 0.f, 1.f);
+            changed = true;
+        }
+        columns(field, fieldHeight, s.radius.element, [&](float t, ImVec2 a, ImVec2 b, float cut) {
+            const ImU32 top = hsv(picker.h, t, 1.f - cut), bottom = hsv(picker.h, t, cut);
+            layer->AddRectFilledMultiColor(a, b, top, top, bottom, bottom);
+        });
+        layer->AddRect(field, ImVec2(field.x + width, field.y + fieldHeight), Colour(s.border.strong), s.radius.element, 0, dpi);
+        handle(ImVec2(field.x + picker.sat * width, field.y + (1.f - picker.v) * fieldHeight), 6 * dpi, hsv(picker.h, picker.sat, picker.v));
+
+        const auto bar = [&](const char* name, float& value, const auto& paint, ImU32 knob) {
+            const ImVec2 origin = ImGui::GetCursorScreenPos();
+            ImGui::InvisibleButton(name, ImVec2(width, barHeight));
+            if (ImGui::IsItemActive()) { value = std::clamp((mouse.x - origin.x) / width, 0.f, 1.f); changed = true; }
+            columns(origin, barHeight, barHeight / 2, paint);
+            layer->AddRect(origin, ImVec2(origin.x + width, origin.y + barHeight), Colour(s.border.strong), barHeight / 2, 0, dpi);
+            handle(ImVec2(origin.x + std::clamp(value * width, barHeight / 2, width - barHeight / 2), origin.y + barHeight / 2), barHeight / 2 + dpi, knob);
+        };
+        bar("##hue", picker.h, [&](float t, ImVec2 a, ImVec2 b, float) { layer->AddRectFilled(a, b, hsv(t, 1, 1)); }, hsv(picker.h, 1, 1));
+        if (alpha)
+            bar("##alpha", picker.a, [&](float t, ImVec2 a, ImVec2 b, float) {
+                // The colour over light and dark squares, so an alpha reads
+                // as see-through and not as a paler colour.
+                const float square = barHeight / 2, mid = (a.y + b.y) / 2;
+                const bool odd = static_cast<int>((a.x - field.x) / square) % 2 != 0;
+                layer->AddRectFilled(a, ImVec2(b.x, mid), odd ? IM_COL32(200, 200, 200, 255) : IM_COL32(120, 120, 120, 255));
+                layer->AddRectFilled(ImVec2(a.x, mid), b, odd ? IM_COL32(120, 120, 120, 255) : IM_COL32(200, 200, 200, 255));
+                layer->AddRectFilled(a, b, hsv(picker.h, picker.sat, picker.v, t));
+            }, hsv(picker.h, picker.sat, picker.v));
+
+        if (changed) {
+            float r, g, b;
+            ImGui::ColorConvertHSVtoRGB(picker.h, picker.sat, picker.v, r, g, b);
+            const auto channel = [](float value) { return static_cast<skin::Argb>(std::lround(std::clamp(value, 0.f, 1.f) * 255.f)); };
+            colour = (alpha ? channel(picker.a) : 0xFFu) << 24 | channel(r) << 16 | channel(g) << 8 | channel(b);
+            picker.result = colour;
+            toText();
+        }
+        // The colour as text, to copy out or paste in. A half-typed colour
+        // is left alone until it reads.
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12 * dpi, (s.metric.controlHeight - ImGui::GetTextLineHeight()) / 2));
+        ImGui::SetNextItemWidth(width);
+        if (ImGui::InputText("##text", picker.text, sizeof(picker.text), ImGuiInputTextFlags_CharsUppercase | ImGuiInputTextFlags_AutoSelectAll)) {
+            std::string typed = picker.text;
+            if (!typed.empty() && typed[0] != '#') typed.insert(typed.begin(), '#');
+            skin::Argb read = 0;
+            if (ParseColour(typed, read) && (alpha || typed.size() == 7)) {
+                colour = read;
+                ImGui::ColorConvertRGBtoHSV((read >> 16 & 0xFF) / 255.f, (read >> 8 & 0xFF) / 255.f, (read & 0xFF) / 255.f, picker.h, picker.sat, picker.v);
+                picker.a = (read >> 24) / 255.f;
+                picker.result = colour;
+                changed = true;
+            }
+        }
+        ImGui::PopStyleVar();
+        ImGui::EndPopup();
+    }
+    ImGui::PopStyleVar(2);
+    ImGui::PopID();
+    return changed;
 }
 }
 
@@ -870,23 +976,23 @@ void Panels::DrawThemeEditor(const Fonts& fonts, const skin::Skin& design, float
             ImGui::SameLine(0, 16 * dpi);
             if (SettingRadio("Dark", preferences.dark, design, dpi)) preferences.dark = true;
             bool automatic = theme->automatic;
-            // Said from the half on screen: the source is followed, and the
-            // half automatic makes follows.
-            const char* other = preferences.dark ? "Light" : "Dark";
-            const bool follower = theme->automatic && theme->sourceDark != preferences.dark;
-            const std::string follow = follower ? std::string("Follows ") + other : std::string(other) + " follows this one";
-            if (SettingSwitch(follow.c_str(), automatic, nullptr, fonts, design, dpi)) theme->SetAutomatic(automatic, preferences.dark);
+            // Named for the half that is generated, so it reads the same from
+            // either side: on, that is the half that is not the source; off,
+            // it is the half that turning it on would generate, the other one.
+            const bool generatesDark = theme->automatic ? !theme->sourceDark : !preferences.dark;
+            const char* generate = generatesDark ? "Auto-generate Dark" : "Auto-generate Light";
+            if (SettingSwitch(generate, automatic, nullptr, fonts, design, dpi)) theme->SetAutomatic(automatic, preferences.dark);
         }
         ImGui::Separator();
 
         skin::Skin& shown = theme->Shown(preferences.dark);
         section("Start from");
         skin::Argb background = shown.surface.canvas, text = shown.ink.primary, accent = shown.accent.accent;
-        bool rebuilt = ThemeSwatch("Background", background, false);
+        bool rebuilt = ThemeSwatch("Background", background, false, s, dpi);
         ImGui::SameLine(0, 16 * dpi);
-        rebuilt |= ThemeSwatch("Text##start", text, false);
+        rebuilt |= ThemeSwatch("Text##start", text, false, s, dpi);
         ImGui::SameLine(0, 16 * dpi);
-        rebuilt |= ThemeSwatch("Accent##start", accent, false);
+        rebuilt |= ThemeSwatch("Accent##start", accent, false, s, dpi);
         if (rebuilt) {
             // A dark background makes a dark palette, which belongs in the
             // dark half: the editor moves to it rather than filing a dark
@@ -911,7 +1017,7 @@ void Panels::DrawThemeEditor(const Fonts& fonts, const skin::Skin& design, float
             if (colour.derived && !detailOpen) continue;
             if (!colour.derived && std::string_view(group) != colour.group) { group = colour.group; section(group); }
             ImGui::PushID(colour.key);
-            changed |= ThemeSwatch(colour.label, colour.at(edited), colour.derived);
+            changed |= ThemeSwatch(colour.label, colour.at(edited), colour.derived, s, dpi);
             ImGui::PopID();
         }
         if (changed) {

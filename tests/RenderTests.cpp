@@ -104,11 +104,11 @@ int wmain() {
         }();
         // Returning to 100% catches cumulative scaling after a monitor move.
         for (const float dpi : {1.f, 1.25f, 1.5f, 2.f, 1.f}) for (int i = 0; i < 4; ++i)
-        for (int mode = 0; mode < 22; ++mode) {
-            panels.preferences.theme = mode == 21 ? custom : i < 2 ? "blue" : "orange";
+        for (int mode = 0; mode < 23; ++mode) {
+            panels.preferences.theme = mode >= 21 ? custom : i < 2 ? "blue" : "orange";
             panels.preferences.dark = (i & 1) != 0;
-            panels.themeEditorOpen = mode == 21;
-            const skin::Skin design = mode == 21 ? panels.ActiveSkin() : skins[i];
+            panels.themeEditorOpen = mode >= 21;
+            const skin::Skin design = mode >= 21 ? panels.ActiveSkin() : skins[i];
             panels.miniMode = mode == 1 || mode == 2 || mode == 8 || mode == 9 || mode == 10 || mode == 20;
             panels.miniAutoplay = mode == 2 || mode == 8 || mode == 10 || mode == 20;
             // All six hotkeys bound, where the legend has the least room.
@@ -132,7 +132,9 @@ int wmain() {
                                    "minimum-six-keys", "mini-six-keys",
                                    // A theme of the user's, built from three colours with
                                    // its dark half guessed, and the editor open on it.
-                                   "theme-editor"};
+                                   "theme-editor",
+                                   // The same, with the Accent swatch clicked and its picker open.
+                                   "theme-picker"};
             const int picksBefore = pickerCalls;
             if (mode == 7 || mode == 8) {
                 engine.Send({shell::ShellEngine::Action::PlaybackDelay, {}, 0, 0, false, 10});
@@ -171,8 +173,9 @@ int wmain() {
                 else if (mode == 10) io.AddMousePosEvent(openX, openY);
                 // Over a switch, so the capture shows the row's hover fill.
                 else if (mode == 14) io.AddMousePosEvent(width - 180 * dpi, 120 * dpi);
+                else if (mode == 22) io.AddMousePosEvent(274 * dpi, 369 * dpi);
                 else io.AddMousePosEvent(-1000, -1000);
-                io.AddMouseButtonEvent(0, (mode == 5 || mode == 6 || mode == 10) && frame == 3);
+                io.AddMouseButtonEvent(0, (mode == 5 || mode == 6 || mode == 10 || mode == 22) && frame == 3);
                 ImGui::GetIO().DisplaySize = ImVec2(static_cast<float>(width), static_cast<float>(height));
                 ImGui::GetIO().DeltaTime = 1.f / 60;
                 ImGui_ImplDX11_NewFrame();
@@ -201,7 +204,7 @@ int wmain() {
                 panels.preferences.keyMappingOpen = mode == 15;
                 panels.autoVolumeOpen = mode == 16;
                 panels.Draw(nullptr, fonts, design, dpi, engine);
-                if (frame == 6) Require(ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) == ((mode >= 4 && mode <= 6) || mode == 12 || mode == 14 || mode == 17 || mode == 18),
+                if (frame == 6) Require(ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) == ((mode >= 4 && mode <= 6) || mode == 12 || mode == 14 || mode == 17 || mode == 18 || mode == 22),
                                         "render scenario popup did not open or leaked from a previous capture");
                 ImGui::End(); ImGui::PopFont(); ImGui::Render();
                 Require(ImGui::GetDrawData()->TotalVtxCount > 1000, "blank or incomplete frame");
