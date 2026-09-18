@@ -13,6 +13,7 @@
 #include "../MIDI++/MIDI2Key.hpp"
 #include "../ui/NativeConnectInput.hpp"
 #include "../ui/HotkeyNames.hpp"
+#include "../ui/ThemeModel.hpp"
 #include <atomic>
 #include <fstream>
 #include <iostream>
@@ -106,6 +107,122 @@ void HotkeyNameTests() {
     keys[VK_ESCAPE] = true;
     Require(capture.Poll(down) == shell::HotkeyCapture::Cancelled, "Escape did not leave the capture");
     std::cout << "PASS hotkey names, keycaps and capture\n";
+}
+
+// The theme model against its design in SHELL-GAPS.md.
+void ThemeModelTests(const std::filesystem::path& directory) {
+    using namespace shell;
+    const auto distance = [](skin::Argb a, skin::Argb b) {
+        const Lch x = ToLch(a), y = ToLch(b);
+        const double da = x.c * std::cos(x.h) - y.c * std::cos(y.h), db = x.c * std::sin(x.h) - y.c * std::sin(y.h);
+        return std::sqrt((x.l - y.l) * (x.l - y.l) + da * da + db * db);
+    };
+    const auto channelsApart = [](skin::Argb a, skin::Argb b) {
+        int most = 0;
+        for (int shift = 0; shift < 32; shift += 8) most = std::max(most, std::abs(static_cast<int>(a >> shift & 0xFF) - static_cast<int>(b >> shift & 0xFF)));
+        return most;
+    };
+    const skin::Skin builtins[]{skin::Blue(), skin::BlueDark(), skin::Orange(), skin::OrangeDark()};
+    for (auto builtin : builtins)
+        for (const auto& colour : ThemeColours())
+            if (!colour.derived) Require(channelsApart(FromLch(ToLch(colour.at(builtin))), colour.at(builtin)) <= 1,
+                                         "a colour did not survive the trip through OKLCH");
+    Require(FromLch({0.7, 0.9, 0.5}) >> 24 == 0xFF && ToLch(FromLch({0.7, 0.9, 0.5})).l > 0.65,
+            "a colour outside sRGB lost its lightness rather than its chroma");
+
+    // The opposite of a built-in is its own other half, near enough that the
+    // owner's Blue Dark is what automatic would have guessed from Blue.
+    for (int pair = 0; pair < 4; pair += 2) for (int from = 0; from < 2; ++from) {
+        skin::Skin source = builtins[pair + from], wanted = builtins[pair + 1 - from];
+        skin::Skin guessed = OppositeSkin(source);
+        Require(guessed.dark == wanted.dark, "the opposite of a light skin is not dark");
+        for (const auto& colour : ThemeColours())
+            if (!colour.derived) {
+                if (distance(colour.at(guessed), colour.at(wanted)) > 0.09)
+                    std::cout << "  " << colour.key << " " << ColourText(colour.at(guessed)) << " wanted " << ColourText(colour.at(wanted))
+                              << " " << distance(colour.at(guessed), colour.at(wanted)) << '\n';
+                Require(distance(colour.at(guessed), colour.at(wanted)) <= 0.09, "the guessed opposite is far from the built-in's other half");
+            }
+        Require(ToLch(guessed.surface.card).l > ToLch(guessed.surface.canvas).l &&
+                ToLch(guessed.surface.recessed).l < ToLch(guessed.surface.card).l, "the opposite lost the order of its surfaces");
+        Require((guessed.accent.accentSoft & 0xFFFFFF) == (guessed.accent.accent & 0xFFFFFF) && guessed.accent.accentSoft >> 24 == wanted.accent.accentSoft >> 24,
+                "the accent fill does not follow the new accent at the other mode's alpha");
+        Require(guessed.border.hairline == ThemeTemplate(wanted.dark).border.hairline, "edges are the other mode's own");
+    }
+
+    // Three colours taken from Blue give Blue back.
+    for (int index = 0; index < 2; ++index) {
+        skin::Skin wanted = builtins[index];
+        skin::Skin made = GenerateSkin(wanted.surface.canvas, wanted.ink.primary, wanted.accent.accent);
+        Require(made.dark == wanted.dark, "a dark background did not make a dark skin");
+        for (const auto& colour : ThemeColours()) {
+            if (distance(colour.at(made), colour.at(wanted)) > 0.02)
+                std::cout << "  " << colour.key << " " << ColourText(colour.at(made)) << " wanted " << ColourText(colour.at(wanted))
+                          << " " << distance(colour.at(made), colour.at(wanted)) << '\n';
+            Require(distance(colour.at(made), colour.at(wanted)) <= 0.02 && colour.at(made) >> 24 == colour.at(wanted) >> 24,
+                    "a palette generated from a built-in's own colours is not that built-in");
+        }
+    }
+    // A warm background carries its hue into every surface and keeps them in order.
+    skin::Skin warm = GenerateSkin(0xFF2A1F1A, 0xFFF2E6DA, 0xFFE0705F);
+    Require(warm.dark && ToLch(warm.surface.card).l > ToLch(warm.surface.canvas).l && ToLch(warm.surface.recessed).l < ToLch(warm.surface.canvas).l,
+            "generated surfaces are out of order");
+    Require(std::abs(ToLch(warm.surface.elevated).h - ToLch(0xFF2A1F1A).h) < 0.2, "a generated surface lost the background's hue");
+    Require(warm.ink.primary == 0xFFF2E6DA && ToLch(warm.ink.tertiary).l < ToLch(warm.ink.secondary).l, "generated inks are out of order");
+
+    skin::Argb parsed = 0;
+    Require(ParseColour("#0B6EC4", parsed) && parsed == 0xFF0B6EC4 && ColourText(parsed) == "#0B6EC4", "an opaque colour's text");
+    Require(ParseColour("#11161f17", parsed) && parsed == 0x1711161F && ColourText(parsed) == "#11161F17", "a translucent colour's text");
+    Require(!ParseColour("0B6EC4", parsed) && !ParseColour("#0B6EC", parsed) && !ParseColour("#0B6ECG", parsed) && !ParseColour("", parsed),
+            "text that is no colour was read as one");
+
+    const auto file = directory / L"themes-test.json";
+    {
+        ThemeStore store;
+        Require(store.All().size() == 2 && store.Find("blue")->builtin && store.Find("orange")->light.surface.canvas == skin::Orange().surface.canvas,
+                "the built-ins are not themes");
+        Require(&store.Active("gone") == store.Find("blue"), "a theme that is gone is not Blue");
+        Theme& mine = store.Add(*store.Find("orange"), "Mine");
+        Require(mine.id == "custom-1" && !mine.builtin && mine.name == "Mine", "a new theme is not the user's own");
+        mine.automatic = true;
+        mine.light.accent.accent = 0xFF8844CC;
+        mine.Follow(false);
+        Require(std::abs(ToLch(mine.dark.accent.accent).h - ToLch(0xFF8844CC).h) < 0.05 && mine.dark.dark, "the other half did not follow an edit");
+        mine.automatic = false;
+        const skin::Argb kept = mine.dark.accent.accent;
+        mine.light.accent.accent = 0xFF00AA00;
+        mine.Follow(false);
+        Require(mine.dark.accent.accent == kept, "a half edited by hand was overwritten");
+        Theme& night = store.Add(*store.Find("blue"), "Night");
+        night.paired = false; night.onlyDark = true;
+        night.dark.surface.canvas = 0xFF101018;
+        Require(night.id == "custom-2" && night.Shown(false).surface.canvas == 0xFF101018 && night.ShowsDark(false), "an unpaired dark theme shows its one palette");
+        Require(!store.Remove("blue") && store.All().size() == 4, "a built-in was removed");
+        Require(store.Save(file), "themes were not saved");
+    }
+    {
+        nlohmann::json saved;
+        { std::ifstream stream(file); saved = nlohmann::json::parse(stream); }
+        Require(saved.at("themes").size() == 2, "a built-in was saved, or a custom theme was not");
+        Require(saved.dump().find("radius") == std::string::npos && saved.dump().find("family") == std::string::npos, "shape reached themes.json");
+        Require(!saved.at("themes")[1].contains("light"), "an unpaired dark theme saved a light half");
+        saved["themes"].push_back({{"id", "blue"}, {"name", "Impostor"}});
+        saved["themes"].push_back("not a theme");
+        saved["themes"][0]["light"]["canvas"] = "nonsense";
+        { std::ofstream stream(file); stream << saved.dump(); }
+        ThemeStore store;
+        store.Load(file);
+        Require(store.All().size() == 4 && store.Find("blue")->name == "Blue", "an entry that does not read was not skipped");
+        const Theme& mine = *store.Find("custom-1");
+        Require(mine.name == "Mine" && mine.paired && !mine.automatic && mine.light.accent.accent == 0xFF00AA00, "a paired theme did not come back");
+        Require(mine.light.surface.canvas == skin::Blue().surface.canvas, "a colour that does not read did not keep the template's");
+        Require(mine.light.radius.card == skin::Blue().radius.card && mine.dark.dark, "a loaded theme has no shape");
+        const Theme& night = *store.Find("custom-2");
+        Require(!night.paired && night.onlyDark && night.dark.surface.canvas == 0xFF101018, "an unpaired dark theme did not come back");
+        Require(store.Add(night, "Again").id == "custom-3" && store.Remove("custom-3"), "ids are reused while taken, or a custom theme cannot be removed");
+    }
+    std::filesystem::remove(file);
+    std::cout << "PASS themes: OKLCH, the opposite half, three-colour palettes, themes.json\n";
 }
 
 // A rebind is the engine's: it owns config.json. The shell re-registers from
@@ -3622,11 +3739,13 @@ int wmain(int argc, wchar_t** argv) {
             else if (group == L"midi-out") MidiOutputTests(directory / L"config.json");
             else if (group == L"vel-mod") VelocityModifierTests(directory / L"config.json");
             else if (group == L"hotkeys") { HotkeyNameTests(); HotkeyRebindTests(directory / L"config.json"); }
+            else if (group == L"themes") ThemeModelTests(directory);
             else throw std::runtime_error("Unknown shell test group");
             return 0;
         }
         HotkeyNameTests();
         HotkeyRebindTests(directory / L"config.json");
+        ThemeModelTests(directory);
         VelocityTelemetryTests();
         WootingMapTests();
         WootingSettingsTests();

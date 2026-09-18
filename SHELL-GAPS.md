@@ -514,6 +514,38 @@ From the owner and a tester in one session. Nothing here is optional.
    automatic guesses the opposite of the version being worked on. `Skin.hpp`
    says a skin is colour only and `All()` is a fixed array of four whose order
    preferences store by index; both have to give.
+
+   Design, 2026-09-18, in the order it is built:
+
+   - **A theme is named, not numbered.** `ui/ThemeModel.hpp`: a `Theme` has an
+     `id`, a `name`, a light and a dark `skin::Skin`, `paired`, and `automatic`.
+     Blue and Orange are themes `blue` and `orange`, built in and not editable.
+     Preferences store `"theme": id` and `"dark": bool`; an old `"skin": n`
+     reads as `n < 2 ? blue : orange` and `n & 1`. A theme id that is gone
+     falls back to `blue`. `skin ^= 1` becomes `dark = !dark`.
+   - **Unpaired**: one palette, whose own `dark` flag says which it is, and the
+     light/dark button is disabled while it is selected. **Paired**: both
+     halves; with `automatic` on, the half not on screen is derived from the
+     one being edited every time it changes, and editing the derived half by
+     hand turns `automatic` off.
+   - **The opposite half** keeps each colour's hue and chroma (OKLCH) and takes
+     its lightness from the same role in the built-in of the other mode, which
+     is what keeps cards above canvas in both. Borders, highlights and shadows
+     are translucent black in one mode and white in the other, so they are the
+     template's own. The test: the opposite of Blue is within a small
+     distance of Blue Dark, role by role, and the same for Orange.
+   - **Friendly first, everything second.** Three starting colours, Background,
+     Text and Accent, rebuild the whole palette by the same role-lightness
+     rule; below them every colour a skin holds is a swatch under its role's
+     plain name (Window, Bars, Panels, Controls, Hover, Fields; Text, Secondary
+     text, Faint text; Accent, On, Warning, Error; and the derived ones under
+     one collapsed row). The app itself is the preview: the theme being edited
+     is the active theme.
+   - **Stored** in `themes.json` beside `shell-settings.json`, written when the
+     editor closes and at exit, colours as `#RRGGBB` or `#RRGGBBAA`. Shape,
+     spacing and type never reach the file: a custom theme is colour only.
+   - **Settings, Appearance**: the two radios become a list of themes with New,
+     Duplicate, Rename and Delete; New starts from the theme on screen.
 3. **Legit mode** is a reminder carried over from upstream, where it was
    removed for being poor. The owner wants it rethought entirely, not tuned. A
    tester found it laggy.
