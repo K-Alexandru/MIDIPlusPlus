@@ -2491,7 +2491,61 @@ void ZeroLengthNoteTests(const std::filesystem::path& config) {
         else if (owners.count(e.trackIndex) && --owners[e.trackIndex] == 0) owners.erase(e.trackIndex);
     }
     Require(owners.empty(), "a note of no length left its key owned, so the key never comes up");
+
+    // The same song, heard: with the other hand on the key at that instant the
+    // note of no length has nothing to add, and left in it lets the key go
+    // between the two strikes.
+    for (const auto& e : player.note_events)
+        Require(e.trackIndex == 1, "a note of no length stayed beside the other hand's strike of the same key");
+    // On its own it is still the blip the file asks for.
+    MidiFile alone;
+    alone.division = 480;
+    alone.tracks.resize(1);
+    alone.tracks[0].events = {event(0, 0x90, 52, 100), event(0, 0x80, 52, 0)};
+    player.process_tracks(alone);
+    Require(player.note_events.size() == 2, "a note of no length with the key to itself was dropped");
     std::cout << "PASS a note of no length is released, whatever shares its tick\n";
+}
+
+// Two hands on one key at one instant is one strike. Sent twice the game was
+// told down, up, down and played the note twice, which a tester heard as one
+// note sounding as two.
+void SharedStrikeTests(const std::filesystem::path& config) {
+    VirtualPianoPlayer player(false, config);
+    player.enable_velocity_keypress = false;
+    player.legit_mode_active = false;
+    for (int i = 0; i < 2; ++i) {
+        player.trackMuted.push_back(std::make_shared<std::atomic<bool>>(false));
+        player.trackSoloed.push_back(std::make_shared<std::atomic<bool>>(false));
+    }
+    player.note_events = {
+        {0ns, "E3", EventType::Press, 100, 0},
+        {0ns, "E3", EventType::Press, 106, 1},
+        {80ms, "E3", EventType::Release, 0, 0},
+        {200ms, "E3", EventType::Release, 0, 1},
+        // The same hand striking again later is a second note and stays one.
+        {300ms, "E3", EventType::Press, 100, 0},
+        {380ms, "E3", EventType::Release, 0, 0},
+    };
+    TakeCaptured();
+    player.restart_song();
+    std::vector<Captured> all;
+    const auto ups = [&] { return std::count_if(all.begin(), all.end(), [](const Captured& e) {
+        return (e.input.ki.dwFlags & KEYEVENTF_KEYUP) != 0; }); };
+    // Every transport action lifts the modifiers as a safety net; not notes.
+    const auto isModifier = [](const Captured& e) {
+        return e.input.ki.wScan == 0x38 || e.input.ki.wScan == 0x1D || e.input.ki.wScan == 0x2A; };
+    Await([&] { for (auto& e : TakeCaptured()) if (!isModifier(e)) all.push_back(e); return ups() >= 2; },
+          "the shared key never came up twice");
+    player.should_stop = true;
+    SetEvent(player.command_event); player.playback_cv.notify_all();
+    player.playback_thread->join(); player.playback_thread.reset();
+
+    std::vector<bool> downs;
+    for (const auto& e : all) downs.push_back(!(e.input.ki.dwFlags & KEYEVENTF_KEYUP));
+    Require(downs == std::vector<bool>{true, false, true, false},
+            "two hands on one key at one instant must be one strike, held until both let go");
+    std::cout << "PASS two tracks striking one key at one instant are one strike\n";
 }
 
 // The game's velocity keys are its note keys. A tap is a key down and a key up,
@@ -3454,6 +3508,7 @@ int wmain(int argc, wchar_t** argv) {
         LayoutTests(directory);
         VelocityTapOnHeldKeyTests(directory / L"config.json");
         ZeroLengthNoteTests(directory / L"config.json");
+        SharedStrikeTests(directory / L"config.json");
         AutoVolumeTests(directory / L"config.json", fixture);
         DeviceGroupingTests();
         ShellLogTests(directory / L"config.json");

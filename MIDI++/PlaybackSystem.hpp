@@ -406,6 +406,9 @@ private:
     // another track's note, while allowing releases after a live mute change.
     std::mutex dispatch_mutex;
     std::unordered_map<std::string, std::unordered_map<int, size_t>> track_note_owners;
+    // When each note was last struck, so a second track striking it at the
+    // same instant is heard as the one strike it is.
+    std::unordered_map<std::string, std::chrono::nanoseconds> last_strike_time;
     std::set<int> sustain_owners;
     double inv_cpu_freq;  // Optional for optimization
     double time_factor;

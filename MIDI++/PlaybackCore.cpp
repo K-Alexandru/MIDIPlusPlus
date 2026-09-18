@@ -885,6 +885,7 @@ void VirtualPianoPlayer::release_every_mapped_key() { release_keys(true); }
 void VirtualPianoPlayer::release_keys(bool everyMapping) {
     std::lock_guard lock(dispatch_mutex);
     track_note_owners.clear();
+    last_strike_time.clear();
     sustain_owners.clear();
     // On the MIDI target what is held is held on the wire. Stopping, pausing
     // and seeking all come through here, and none of them is a target switch,
@@ -1938,6 +1939,36 @@ void VirtualPianoPlayer::process_tracks(const MidiFile& mid) {
                      [](const RawNoteEvent& a, const RawNoteEvent& b) {
                          return a.time < b.time;
                      });
+
+    // A note of no length on a key another track strikes at the same instant
+    // adds nothing a piano could play, and left in it lets the key go between
+    // the two strikes, so the game hears the note twice. It is dropped; the
+    // other track's note is the one that sounds. Alone it stays, as the blip
+    // the file asks for.
+    for (size_t first = 0; first < note_events.size();) {
+        size_t last = first;
+        while (last < note_events.size() && note_events[last].time == note_events[first].time) ++last;
+        for (size_t press = first; press < last; ++press) {
+            const auto& on = note_events[press];
+            if (on.action != EventType::Press || on.note_or_control == "sustain") continue;
+            size_t release = press + 1;
+            while (release < last && !(note_events[release].action == EventType::Release &&
+                                       note_events[release].trackIndex == on.trackIndex &&
+                                       note_events[release].note_or_control == on.note_or_control)) ++release;
+            if (release == last) continue;
+            bool shared = false;
+            for (size_t other = first; other < last && !shared; ++other)
+                shared = note_events[other].action == EventType::Press &&
+                         note_events[other].trackIndex != on.trackIndex &&
+                         note_events[other].note_or_control == on.note_or_control;
+            if (!shared) continue;
+            note_events.erase(note_events.begin() + release);
+            note_events.erase(note_events.begin() + press);
+            last -= 2;
+            --press;
+        }
+        first = last;
+    }
 }
 
 void VirtualPianoPlayer::handle_note_off(std::chrono::nanoseconds ctime,
@@ -2176,7 +2207,16 @@ void VirtualPianoPlayer::execute_note_event(const NoteEvent& event) noexcept {
 
     if (!event.isSustain) {
         if (event.action == EventType::Press) {
-            ++track_note_owners[std::string(event.note)][event.trackIndex];
+            auto& owners = track_note_owners[std::string(event.note)];
+            // Two hands on one key at one instant is one strike. A piano has
+            // one key there; sent twice, the game was told down, up, down and
+            // played the note twice. The second hand still owns the key, so it
+            // stays down until both have let go.
+            auto& struck = last_strike_time[std::string(event.note)];
+            const bool struckThisInstant = !owners.empty() && struck == event.time;
+            ++owners[event.trackIndex];
+            if (struckThisInstant) return;
+            struck = event.time;
             if (toMidi) {
                 // No out-of-range fold and no 88-key flag. Both exist because
                 // the game has 61 keys; a MIDI device has 128, so sounding_note
