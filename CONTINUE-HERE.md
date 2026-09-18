@@ -97,8 +97,7 @@ shell (`ui/`) over `PlaybackCore`, replacing the Win32 window (`MIDI++/`).
   reverted; the release exe carries no account, assistant or path string.
 - `5b12020`: the source zip builds on both SDKs; the zip before the fix shows
   the tester's LNK2019 on 26100; every suite PASSes built on 26100.
-- AutoVol across a load: `ShellTests.exe` and parity PASS; demo v2 predates it.
-  Nothing has been run against the doubled-note report.
+- `d813c05`, after demo v2: AutoVol across a load, `ShellTests.exe` PASS.
 
 ## Repository state
 
