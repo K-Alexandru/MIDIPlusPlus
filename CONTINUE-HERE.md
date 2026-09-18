@@ -41,8 +41,8 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
 
 - `ui/Panels.cpp`: `DesiredSize`, `DrawMini`, the strip in `Draw`, the Export
   menu, the state pills. `MIDI++/SheetPage.hpp`: the editor page.
-- `ui/Shell.cpp`: `ApplyCaption`, the mini and maximize handling in the loop.
-- `tools/make-release.ps1`, `tools/make-source.py`, `tools/gen-icon.py`.
+- `ui/Shell.cpp`: `ApplyCaption`, the frame loop. `tools/`: `make-release.ps1`,
+  `make-source.py`, `gen-icon.py`, `colab-redirect.ipynb`.
 
 ## Verified facts
 
@@ -66,9 +66,8 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
 
 - 2026-09-16: the rename, caption, icon, Orange skins, keycap legend, Solo
   Piano toggle, the confirmed library save, `make-source.py`, the copy pass.
-- 2026-09-17, owner-asked, both windows smaller: mini is the pill row wide
-  with no resize or maximize box; full has a one-row strip, the sheet result
-  in the status bar, and Files 240 to 336 after the right column's 600.
+- 2026-09-17, owner-asked, both windows smaller: mini is the pill row wide;
+  full has a one-row strip and Files 240 to 336 after the right column's 600.
 - 2026-09-18, owner-asked, `ui/` included: a bug, UI and performance pass,
   recorded in `REVIEW-2026-09-18.md` with what is left; timing in `LATENCY.md`.
 
@@ -79,10 +78,11 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
 - **Owner to test the `8baf9bd` build:** the velocity editor's anchors and
   free draw; WinMM devices, which the shell could not open before; the
   velocity editor while maximized; Miphas Court's Flutes reading Flute.
-- **Owner to test:** Solo Piano in mini; sections on a real file; Save image
-  from a page opened off disk; game delivery, Wooting, two devices, MIDI
-  out, live curve reconnection, mixed DPI.
+- **Owner to test:** Solo Piano in mini; sections; Save image from a page off
+  disk; game delivery, Wooting, two devices, MIDI out, curves live, mixed DPI.
 - **Tester on Visual Studio 2026** to build `5b12020`, or send the error text.
+- **Owner to give the GitHub URL.** Then `tools/colab-redirect.ipynb` replaces
+  the defunct Colab (id 1YNebID6...) in their Chrome, shown to them first.
 
 ## Validation actually run
 
