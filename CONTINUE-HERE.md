@@ -63,23 +63,21 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
 ## Work completed
 
 - 2026-09-16: the rename, caption, icon, Orange skins, keycap legend, Solo
-  Piano toggle (owner confirmed), Export relabelled with a confirmed library
-  save, `tools/make-source.py`, the copy pass down to no explanatory text.
+  Piano toggle, the confirmed library save, `make-source.py`, the copy pass.
 - 2026-09-17, owner-asked, both windows smaller: mini is the pill row wide
   with no resize or maximize box; full has a one-row strip, the sheet result
   in the status bar, and Files 240 to 336 after the right column's 600.
-- 2026-09-18, a bug pass: a custom curve played the curve before it, a curve
-  change stuck a held live key, sheets inherited the playback speed, a failed
-  config save pinned a core. Fixed, the first three under mutation-checked
-  tests. Everything else found is in `REVIEW-2026-09-18.md`, unfixed.
+- 2026-09-18, owner-asked, a bug, UI and performance pass, all of it fixed:
+  `REVIEW-2026-09-18.md` is the record, with what is left at its end. The
+  `ui/` changes in it were owner-asked. `LATENCY.md` has the timing notes.
 
 ## Unresolved
 
-- **Owner to choose from `REVIEW-2026-09-18.md`:** the `ui/` items are the
-  panel seat's or owner-asked; demo v2 predates the four fixes.
-- **Owner to test the `3aeea33` build:** the velocity editor while maximized;
-  Miphas Court's Flutes reading Flute.
-- **Owner to read the text:** Settings, pills, Export, the sheet editor page.
+- **Owner to read the text removed and redrawn**, listed under UI in
+  `REVIEW-2026-09-18.md`, and Settings, pills, Export, the sheet editor page.
+- **Owner to test the `8baf9bd` build:** the velocity editor's anchors and
+  free draw; WinMM devices, which the shell could not open before; the
+  velocity editor while maximized; Miphas Court's Flutes reading Flute.
 - **Owner to test:** Solo Piano in mini; sections on a real file; Save image
   from a page opened off disk.
 - **Owner at the keyboard:** game delivery, Wooting, two devices, MIDI out,
@@ -87,8 +85,10 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
 
 ## Validation actually run
 
-- 2026-09-18: `ShellTests.exe`, parity and all 360 render scenarios PASS with
-  the fixes; `run-native-tests.ps1` PASS at `9d05e76`, DPI move skipped.
+- 2026-09-18 at `8baf9bd`: `ShellTests.exe`, parity, all 360 render scenarios,
+  `run-native-tests.ps1` (DPI move skipped) and `LatencyTests.exe --loopback`
+  PASS; the original window builds; eleven new tests fail with their fix
+  reverted; the release exe carries no account, assistant or path string.
 - At `1de8a50`, not repeated since: the package scrub (no names, paths,
   settings or MIDI) and the source zip building on its own.
 
@@ -106,14 +106,14 @@ python .\tools\make-source.py
   `main` stays at `e37ba7e`. Pushing without asking is authorized.
 - The main checkout is on this branch, pushed, clean apart from the owner's
   `x64\Release\MIDI++.exe` and `x64\Release\midi\`; leave `D:\Dev\mpp-panels`.
-- Demo v2 from `3aeea33`: `build\release\QuartzMIDI-demo-v2.zip` (426 MB,
-  SHA256 `32D81AD90E95F136C4B5206F64962AE5A1E05837BF1E79AA3D765729F7672E01`),
-  the staged folder beside it, and `QuartzMIDI-source-3aeea33.zip` (2.4 MB);
-  the `1de8a50` and `4e55ecc` source zips are still there.
+- Demo v2 from `8baf9bd`: `build\release\QuartzMIDI-demo-v2.zip` (426 MB,
+  SHA256 `14237B7FCDD2D6C98604CA83D472BCCC885B9E9A5186FFFFB5AA6F3E4DC4164C`),
+  the staged folder beside it, and `QuartzMIDI-source-8baf9bd.zip` (2.4 MB);
+  older source zips are still there.
 - Never commit `x64/Release/midi/`, `build/`, `MIDI++/MIDI++/`, `.claude/`,
   `tools/mp3-to-midi/cookies.txt` or `tools/mp3-to-midi/browser/`.
 
 ## Next action
 
-Ask the owner which `REVIEW-2026-09-18.md` items to take, fix those, then
-run `make-release.ps1` and `make-source.py`.
+Ask the owner what they found in the `8baf9bd` build and the text, fix the
+first thing they name, then run `make-release.ps1` and `make-source.py`.
