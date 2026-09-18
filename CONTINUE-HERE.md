@@ -75,10 +75,10 @@ QuartzMIDI is the ImGui shell (`ui/`) over `PlaybackCore`. The panel seat owns
   note key; a stable load sort; notes of no length released in playback; one
   strike for two tracks on a key; Roblox preselected in AutoVol; light skins
   darker with no pure white.
-- 2026-09-18, `3fc9e86` to `0e8b7ba`: six rebindable hotkeys with media keys;
+- 2026-09-18, `3fc9e86` to `911439b`: six rebindable hotkeys with media keys;
   the legend steps from words to its buttons' icons to bare caps, the owner
   having found six keys left bare at the smallest window; `make-source.py`
-  drops `MIDI++.APS`.
+  drops `MIDI++.APS`. The legend names the seek keys with no seconds.
 
 ## Unresolved
 
@@ -88,7 +88,7 @@ QuartzMIDI is the ImGui shell (`ui/`) over `PlaybackCore`. The panel seat owns
   capture with Settings as its own window in mini mode.
 - **Owner to say** whether a note key may be a hotkey: bound, it is taken from
   the game while the app is open, and nothing stops it today.
-- **Tester shampoojr** to confirm that list on the `0e8b7ba` build; none of it
+- **Tester shampoojr** to confirm that list on the `911439b` build; none of it
   has met a real Wooting or Roblox. His doubled note was never reproduced.
 - **Owner to say** whether light mode is dark enough; then `skin-system.html`,
   which shows the old values, takes the new ones.
@@ -110,7 +110,7 @@ QuartzMIDI is the ImGui shell (`ui/`) over `PlaybackCore`. The panel seat owns
   `validate` change reverted. Capture is tested against a key table only,
   never `GetAsyncKeyState`.
 - `0e8b7ba`: the same PASS, 420 scenarios with `minimum-six-keys` and
-  `mini-six-keys`, read at Blue 125%. The source zip builds on both SDKs.
+  `mini-six-keys`, read at Blue 125%; `911439b` the same PASS. The source zip builds on both SDKs.
 
 ## Repository state
 
@@ -119,9 +119,9 @@ QuartzMIDI is the ImGui shell (`ui/`) over `PlaybackCore`. The panel seat owns
   asking is authorized; creating the public repository is not.
 - This branch is pushed and clean apart from the owner's
   `x64\Release\MIDI++.exe` and `x64\Release\midi\`; leave `D:\Dev\mpp-panels`.
-- Demo v2 from `0e8b7ba`: `build\release\QuartzMIDI-demo-v2.zip`, SHA256
-  `CB56D2D2D77CEBD31E19750961663649371EAED30CC9022E63A90FDF1284AE3C`, and
-  `QuartzMIDI-source-0e8b7ba.zip`; send no older pair.
+- Demo v2 from `911439b`: `build\release\QuartzMIDI-demo-v2.zip`, SHA256
+  `60E79418876CC7767262313E13F526B8EBB9CBE43F77F031B278954736CAC108`, and
+  `QuartzMIDI-source-911439b.zip`; send no older pair.
 - Never commit `x64/Release/midi/`, `build/`, `MIDI++/MIDI++/`, `.claude/`,
   `tools/mp3-to-midi/cookies.txt` or `tools/mp3-to-midi/browser/`.
 
