@@ -862,7 +862,11 @@ void ShellEngine::Run(std::stop_token stop) {
                     // from where it was rather than from the top.
                     const bool sameFile = command.action == Action::DetectDrums || command.action == Action::AutoTranspose;
                     const double keepPosition = sameFile ? state.position : 0;
-                    invalidateVolume();
+                    // AutoVol stays on across a load. Its calibration is the
+                    // game's volume and the player's record of it; the player
+                    // outlives the file and a load sends no volume key. A
+                    // countdown still pending was cancelled when this command
+                    // was taken off the queue.
                     // Stop before potentially slow disk parsing, so a load cannot
                     // keep injecting while the command worker is busy.
                     stopPlayback();

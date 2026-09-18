@@ -2606,14 +2606,14 @@ void AutoVolumeTests(const std::filesystem::path& config, const std::filesystem:
 
     engine.Send({A::Load, fixture});
     Await([&] { return !engine.Snapshot()->loaded.empty(); }, "the fixture never loaded");
-    Require(!engine.Snapshot()->autoVolume && engine.Snapshot()->autoVolumeNeedsCalibration,
-            "loading a file invalidates the calibration rather than trusting it");
+    // AutoVol is the game's volume and the player's record of it, and a load
+    // touches neither: the player outlives the file. It used to be switched
+    // off here, so it had to be calibrated again for every MIDI opened, and
+    // a tester reasonably asked whether it was a per-file setting.
+    Require(engine.Snapshot()->autoVolume && !engine.Snapshot()->autoVolumeNeedsCalibration,
+            "loading a file switched AutoVol off");
     Require(ArrowPresses(TakeCaptured()) == 0 && host->focused == 1,
-            "and never silently recalibrates, which is what the original did");
-
-    arm();
-    Await([&] { return engine.Snapshot()->autoVolume; }, "recalibration never completed");
-    TakeCaptured();
+            "and a load never sweeps the volume keys or takes focus, which the original did");
     const auto generation = engine.Snapshot()->generation;
     engine.Send({A::Solo, {}, generation, 1, true});
     engine.Send({A::Play, {}, generation});

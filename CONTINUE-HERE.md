@@ -27,10 +27,12 @@ shell (`ui/`) over `PlaybackCore`, replacing the Win32 window (`MIDI++/`).
   stays out: 255 commits carry the owner's email and 228 an assistant line.
 - The owner sees the commit metadata, the README and a name scan and says yes
   before the repository exists; a public page is shown before it is saved.
-- UI copy is the owner's voice, `HANDOFF.md` section 15, and no explanatory
-  text anywhere, not even why a control is disabled; redesign the control.
+- UI copy is the owner's voice (`HANDOFF.md` section 15): no explanatory text
+  anywhere, not even why a control is disabled; redesign the control.
 - Key Mapping never opens on its own; Solo Piano is one toggle; skins are
   colour only; the window floor is 884 x 560 and mini has one size per mode.
+- AutoVol is global and stays on across a load (owner, 2026-09-18, after a
+  tester had to recalibrate per MIDI). A load never sweeps the volume keys.
 - Test builds stay on this PC: `make-release.ps1` zips to `build\release\`.
 
 ## Relevant files
@@ -77,18 +79,16 @@ shell (`ui/`) over `PlaybackCore`, replacing the Win32 window (`MIDI++/`).
 - **The doubled note.** Nothing is known yet: autoplay or live, which file or
   device, keystrokes or MIDI output, which build.
 - **Publishing, stopped before staging.** Unzip `QuartzMIDI-source-5b12020.zip`,
-  add a short README (upstream's makes latency claims this fork never
-  measured) and a `.gitignore`, commit as above, show the owner, then
-  `gh repo create greasebob/QuartzMIDI --public`. `bobs-midi-convert` is the
-  only repository there now.
+  add a short README (upstream's claims latency this fork never measured)
+  and a `.gitignore`, commit as above, show the owner, then
+  `gh repo create greasebob/QuartzMIDI --public`.
 - **The Colab** (`colab.research.google.com/drive/1YNebID6yrtsqjCnXO5feFrG8LpLJqUR1`):
   put the new address in the notebook's three `PROJECT_URL`s, get the owner's
   yes on its wording, edit it in place in their Chrome so the link holds.
   The extension is connected; whether it is signed in as the owner is unchecked.
 - **Tester on Visual Studio 2026** to build `5b12020`, or send the error text.
-- **Owner to read** the text removed and redrawn (UI, in the review) and to
-  test `8baf9bd`: the velocity editor, WinMM devices, Solo Piano in mini,
-  sheets, game delivery, Wooting, two devices, MIDI out, mixed DPI.
+- **Owner to read** the text redrawn (UI, in the review) and test `8baf9bd`:
+  velocity editor, WinMM, mini, sheets, game, Wooting, MIDI out, mixed DPI.
 
 ## Validation actually run
 
@@ -97,7 +97,8 @@ shell (`ui/`) over `PlaybackCore`, replacing the Win32 window (`MIDI++/`).
   reverted; the release exe carries no account, assistant or path string.
 - `5b12020`: the source zip builds on both SDKs; the zip before the fix shows
   the tester's LNK2019 on 26100; every suite PASSes built on 26100.
-- Nothing has been run against the doubled-note report.
+- AutoVol across a load: `ShellTests.exe` and parity PASS; demo v2 predates it.
+  Nothing has been run against the doubled-note report.
 
 ## Repository state
 
