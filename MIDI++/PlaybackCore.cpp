@@ -20,7 +20,6 @@ typedef LONG(WINAPI* RtlGetVersionPtr)(PRTL_OSVERSIONINFOW);
 //----------------------------------------------------------------
 // Global definitions.
 HANDLE VirtualPianoPlayer::command_event = nullptr;
-HANDLE VirtualPianoPlayer::waitable_timer = nullptr;
 double g_totalSongSeconds = 0.0;
 
 
@@ -408,7 +407,6 @@ bool IsWin7OrWin8_Real() {
 // VirtualPianoPlayer Implementation.
 VirtualPianoPlayer::VirtualPianoPlayer(bool listenForHotkeys,
                                      const std::filesystem::path& configPath) noexcept(false)
-    : processing_pool(std::thread::hardware_concurrency())
 {
     ShowSplashScreen((HINSTANCE)GetModuleHandle(nullptr));
 
@@ -451,6 +449,24 @@ VirtualPianoPlayer::VirtualPianoPlayer(bool listenForHotkeys,
             m_timerResolutionSet = minPeriod;
         }
     }
+    // Windows 11 stops honouring that request for a process whose windows are
+    // all minimized or covered, which is this app behind a game: the tick
+    // falls back to 15.6 ms and every note waits on it. A process can opt
+    // out. Older builds do not know the second bit and refuse the call, so
+    // it is asked again without it.
+    {
+#ifndef PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION
+#define PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION 0x4
+#endif
+        PROCESS_POWER_THROTTLING_STATE throttling{};
+        throttling.Version = PROCESS_POWER_THROTTLING_CURRENT_VERSION;
+        throttling.ControlMask = PROCESS_POWER_THROTTLING_EXECUTION_SPEED | PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION;
+        throttling.StateMask = 0;
+        if (!SetProcessInformation(GetCurrentProcess(), ProcessPowerThrottling, &throttling, sizeof(throttling))) {
+            throttling.ControlMask = PROCESS_POWER_THROTTLING_EXECUTION_SPEED;
+            SetProcessInformation(GetCurrentProcess(), ProcessPowerThrottling, &throttling, sizeof(throttling));
+        }
+    }
     // The UI toggle owns this flag once the app is running; config only seeds it.
     legit_mode_active.store(midi::Config::getInstance().legit_mode.ENABLED,
                             std::memory_order_relaxed);
@@ -464,6 +480,7 @@ VirtualPianoPlayer::VirtualPianoPlayer(bool listenForHotkeys,
         CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
         TIMER_ALL_ACCESS
     );
+    waitable_timer_precise = waitable_timer != nullptr;
     if (!waitable_timer) {
         waitable_timer = CreateWaitableTimer(nullptr, FALSE, nullptr);
         if (!waitable_timer) {
@@ -692,6 +709,32 @@ void VirtualPianoPlayer::play_notes() {
 
         if (next_event_time > current_time) {
             auto wait_duration = next_event_time - current_time;
+            // condition_variable::wait_for rounds to the scheduler tick, so a
+            // note due in 0.4 ms went out a millisecond or two late, and a
+            // tick late when the tick is 15.6 ms. With a high-resolution
+            // timer the thread sleeps to within `spin` of the note and
+            // closes the rest on the clock. The sleep is cut into 5 ms
+            // slices because stop and pause are flags set by callers that
+            // notify the condition variable, not this timer; the loop reads
+            // them again at the top of each slice.
+            constexpr auto spin = std::chrono::microseconds(300);
+            constexpr auto slice = std::chrono::milliseconds(5);
+            if (waitable_timer_precise) {
+                if (wait_duration > spin) {
+                    const auto sleep = std::min<std::chrono::nanoseconds>(wait_duration - spin, slice);
+                    LARGE_INTEGER due;
+                    due.QuadPart = -std::max<LONGLONG>(1, sleep.count() / 100);
+                    const HANDLE handles[2] = { command_event, waitable_timer };
+                    if (SetWaitableTimer(waitable_timer, &due, 0, nullptr, nullptr, FALSE) &&
+                        WaitForMultipleObjects(2, handles, FALSE, 20) != WAIT_FAILED)
+                        continue;
+                } else {
+                    while (get_adjusted_time() < next_event_time &&
+                           !should_stop.load(std::memory_order_relaxed) && !paused.load(std::memory_order_relaxed))
+                        _mm_pause();
+                    continue;
+                }
+            }
             std::unique_lock<std::mutex> lock(playback_cv_mutex);
             playback_cv.wait_for(lock,
                                  wait_duration,
@@ -743,11 +786,13 @@ void VirtualPianoPlayer::play_notes() {
                     [](const auto& a, const auto& b) { return a.first < b.first; });
             }
 
-            auto fut = processing_pool.enqueue(
-                [this, legit, hesitation,
-                 batch = std::move(batch),
-                 presses = std::move(presses),
-                 releases = std::move(releases)]() -> size_t {
+            // Injected here, on the thread MMCSS raised for it. Each batch
+            // used to be handed to a pool thread at normal priority while
+            // this one blocked on its future: two context switches, a task
+            // and a promise allocated per batch, and the SendInput itself
+            // competing with the game's threads on equal terms. The work
+            // was already serial, so the pool bought nothing.
+            [&]() -> size_t {
                 if (!legit) {
                     // We release notes first, then press new ones
                     for (auto* e : batch) {
@@ -779,8 +824,7 @@ void VirtualPianoPlayer::play_notes() {
                     execute_note_event(*e);
                 }
                 return releases.size() + presses.size();
-            });
-            fut.get();
+            }();
         }
     }
 
@@ -907,7 +951,6 @@ void VirtualPianoPlayer::restart_song() {
         if (playback_thread && playback_thread->joinable()) {
             playback_thread->join();
         }
-        processing_pool.clear_tasks();
         playback_started.store(false, std::memory_order_release);
         paused.store(false, std::memory_order_release);
 

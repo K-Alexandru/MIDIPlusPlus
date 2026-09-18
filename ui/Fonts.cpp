@@ -27,27 +27,43 @@ void MergeCjk(ImFont* destination) {
     if (!destination) return;
     // System-owned font bytes are shared by all weights. Dynamic glyph loading
     // only rasterizes characters actually used, including after a DPI change.
-    static std::map<std::wstring, std::vector<char>> sources;
+    //
+    // Mapped, not read. Read into vectors, the five files were 71 MB of
+    // private memory for the life of the process, beside a game, to draw the
+    // handful of glyphs a file name might need. A read-only view costs only
+    // the pages a glyph lookup touches, and those are the system's cached
+    // copy. The views live until exit, as the vectors did.
+    struct Source { const void* data = nullptr; size_t size = 0; };
+    static std::map<std::wstring, Source> sources;
     wchar_t windows[MAX_PATH]{};
     if (!GetWindowsDirectoryW(windows, MAX_PATH)) return;
     for (const wchar_t* filename : {L"msyh.ttc", L"YuGothM.ttc", L"msgothic.ttc", L"malgun.ttf", L"simsun.ttc"}) {
         auto [it, inserted] = sources.try_emplace(filename);
         if (inserted) {
-            std::ifstream stream(std::filesystem::path(windows) / L"Fonts" / filename, std::ios::binary | std::ios::ate);
-            if (stream && stream.tellg() > 0 && stream.tellg() <= INT_MAX) {
-                it->second.resize(static_cast<size_t>(stream.tellg())); stream.seekg(0);
-                if (!stream.read(it->second.data(), it->second.size())) it->second.clear();
+            const auto path = std::filesystem::path(windows) / L"Fonts" / filename;
+            const HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr,
+                                            OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (file != INVALID_HANDLE_VALUE) {
+                LARGE_INTEGER size{};
+                if (GetFileSizeEx(file, &size) && size.QuadPart > 0 && size.QuadPart <= INT_MAX) {
+                    if (const HANDLE mapping = CreateFileMappingW(file, nullptr, PAGE_READONLY, 0, 0, nullptr)) {
+                        it->second.data = MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0);
+                        if (it->second.data) it->second.size = static_cast<size_t>(size.QuadPart);
+                        CloseHandle(mapping); // The view keeps the section alive.
+                    }
+                }
+                CloseHandle(file);
             }
         }
-        auto& bytes = it->second;
-        if (bytes.empty()) continue;
+        const auto& source = it->second;
+        if (!source.data) continue;
         ImFontConfig config;
         config.MergeMode = true;
         config.DstFont = destination;
         config.FontDataOwnedByAtlas = false;
         // Earlier font sources retain their Latin glyphs. Later sources fill
         // only missing glyphs, so the selected skin keeps its typography.
-        ImGui::GetIO().Fonts->AddFontFromMemoryTTF(bytes.data(), static_cast<int>(bytes.size()), 14.f, &config);
+        ImGui::GetIO().Fonts->AddFontFromMemoryTTF(const_cast<void*>(source.data), static_cast<int>(source.size), 14.f, &config);
     }
 }
 }

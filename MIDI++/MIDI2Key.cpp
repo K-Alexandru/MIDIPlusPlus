@@ -12,9 +12,17 @@
 // normal thread priority and still works. The shell constructs a MIDI2Key
 // for every device change, so a machine that refuses the class was writing
 // the same [error] line into the log on each one. Said once, as a note.
+//
+// Called once by each thread that delivers MIDI, from its first message. It
+// used to run in the constructor, which the shell calls on its engine worker:
+// the thread that scans folders and parses files was given Pro Audio
+// priority, the WinRT, RtMidi and Kernel Streaming threads that inject the
+// keys were given nothing, and a handle leaked per construction. It also put
+// the whole process in the high class for good, so every UI frame and every
+// file load preempted the game this app plays into. MMCSS on the delivering
+// thread is the boost that reaches the note; the class change is gone.
 static void setThreadToRealTime() {
-    static bool reported = false;
-    SetPriorityClass(GetCurrentProcess(), REALTIME_PRIORITY_CLASS);
+    static std::atomic<bool> reported{false};
     DWORD taskIndex = 0;
     HANDLE hTask = AvSetMmThreadCharacteristicsW(L"Pro Audio", &taskIndex);
     if (!hTask) {
@@ -348,7 +356,6 @@ MIDI2Key::MIDI2Key(VirtualPianoPlayer* player)
     for (auto& b : pressed) {
         b.store(false, std::memory_order_relaxed);
     }
-    setThreadToRealTime();
     // The player owns the output target and has to be able to release this
     // path's keys when the target changes. It cannot reach pressed[] or
     // scancodeOwner[] itself, so it is handed the one call that can.
@@ -496,6 +503,9 @@ void MIDI2Key::ProcessMidiMessage(uint64_t timestampQpc, const uint8_t* bytes, s
         ~InFlight() { count.fetch_sub(1, std::memory_order_release); }
     } inFlight(m_inFlight);
     if (!m_isActive.load(std::memory_order_seq_cst)) return;
+    // Once per delivering thread; see setThreadToRealTime.
+    thread_local bool boosted = false;
+    if (!boosted) { boosted = true; setThreadToRealTime(); }
     if (!bytes || length < 3) return;
     if (bytes[1] > 127 || bytes[2] > 127) return;
     uint8_t status = bytes[0];

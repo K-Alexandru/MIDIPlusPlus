@@ -390,11 +390,12 @@ private:
     std::set<int> sustain_owners;
     double inv_cpu_freq;  // Optional for optimization
     double time_factor;
-    // Static waitable timer shared by all instances.
-    static HANDLE waitable_timer;
-
-    // Thread pool for processing note events.
-    dp::thread_pool<> processing_pool;
+    // This player's own. It was static, so the second player a process built
+    // took the first one's timer and either destructor closed it for both.
+    HANDLE waitable_timer = nullptr;
+    // Set when Windows gave a high-resolution timer. The ordinary kind fires on
+    // the scheduler tick, which is too coarse to aim a short spin at.
+    bool waitable_timer_precise = false;
 
     // Helper to signal playback thread (notify condition variable and legacy event)
     inline void signalPlayback() noexcept {
