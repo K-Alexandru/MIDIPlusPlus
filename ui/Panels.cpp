@@ -259,8 +259,13 @@ bool StatePill(const char* label, bool on, const Fonts& fonts, const skin::Skin&
     // labels two pixels lower than the regular off ones, which read as the
     // text sitting unevenly inside the pill.
     bool clicked = false;
+    // Under its own ID. The Velocity pill and the Velocity panel are both in
+    // the shell window and both hashed the bare word, so activating the pill
+    // from the keyboard also matched the panel.
+    ImGui::PushID("pill");
     if (enabled) clicked = ImGui::InvisibleButton(label, size);
     else ImGui::Dummy(size);
+    ImGui::PopID();
     const bool hovered = enabled && ImGui::IsItemHovered();
     const bool held = enabled && ImGui::IsItemActive();
 
@@ -843,7 +848,24 @@ std::string OutputDeviceName(const EngineSnapshot& state) {
 void CurveCombo(const char* id, float width, const EngineSnapshot& state, ShellEngine& engine) {
     ImGui::SetNextItemWidth(width);
     const auto& edit = state.comparingCurve ? state.previousCurve : state.curve;
-    const bool curveOpen = ImGui::BeginCombo(id, state.ActiveVelocityName().c_str(), ImGuiComboFlags_NoArrowButton);
+    // The preview is cut to the room left of the chevron, which is drawn over
+    // the last .8 of a control height. The frame clips at its own edge, not
+    // the chevron's, so "Linear Coarse (edited)" ran underneath it.
+    std::string preview = state.ActiveVelocityName();
+    const float room = width - 2 * ImGui::GetStyle().FramePadding.x - ImGui::GetFrameHeight() * .8f;
+    if (ImGui::CalcTextSize(preview.c_str()).x > room) {
+        while (!preview.empty() && ImGui::CalcTextSize((preview + "...").c_str()).x > room) {
+            // One character, which in UTF-8 is its continuation bytes and
+            // then the byte that leads them.
+            while (!preview.empty()) {
+                const unsigned char last = static_cast<unsigned char>(preview.back());
+                preview.pop_back();
+                if ((last & 0xC0) != 0x80) break;
+            }
+        }
+        preview += "...";
+    }
+    const bool curveOpen = ImGui::BeginCombo(id, preview.c_str(), ImGuiComboFlags_NoArrowButton);
     ComboChevron();
     if (curveOpen) {
         for (size_t i = 0; i < state.curves.size(); ++i) {
@@ -904,7 +926,10 @@ void Panels::DrawVelocity(const Fonts& fonts, const skin::Skin& design, float dp
         float longest = 0;
         for (const auto& curve : state->curves) longest = std::max(longest, ImGui::CalcTextSize(curve.name.c_str()).x);
         // ComboChevron draws within the last .78 of the control height.
-        const float floor = longest + 2 * ImGui::GetStyle().FramePadding.x + control * .8f;
+        // And never so wide that it pushes Sustain cutoff off the panel: a
+        // custom curve's name may run to 120 bytes. CurveCombo cuts the
+        // preview to fit.
+        const float floor = std::min(longest + 2 * ImGui::GetStyle().FramePadding.x + control * .8f, width * .42f);
         CurveCombo("##collapsed-curve", std::max(floor, width - 430 * dpi), *state, engine);
         comboEnd = ImGui::GetItemRectMax().x;
     }

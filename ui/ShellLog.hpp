@@ -20,7 +20,9 @@ public:
         std::lock_guard lock(mutex_);
         text_ += text;
         if (text_.size() > Capacity) {
-            size_t first = text_.size() - Capacity;
+            // Cut back further than the limit. Trimmed to exactly Capacity, a
+            // full log moved all 256 KB on every line appended after it.
+            size_t first = text_.size() - (Capacity - Capacity / 8);
             const auto newline = text_.find('\n', first);
             if (newline != std::string::npos) first = newline + 1;
             while (first < text_.size() && (static_cast<unsigned char>(text_[first]) & 0xc0) == 0x80) ++first;
