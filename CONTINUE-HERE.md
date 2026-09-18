@@ -69,9 +69,8 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
 - 2026-09-17, owner-asked, both windows smaller: mini is the pill row wide
   with no resize or maximize box; full has a one-row strip, the sheet result
   in the status bar, and Files 240 to 336 after the right column's 600.
-- 2026-09-18, owner-asked, a bug, UI and performance pass, all of it fixed:
-  `REVIEW-2026-09-18.md` is the record, with what is left at its end. The
-  `ui/` changes in it were owner-asked. `LATENCY.md` has the timing notes.
+- 2026-09-18, owner-asked, `ui/` included: a bug, UI and performance pass,
+  recorded in `REVIEW-2026-09-18.md` with what is left; timing in `LATENCY.md`.
 
 ## Unresolved
 
