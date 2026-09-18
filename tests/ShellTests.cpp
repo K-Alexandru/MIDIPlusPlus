@@ -1520,6 +1520,29 @@ void WootingMapTests() {
     std::cout << "PASS wooting scancode mapping follows the virtual piano layout\n";
 }
 
+// A tester tabbed out of Roblox mid-song and the song was typed into the other
+// application. With Roblox behind, only key ups go out.
+void GameGateTests() {
+    Require(IsRobloxImage(L"C:\\Users\\a\\AppData\\Local\\Roblox\\Versions\\version-1\\RobloxPlayerBeta.exe"),
+            "the Roblox player is Roblox");
+    Require(IsRobloxImage(L"robloxplayerbeta.exe"), "whatever its case and with no folder");
+    Require(!IsRobloxImage(L"C:\\Program Files\\Roblox\\RobloxStudioBeta.exe"), "Studio is not the game");
+    Require(!IsRobloxImage(L"C:\\Roblox\\notepad.exe"), "nor is something that only lives in a Roblox folder");
+    Require(!IsRobloxImage(L"") && !IsRobloxImage(nullptr), "and no path is not Roblox");
+
+    INPUT in[4]{};
+    for (auto& input : in) input.type = INPUT_KEYBOARD;
+    in[0].ki.wScan = 0x2A;                                  // shift down
+    in[1].ki.wScan = 0x10;                                  // q down
+    in[2].ki.wScan = 0x10; in[2].ki.dwFlags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP;
+    in[3].ki.wScan = 0x2A; in[3].ki.dwFlags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP;
+    INPUT out[4]{};
+    Require(KeyUpsOnly(in, 4, out) == 2, "with the game behind, the key downs are held back");
+    Require(out[0].ki.wScan == 0x10 && out[1].ki.wScan == 0x2A, "and the key ups go out in order");
+    Require(KeyUpsOnly(in, 2, out) == 0, "a batch of downs sends nothing");
+    std::cout << "PASS game gate: Roblox is recognised and only key ups pass while it is behind\n";
+}
+
 // The Wooting poll loop, which until now had no test at all: the loop needs a
 // keyboard on the desk, so everything it decides was written and shipped
 // unexercised. WootingPollStep is that loop without the SDK or the clock.
@@ -3277,6 +3300,7 @@ int wmain(int argc, wchar_t** argv) {
         WootingMapTests();
         WootingSettingsTests();
         WootingPollTests();
+        GameGateTests();
         MidiStreamSplitTests();
         KsEventWalkTests();
         KernelStreamingIdentityTests();
