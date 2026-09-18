@@ -585,6 +585,13 @@ From the owner and a tester in one session. Nothing here is optional.
      Custom. No text. Natural is sized to how much one player differs between
      two takes of the same piece, which is small. Loose is what a quantised
      file wants, and the user picks it; the app does not guess the file's kind.
+   - The owner, same day: a harder song has more issues live, and how many
+     depends on the player we assume, one who practised it a lot or one who
+     struggles with it. So the plan scores difficulty along the song (notes per
+     second, chord size, leaps) and the variation and the mistakes gather where
+     it is hard. The presets are that assumed player, names not settled, and
+     they set both the base amount and how hard difficulty bites. Hesitation
+     returns only here: before a hard spot, as a plan offset, never a sleep.
    - Old `LEGIT_MODE_SETTINGS` keys still load and are ignored.
 
    **First, before the model:** measure whether plain playback flattens a
