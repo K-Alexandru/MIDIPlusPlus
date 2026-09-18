@@ -1833,28 +1833,35 @@ void Panels::DrawLog(HWND hwnd, const Fonts& fonts, const skin::Skin& design, fl
 // separates the key from what it does, and a wider gap separates the pairs.
 // A key another program holds is drawn as a dead key, flat and in the
 // faintest ink, rather than labelled: the words pushed the song title out of
-// its own row. `labels` off leaves the caps alone, for when the title needs
-// the width.
-float Panels::DrawTransportHints(ImDrawList* draw, const skin::Skin& s, float dpi, int seekStep, ImVec2 origin, bool labels) const {
+// its own row. The legend gives way in steps as the title needs the width:
+// HintWords, then HintIcons, where each cap is followed by its transport
+// button's own icon, which six bound keys need at the smallest window, then
+// HintCaps alone.
+float Panels::DrawTransportHints(ImDrawList* draw, const skin::Skin& s, float dpi, int seekStep, ImVec2 origin, int detail) const {
     const auto back = "-" + std::to_string(seekStep) + "s", forward = "+" + std::to_string(seekStep) + "s";
     const std::string actions[]{"Play/Pause", back, forward, "Stop", "Previous", "Next"};
+    // The seek buttons are their text already, so they keep it.
+    const Icon icons[]{Icon::Play, Icon::Play, Icon::Play, Icon::Close, Icon::Left, Icon::Right};
     const float line = ImGui::GetTextLineHeight(), capPad = 5 * dpi, capHeight = line + 2 * dpi;
-    const float pairGap = labels ? s.spacing.s4 : s.spacing.s2;
+    const float pairGap = detail == HintWords ? s.spacing.s4 : detail == HintIcons ? s.spacing.s3 : s.spacing.s2;
     float x = origin.x;
     for (size_t i = 0; i < transportKeys.size(); ++i) {
         if (transportKeys[i].empty()) continue;
         const float capWidth = ImGui::CalcTextSize(transportKeys[i].c_str()).x + 2 * capPad;
         const bool available = transportKeysAvailable[i];
+        const bool icon = detail == HintIcons && i != 1 && i != 2;
+        const ImU32 ink = Colour(available ? s.ink.secondary : s.ink.tertiary);
         if (draw) {
             const ImVec2 min(x, origin.y - dpi), max(x + capWidth, origin.y - dpi + capHeight);
             if (available) draw->AddRectFilled(min, max, Colour(s.surface.elevated), 4 * dpi);
             draw->AddRect(min, max, Colour(s.border.hairline), 4 * dpi, 0, dpi);
             draw->AddText(ImVec2(x + capPad, origin.y), Colour(available ? s.ink.primary : s.ink.tertiary), transportKeys[i].c_str());
-            if (labels) draw->AddText(ImVec2(x + capWidth + s.spacing.s1, origin.y),
-                                      Colour(available ? s.ink.secondary : s.ink.tertiary), actions[i].c_str());
+            if (icon) DrawIcon(draw, icons[i], ImVec2(x + capWidth + s.spacing.s1, origin.y), line, ink, dpi);
+            else if (detail != HintCaps) draw->AddText(ImVec2(x + capWidth + s.spacing.s1, origin.y), ink, actions[i].c_str());
         }
         x += capWidth + pairGap;
-        if (labels) x += s.spacing.s1 + ImGui::CalcTextSize(actions[i].c_str()).x;
+        if (icon) x += s.spacing.s1 + line;
+        else if (detail != HintCaps) x += s.spacing.s1 + ImGui::CalcTextSize(actions[i].c_str()).x;
     }
     return std::max(0.f, x - origin.x - pairGap);
 }
@@ -1987,7 +1994,9 @@ void Panels::DrawMini(HWND hwnd, const Fonts& fonts, const skin::Skin& design, f
         draw->AddText(ImVec2(origin.x + size.x - pad - ImGui::CalcTextSize(time.c_str()).x,
             transportY + (control - ImGui::GetTextLineHeight()) / 2), Colour(s.ink.secondary), time.c_str());
         { FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
-          DrawTransportHints(draw, s, dpi, state->seekStep, ImVec2(origin.x + pad, transportY + control + gap)); }
+          int detail = HintWords;
+          while (detail > HintCaps && DrawTransportHints(nullptr, s, dpi, state->seekStep, {}, detail) > size.x - 2 * pad) --detail;
+          DrawTransportHints(draw, s, dpi, state->seekStep, ImVec2(origin.x + pad, transportY + control + gap), detail); }
     }
     DrawStatus(fonts, design, dpi, *state, ImVec2(origin.x, origin.y + size.y - status), size.x, status);
     ImGui::PopStyleVar();
@@ -2227,8 +2236,10 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     const float contentWidth = ImGui::GetContentRegionAvail().x;
     const char* sheetLabel = "Export";
     const float sheetButtonWidth = 2 * 12 * dpi + 16 * dpi + s.spacing.s2 + ImGui::CalcTextSize(sheetLabel).x;
-    // The title is the song and the legend is the same four keys every day,
-    // so the legend gives way: whole, then caps only, then not at all.
+    // The title is the song and the legend is the same keys every day, so the
+    // legend gives way: words, then icons, then caps only, then not at all.
+    // Icons may take the title's room up to half the row, because a cap with
+    // nothing after it says a key exists and not what it does.
     const std::string title = state->loaded.empty() ? "Playback" : Utf8(state->loaded.stem());
     float titleWidth = 0;
     { FontScope font(fonts, design, 20 * SpecFontScale(design), Weight::Medium);
@@ -2236,13 +2247,17 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     float hintsWidth = 0;
     { FontScope font(fonts, design, design.type.meta * SpecFontScale(design));
       const float room = contentWidth - sheetButtonWidth - s.spacing.s2 - titleWidth - s.spacing.s3;
-      const float capsWidth = DrawTransportHints(nullptr, s, dpi, state->seekStep, {}, false);
-      const bool labels = DrawTransportHints(nullptr, s, dpi, state->seekStep, {}, true) <= room;
-      if (labels || capsWidth <= std::max(room, contentWidth * .25f)) {
-          hintsWidth = (labels ? DrawTransportHints(nullptr, s, dpi, state->seekStep, {}, true) : capsWidth) + s.spacing.s3;
+      const float widths[]{DrawTransportHints(nullptr, s, dpi, state->seekStep, {}, HintCaps),
+                           DrawTransportHints(nullptr, s, dpi, state->seekStep, {}, HintIcons),
+                           DrawTransportHints(nullptr, s, dpi, state->seekStep, {}, HintWords)};
+      const int detail = widths[HintWords] <= room ? HintWords :
+          widths[HintIcons] <= std::max(room, contentWidth * .5f) ? HintIcons :
+          widths[HintCaps] <= std::max(room, contentWidth * .25f) ? HintCaps : -1;
+      if (detail >= 0 && widths[detail] > 0) {
+          hintsWidth = widths[detail] + s.spacing.s3;
           DrawTransportHints(ImGui::GetWindowDrawList(), s, dpi, state->seekStep,
               ImVec2(content.x + contentWidth - sheetButtonWidth - hintsWidth + s.spacing.s3 - s.spacing.s2,
-                     content.y + (titleHeight - ImGui::GetTextLineHeight()) / 2), labels);
+                     content.y + (titleHeight - ImGui::GetTextLineHeight()) / 2), detail);
       } }
     { FontScope font(fonts, design, 20 * SpecFontScale(design), Weight::Medium);
       DrawEllipsis(title,

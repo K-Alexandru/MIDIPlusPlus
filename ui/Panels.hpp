@@ -94,7 +94,8 @@ private:
     void DrawLog(HWND, const Fonts&, const skin::Skin&, float, ShellEngine&);
     // The hotkey legend: a keycap per key, its action after it. Measures
     // when draw is null. Callers push the meta face first.
-    float DrawTransportHints(ImDrawList* draw, const skin::Skin& s, float dpi, int seekStep, ImVec2 origin, bool labels = true) const;
+    enum { HintCaps, HintIcons, HintWords };
+    float DrawTransportHints(ImDrawList* draw, const skin::Skin& s, float dpi, int seekStep, ImVec2 origin, int detail = HintWords) const;
     bool volumeWasOpen_ = false;
     GameWindow volumeWindow_;
     void SettingsControl(const Fonts&, const skin::Skin&, float, ShellEngine&, ImVec2, float);

@@ -96,10 +96,13 @@ int wmain() {
         const auto skins = skin::All();
         // Returning to 100% catches cumulative scaling after a monitor move.
         for (const float dpi : {1.f, 1.25f, 1.5f, 2.f, 1.f}) for (int i = 0; i < 4; ++i)
-        for (int mode = 0; mode < 19; ++mode) {
+        for (int mode = 0; mode < 21; ++mode) {
             panels.preferences.skin = i;
-            panels.miniMode = mode == 1 || mode == 2 || mode == 8 || mode == 9 || mode == 10;
-            panels.miniAutoplay = mode == 2 || mode == 8 || mode == 10;
+            panels.miniMode = mode == 1 || mode == 2 || mode == 8 || mode == 9 || mode == 10 || mode == 20;
+            panels.miniAutoplay = mode == 2 || mode == 8 || mode == 10 || mode == 20;
+            // All six hotkeys bound, where the legend has the least room.
+            panels.transportKeys[4] = mode >= 19 ? "F5" : "";
+            panels.transportKeys[5] = mode >= 19 ? "F6" : "";
             panels.logOpen = mode == 3 || mode == 9;
             panels.velocityExpanded = mode == 11;
             // "minimum" is the smallest window WM_GETMINMAXINFO allows, where
@@ -114,7 +117,8 @@ int wmain() {
                                    "library-save",
                                    // Settings at its Hotkeys section: Back armed, Forward
                                    // held by another program, Next song on a media key.
-                                   "settings-hotkeys"};
+                                   "settings-hotkeys",
+                                   "minimum-six-keys", "mini-six-keys"};
             const int picksBefore = pickerCalls;
             if (mode == 7 || mode == 8) {
                 engine.Send({shell::ShellEngine::Action::PlaybackDelay, {}, 0, 0, false, 10});
@@ -128,7 +132,7 @@ int wmain() {
             if (panels.logOpen) shell::ShellLog::Instance().Append("[error] Kernel Streaming read failed, live input has stopped.\n");
             skin::ApplyStyle(skins[i], dpi);
             ImGui::GetIO().FontDefault = fonts.Get(skins[i]);
-            const auto desired = mode == 13 ? shell::Panels::MinimumSize() : panels.DesiredSize();
+            const auto desired = mode == 13 || mode == 19 ? shell::Panels::MinimumSize() : panels.DesiredSize();
             const UINT width = static_cast<UINT>(desired.x * dpi);
             const UINT height = static_cast<UINT>(desired.y * dpi);
             D3D11_TEXTURE2D_DESC desc{};
