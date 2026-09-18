@@ -552,6 +552,13 @@ void BuiltinCurveTests(const std::filesystem::path& directory) {
         const auto state = engine.Snapshot();
         Require(state->curves[state->curve.preset].name == "Mine",
                 "a custom curve saved before S-Curve existed reopened as a different curve");
+        // The injector reads custom curve n at customVelocityCurves[n - built-ins],
+        // so a built-in copied into that list makes every custom curve play
+        // the table of the curve before it.
+        const auto& custom = midi::Config::getInstance().playback.customVelocityCurves;
+        Require(custom.size() == 1 && custom[0].name == "Mine" &&
+                std::equal(mine.begin(), mine.end(), custom[0].velocityValues.begin(), custom[0].velocityValues.end()),
+                "the selected custom curve is not the table the injector plays");
     }
     std::filesystem::remove(config);
     std::cout << "PASS built-in curves reach the top step, S-Curve is the R5 tuning, older saves keep their curve\n";
@@ -752,6 +759,33 @@ void SheetMenuTests(const std::filesystem::path& directory) {
           std::ofstream copy(directory / L"sheet-page.html", std::ios::binary); copy << html; }
         const auto again = produce(engine, A::CopySheet);
         Require(again->sheetSaved.empty(), "a copy after opening the editor still points at the page");
+        // Playing rescales the scheduler's event times by the speed. A sheet
+        // is the score, so one copied after a half-speed play reads the same.
+        // Two notes a beat apart: the track fixture's are all at zero, and
+        // zero rescaled is zero.
+        const auto timed = directory / L"sheet-speed.mid";
+        { const std::vector<uint8_t> bytes{'M','T','h','d',0,0,0,6,0,0,0,1,0,0x60, 'M','T','r','k',0,0,0,0x17,
+              0,0xC0,0, 0,0x90,0x3C,0x64, 0x60,0x80,0x3C,0, 0,0x90,0x40,0x64, 0x60,0x80,0x40,0, 0,0xFF,0x2F,0};
+          std::ofstream file(timed, std::ios::binary); file.write(reinterpret_cast<const char*>(bytes.data()), bytes.size()); }
+        { const auto before = engine.Snapshot()->generation;
+          engine.Send({A::Load, timed, 0, 0, false});
+          Await([&] { const auto s = engine.Snapshot(); return !s->busy && s->generation != before; }, "the timed sheet fixture did not load"); }
+        const auto timedPage = std::filesystem::temp_directory_path(ignored) / L"QuartzMIDI sheets" / L"sheet-speed.html";
+        const auto readPage = [&] { std::ifstream file(timedPage, std::ios::binary);
+            return std::string((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>()); };
+        produce(engine, A::OpenSheetEditor);
+        const auto scorePage = readPage();
+        Require(!scorePage.empty(), "the timed fixture wrote no editor page");
+        engine.Send({A::AcknowledgeTyping});
+        { shell::ShellEngine::Command slow{A::Speed}; slow.generation = engine.Snapshot()->generation; slow.amount = .25; engine.Send(slow); }
+        engine.Send({A::Play, {}, engine.Snapshot()->generation});
+        Await([&] { return engine.Snapshot()->playing; }, "the sheet fixture did not play");
+        engine.Send({A::Stop});
+        Await([&] { return !engine.Snapshot()->playing; }, "the sheet fixture did not stop");
+        TakeCaptured();
+        produce(engine, A::OpenSheetEditor);
+        Require(readPage() == scorePage, "an editor page written after a slowed play does not carry the score's times");
+        std::filesystem::remove(timed);
         WriteSheetPageParityFixture(directory / L"sheet-page-parity.json", engine.Snapshot()->keyMappings);
     }
     std::filesystem::remove(page);
@@ -2665,6 +2699,14 @@ void OutRangeSwitchTests(const std::filesystem::path& directory) {
         for (const auto& event : liveRelease) Require(event.thread != caller, "live OutRange release ran on the UI thread");
         input->Deliver({0x90, 21, 80});
         Require(!HasKey(TakeCaptured(), 0x1e, true), "disabled OutRange still folds live input");
+        // A curve change replaces the live MIDI2Key, and the note-off for a
+        // key held across it reaches an object that never saw the press.
+        input->Deliver({0x90, 60, 80});
+        Require(HasKey(TakeCaptured(), 0x14, true), "live C4 did not press its key");
+        const auto curveRevision = engine.Snapshot()->curveRevision;
+        shell::ShellEngine::Command select{A::CurveSelect}; select.track = 1; engine.Send(select);
+        Await([&] { return engine.Snapshot()->curveRevision != curveRevision; }, "the curve did not change");
+        Require(HasKey(TakeCaptured(), 0x14, false), "a curve change left the held live key down");
         engine.Send({A::Stop});
         Await([&] { return !engine.Snapshot()->liveActive; }, "Stop did not disable live input");
     }

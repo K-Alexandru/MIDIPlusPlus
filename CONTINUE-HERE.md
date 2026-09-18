@@ -1,7 +1,8 @@
 # Start here
 
-Updated 2026-09-17 on `claude/consolidate-2026-09-15`, the one branch. Read
-`HANDOFF.md` only where this points, `SHELL-GAPS.md` (owed) and `SEATS.md`.
+Updated 2026-09-18 on `claude/consolidate-2026-09-15`, the one branch. Read
+`REVIEW-2026-09-18.md` (open bugs, UI and performance findings), `HANDOFF.md`
+only where this points, `SHELL-GAPS.md` (owed) and `SEATS.md`.
 
 ## Goal
 
@@ -72,11 +73,18 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
   tooltip; disabled pills drawn like off ones; the sustain value off the
   panel at the floor; a false maximized window from mini or the editor.
 
+- 2026-09-18, a bug pass: a custom curve played the curve before it, a curve
+  change stuck a held live key, sheets inherited the playback speed, a failed
+  config save pinned a core. Fixed, the first three under mutation-checked
+  tests. Everything else found is in `REVIEW-2026-09-18.md`, unfixed.
+
 ## Unresolved
 
-- **Owner to test the `3aeea33` build:** mini and back, maximized too; the
-  velocity editor while maximized; Miphas Court's Flutes reading Flute.
-- `tests/run-native-tests.ps1`: numbers re-derived, not run; takes the cursor.
+- **Owner to choose from `REVIEW-2026-09-18.md`:** the `ui/` items are the
+  panel seat's or owner-asked; demo v2 predates the four fixes.
+- **Owner to test the `3aeea33` build:** the velocity editor while maximized;
+  Miphas Court's Flutes reading Flute. Mini and back, maximized too, passed
+  on the driven shell.
 - **Owner to read the text:** Settings, pills, Export, the sheet editor page.
 - **Owner to test:** Solo Piano in mini; sections on a real file; Save image
   from a page opened off disk.
@@ -85,9 +93,9 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
 
 ## Validation actually run
 
-- `ShellTests.exe` and parity PASS at `3aeea33`. At `4e55ecc`: `RenderTests.exe`
-  all PASS at 100 to 200% in four skins; the built shell opened 940 x 600 and
-  clamped a 300 x 300 request to 884 x 560, read without the cursor.
+- 2026-09-18: `ShellTests.exe`, parity and all 360 `RenderTests.exe` scenarios
+  PASS with the fixes; `run-native-tests.ps1` all PASS at `9d05e76` (one
+  monitor, so the DPI move was skipped).
 - At `1de8a50`, not repeated since: no account, assistant or path string in
   the exe or package text; default config; no settings, session or MIDI in
   the zip; the source zip built `QuartzMIDI.exe` on its own elsewhere.
@@ -115,5 +123,6 @@ python .\tools\make-source.py
 
 ## Next action
 
-Ask the owner what they found in the smaller windows and the text, fix the
-first thing they name, then run `make-release.ps1` and `make-source.py`.
+Ask the owner which `REVIEW-2026-09-18.md` items to take and what they found
+in the smaller windows, fix those, then run `make-release.ps1` and
+`make-source.py`.

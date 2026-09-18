@@ -440,7 +440,7 @@ void ShellEngine::Run(std::stop_token stop) {
         if (!player || state.curves.empty()) return;
         auto& custom = midi::Config::getInstance().playback.customVelocityCurves;
         custom.clear();
-        for (size_t i = 5; i < state.curves.size(); ++i)
+        for (size_t i = midi::kBuiltinVelocityCurves; i < state.curves.size(); ++i)
             custom.push_back({state.curves[i].name, state.curves[i].thresholds});
         const auto& edit = state.comparingCurve ? state.previousCurve : state.curve;
         if (VelocityEdited(edit) || state.comparingCurve) {
@@ -566,10 +566,14 @@ void ShellEngine::Run(std::stop_token stop) {
         page.title = Utf8(state.loaded.stem());
         page.mapping = state.keyMappings;
         page.notes.reserve(player->note_events.size() / 2);
-        for (const auto& event : player->note_events) {
+        // scoreTimes, not event.time: startPlayback rescales event.time by the
+        // speed, and a sheet is the score, whatever rate it was last played at.
+        for (size_t i = 0; i < player->note_events.size(); ++i) {
+            const auto& event = player->note_events[i];
             if (event.action != EventType::Press || event.note_or_control == "sustain" || !audible(event.trackIndex)) continue;
             const int midi = MidiNumberForNoteName(std::string(event.note_or_control).c_str());
-            if (midi >= 0) page.notes.push_back({static_cast<double>(event.time.count()) / 1e9, midi});
+            const auto time = i < scoreTimes.size() ? scoreTimes[i] : event.time;
+            if (midi >= 0) page.notes.push_back({static_cast<double>(time.count()) / 1e9, midi});
         }
         std::vector<sheet::TickTempo> tempos;
         for (const auto& change : player->midi_file.tempoChanges) tempos.push_back({change.tick, change.microsecondsPerQuarter});
@@ -1234,9 +1238,11 @@ void ShellEngine::Run(std::stop_token stop) {
                     };
                     std::vector<sheet::Note> notes;
                     notes.reserve(player->note_events.size() / 2);
-                    for (const auto& event : player->note_events) {
+                    for (size_t i = 0; i < player->note_events.size(); ++i) {
+                        const auto& event = player->note_events[i];
                         if (event.action != EventType::Press || event.note_or_control == "sustain" || !audible(event.trackIndex)) continue;
-                        notes.push_back({static_cast<double>(event.time.count()) / 1e9, std::string(event.note_or_control)});
+                        const auto time = i < scoreTimes.size() ? scoreTimes[i] : event.time;
+                        notes.push_back({static_cast<double>(time.count()) / 1e9, std::string(event.note_or_control)});
                     }
                     sheet::Options options;
                     if (!player->midi_file.tempoChanges.empty()) {
@@ -1481,6 +1487,7 @@ void ShellEngine::Run(std::stop_token stop) {
                     if (live && !device.empty()) {
                         // Live note ownership is internal to MIDI2Key. Release its
                         // mapped keys before replacing that object and its caches.
+                        if (active && player) player->release_every_mapped_key();
                         live.reset();
                     }
                     next.position = state.position; next.playing = false;
@@ -1675,7 +1682,14 @@ void ShellEngine::Run(std::stop_token stop) {
         state.playedVelocities = velocity_telemetry::snapshot();
         if (configDirty && std::chrono::steady_clock::now() >= configDue) {
             try { flushConfig(); }
-            catch (const std::exception& error) { state.error = error.what(); }
+            catch (const std::exception& error) {
+                state.error = error.what();
+                // Still dirty, so the wait above would return at once on a
+                // deadline already past and retry the write flat out.
+                // A config that never loaded never becomes saveable.
+                if (!configLoaded) configDirty = false;
+                configDue = std::chrono::steady_clock::now() + 5s;
+            }
         }
         Publish(state);
     }
