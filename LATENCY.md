@@ -169,3 +169,37 @@ goes through `SendInput` behind the `InjectInput` pointer, which stays so the
 tests can substitute an in-process recorder.
 
 Do not reintroduce it without a measurement that beats this one.
+
+## Scheduling and priority, 2026-09-18
+
+Four changes, none of which this harness times directly, because its clock
+starts at dispatch entry and what they move is how late dispatch begins.
+
+- Autoplay injected every batch on a thread-pool thread at normal priority
+  and blocked on its future, while the thread MMCSS had raised only waited.
+  The batch now runs on that thread and the pool is gone.
+- The wait between notes was `condition_variable::wait_for`, which rounds to
+  the scheduler tick. It is a high-resolution waitable timer to within 300 us
+  of the note and a spin for the rest, in 5 ms slices so stop and pause are
+  seen. Without a high-resolution timer it falls back to the old wait.
+- The process opts out of Windows 11's timer-resolution throttling
+  (`PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION`), which otherwise
+  returns a covered window's process to a 15.6 ms tick.
+- `MIDI2Key` no longer sets `REALTIME_PRIORITY_CLASS` on the process for
+  good, and registers MMCSS from the delivering thread's first message
+  rather than from its constructor, which ran on the engine worker.
+
+Three loopback runs each through loopMIDI, before at `d7ea45f` and after at
+`2e4e105`, callback to hook, p50 in ms:
+
+| | before | after |
+|---|---|---|
+| WinRT live | 0.020, 0.058, 0.018 | 0.019, 0.019, 0.022 |
+| WinMM live | 0.017, 0.010, 0.012 | 0.026, 0.019, 0.017 |
+| Autoplay | 0.082, 0.053, 0.323 | 0.049, 0.049, 0.043 |
+| Autoplay velocity | 0.158, 0.133, 0.120 | 0.127, 0.175, 0.161 |
+| MidiConnect | 0.347, 0.577, 0.712 | 0.523, 0.328, 0.321 |
+
+Six notes a run, so this shows no regression and nothing finer. **Autoplay
+scheduling lateness is still unmeasured**: a trace that starts at the note's
+due time, not at dispatch entry, is what would show the timer change.
