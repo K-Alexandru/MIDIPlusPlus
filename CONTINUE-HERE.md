@@ -69,8 +69,7 @@ shell (`ui/`) over `PlaybackCore`, replacing the Win32 window (`MIDI++/`).
 
 ## Work completed
 
-- To 2026-09-17: `HANDOFF.md`. 2026-09-18: `REVIEW-2026-09-18.md`, `LATENCY.md`,
-  a source zip that builds on Visual Studio 2026, the Colab notice.
+- See `HANDOFF.md`, then `REVIEW-2026-09-18.md` and `LATENCY.md` for 2026-09-18.
 
 ## Unresolved
 
