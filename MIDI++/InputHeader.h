@@ -19,6 +19,7 @@ extern "C" {
 // still go out, so nothing the game was sent is left without its release.
 // With no Roblox running nothing is held back, which is every other game.
 bool IsRobloxImage(const wchar_t* imagePath) noexcept;
+bool IsRobloxWindow(HWND window) noexcept;
 // Copies the key ups from in to out, which must hold count, and returns how many.
 UINT KeyUpsOnly(const INPUT* in, UINT count, INPUT* out) noexcept;
 #endif

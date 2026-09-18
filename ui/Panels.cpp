@@ -776,9 +776,15 @@ void Panels::DrawAutoVolume(const Fonts& fonts, const skin::Skin& design, float 
         ImGui::BeginDisabled(pending);
         ImGui::TextUnformatted("Game window");
         ImGui::SetNextItemWidth(-s.metric.controlHeight - 8 * dpi);
-        const bool selected = std::any_of(state->volumeWindows.begin(), state->volumeWindows.end(), [&](const auto& window) {
-            return window.id == volumeWindow_.id && window.process == volumeWindow_.process && window.title == volumeWindow_.title;
-        });
+        const auto listed = [&] {
+            return std::any_of(state->volumeWindows.begin(), state->volumeWindows.end(), [&](const auto& window) {
+                return window.id == volumeWindow_.id && window.process == volumeWindow_.process && window.title == volumeWindow_.title;
+            });
+        };
+        // A known game leads the list, and with nothing chosen it is the choice.
+        if (!listed() && !state->volumeWindows.empty() && state->volumeWindows.front().game)
+            volumeWindow_ = state->volumeWindows.front();
+        const bool selected = listed();
         if (ImGui::BeginCombo("##volume-window", selected ? volumeWindow_.title.c_str() : "Select the game window", ImGuiComboFlags_NoArrowButton)) {
             for (const auto& window : state->volumeWindows) {
                 ImGui::PushID(reinterpret_cast<void*>(window.id));

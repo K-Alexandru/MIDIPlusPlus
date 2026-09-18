@@ -1540,6 +1540,13 @@ void GameGateTests() {
     Require(KeyUpsOnly(in, 4, out) == 2, "with the game behind, the key downs are held back");
     Require(out[0].ki.wScan == 0x10 && out[1].ki.wScan == 0x2A, "and the key ups go out in order");
     Require(KeyUpsOnly(in, 2, out) == 0, "a batch of downs sends nothing");
+
+    // AutoVol listed every open application by title, and the game was
+    // somewhere among them. A known game leads, the rest keep their order.
+    std::vector<shell::GameWindow> windows{{1, 1, "Notepad"}, {2, 2, "Roblox", true}, {3, 3, "Discord"}};
+    shell::OrderGameWindows(windows);
+    Require(windows[0].title == "Roblox" && windows[1].title == "Discord" && windows[2].title == "Notepad",
+            "the game window leads the AutoVol list");
     std::cout << "PASS game gate: Roblox is recognised and only key ups pass while it is behind\n";
 }
 

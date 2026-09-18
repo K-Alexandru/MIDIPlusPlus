@@ -47,8 +47,6 @@ UINT KeyUpsOnly(const INPUT* in, UINT count, INPUT* out) noexcept
     return kept;
 }
 
-namespace {
-
 bool IsRobloxWindow(HWND window) noexcept
 {
     DWORD process = 0;
@@ -62,6 +60,8 @@ bool IsRobloxWindow(HWND window) noexcept
     CloseHandle(handle);
     return roblox;
 }
+
+namespace {
 
 // This runs on every batch, on the thread that plays the note, so what costs
 // anything is remembered: the verdict on the window in front until another

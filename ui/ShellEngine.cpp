@@ -44,10 +44,10 @@ public:
             wchar_t title[1024]{};
             if (GetWindowTextW(hwnd, title, static_cast<int>(std::size(title))) == 0) return TRUE;
             reinterpret_cast<std::vector<GameWindow>*>(context)->push_back(
-                {reinterpret_cast<uintptr_t>(hwnd), process, Utf8(std::filesystem::path(title))});
+                {reinterpret_cast<uintptr_t>(hwnd), process, Utf8(std::filesystem::path(title)), IsRobloxWindow(hwnd)});
             return TRUE;
         }, reinterpret_cast<LPARAM>(&result));
-        std::sort(result.begin(), result.end(), [](const auto& a, const auto& b) { return a.title < b.title; });
+        OrderGameWindows(result);
         return result;
     }
     bool Focus(const GameWindow& window) override {
