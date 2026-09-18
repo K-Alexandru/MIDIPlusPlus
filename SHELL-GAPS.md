@@ -544,8 +544,18 @@ From the owner and a tester in one session. Nothing here is optional.
    - **Stored** in `themes.json` beside `shell-settings.json`, written when the
      editor closes and at exit, colours as `#RRGGBB` or `#RRGGBBAA`. Shape,
      spacing and type never reach the file: a custom theme is colour only.
-   - **Settings, Appearance**: the two radios become a list of themes with New,
-     Duplicate, Rename and Delete; New starts from the theme on screen.
+   - **Settings, Appearance**: the two radios become a list of themes, a
+     Customise button and, on a theme of the user's, Delete with a one-line
+     confirmation. Customise opens the editor on the chosen theme, or on a
+     copy of a built-in, so nothing is disabled and there is no separate New
+     or Duplicate; the name is a field at the top of the editor.
+
+   Built 2026-09-18 (`1b062f3`, `f866071`) as above, with one addition: a
+   paired theme records which half is its source, so an edit to the derived
+   half turns automatic off rather than the next edit to the source undoing
+   it. Seen only in the `theme-editor` render: no swatch has been clicked, no
+   picker opened and no theme saved from the running app. Owed: the picker is
+   ImGui's own and unstyled; `skin-system.html` knows nothing of themes.
 3. **Legit mode** is a reminder carried over from upstream, where it was
    removed for being poor. The owner wants it rethought entirely, not tuned. A
    tester found it laggy.

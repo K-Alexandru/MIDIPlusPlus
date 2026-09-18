@@ -6,7 +6,7 @@ Updated 2026-09-18 on `claude/consolidate-2026-09-15`, the one branch. Read
 ## Goal
 
 Build the five items `SHELL-GAPS.md` lists under "Asked for on 2026-09-18", in
-its order. Rebindable hotkeys are built (`ed08fca`); custom colour themes are next.
+its order. Hotkeys and custom themes are built (`f866071`), neither fully pressed; Legit mode is next.
 QuartzMIDI is the ImGui shell (`ui/`) over `PlaybackCore`. The panel seat owns
 `ui/` (`SEATS.md`); the owner asked for these controls, so their `ui/` work is in scope.
 
@@ -25,27 +25,24 @@ QuartzMIDI is the ImGui shell (`ui/`) over `PlaybackCore`. The panel seat owns
   not even why a control is disabled; redesign the control.
 - Hotkeys, built: `SHELL-GAPS.md` item 1. No media key is ever a default, and
   the legend is icons only and never shows the seek seconds.
-- Custom themes: every colour editable in a friendly way, text included, seen
-  live. A theme has a light and dark pair or not; without one the light/dark
-  toggle is greyed out while it is selected; with one the other half is edited
-  by hand or chosen automatically as the opposite of the half being edited.
-  A custom theme is still colour only, like every skin.
+- Custom themes, built: `SHELL-GAPS.md` item 2 holds the design and what is owed.
+  A custom theme is colour only, like every skin.
+- Legit Mode wears an Experimental tag until it is rethought.
 - The game owns the key protocol: Alt is velocity, Ctrl is the 88-key notes,
   the velocity keys are the note keys. A fix or a test never changes a bind.
 - Test builds stay on this PC: `make-release.ps1` zips to `build\release\`.
 
 ## Relevant files
 
-- Themes: `MIDI++/Skin.hpp`, `ui/SkinDraw.cpp`.
+- Themes: `ui/ThemeModel.hpp`, `DrawThemeEditor` and Appearance in `ui/Panels.cpp`.
 - `tests/ShellTests.cpp` captures injection in process; `tests/RenderTests.cpp`
   writes a PNG per scenario to `build\render-tests`.
 - Run `tests\run-shell-tests.ps1 -Render`, `tools\make-release.ps1`, `python tools\make-source.py`.
 
 ## Verified facts
 
-- The engine worker owns `config.json`.
-- Skins: preferences store an index into `skin::All()`, `skin ^= 1` is the
-  light/dark toggle, and Settings picks a colour by `skin < 2`.
+- Preferences name a theme by id plus `dark`; `themes.json` sits beside
+  `shell-settings.json` and the shell restyles on a signature of the colours.
 - `ShellTests.exe` stops at its first failure and buffers output: run the exe
   itself to read what it printed.
 - `gh` holds two accounts, K-Alexandru active. Credential Manager offers
@@ -59,14 +56,15 @@ QuartzMIDI is the ImGui shell (`ui/`) over `PlaybackCore`. The panel seat owns
 
 ## Work completed
 
-- To 2026-09-17: `HANDOFF.md`. 2026-09-18: `REVIEW-2026-09-18.md`, `LATENCY.md`.
+- To 2026-09-17: `HANDOFF.md`; then `REVIEW-2026-09-18.md` and `LATENCY.md`.
 - 2026-09-18, `b674608` to `4fafdb7`, from one tester: Wooting strike speed over
   10 to 20ms; the Roblox tab-out gate; a velocity tap never lands on a held
   note key; a stable load sort; notes of no length released in playback; one
   strike for two tracks on a key; Roblox preselected in AutoVol; darker light skins.
-- 2026-09-18, `3fc9e86` to `ed08fca`: six rebindable hotkeys with media keys;
+- 2026-09-18, `3fc9e86` to `f866071`: six rebindable hotkeys with media keys;
   the legend is a key and its action's icon in one outline at every width,
-  never words, caps alone or seek seconds; `make-source.py` drops `MIDI++.APS`.
+  never words or seek seconds; custom themes with an editor; Settings rows'
+  hover fill widened; Legit Mode tagged; `make-source.py` drops `MIDI++.APS`.
 
 ## Unresolved
 
@@ -74,9 +72,12 @@ QuartzMIDI is the ImGui shell (`ui/`) over `PlaybackCore`. The panel seat owns
   Sol seat or the owner: a media key, a key another program holds, move a key
   between actions, unbind, Escape out, hold the key past its repeat, and
   capture with Settings as its own window in mini mode.
+- **Themes: seen only in the `theme-editor` render.** Click a swatch, use the
+  picker, the three starting colours, both halves, an unpaired theme, delete,
+  and restart to see `themes.json` come back.
 - **Owner to say** whether a note key may be a hotkey: bound, it is taken from
   the game while the app is open, and nothing stops it today.
-- **Tester shampoojr** to confirm that list on the `ed08fca` build; none of it
+- **Tester shampoojr** to confirm that list on the `f866071` build; none of it
   has met a real Wooting or Roblox. His doubled note was never reproduced.
 - **Owner to say** whether light mode is dark enough; then `skin-system.html`,
   which shows the old values, takes the new ones.
@@ -93,9 +94,9 @@ QuartzMIDI is the ImGui shell (`ui/`) over `PlaybackCore`. The panel seat owns
   Wooting, tap, load sort, playback and one-strike tests fail with their fix
   reverted; the AutoVol preselect has no test. The tester's own MIDI leaves no
   key owned through the real loader.
-- `319740e` to `ed08fca`: `run-shell-tests.ps1 -Render` PASS at each, 420 render
-  scenarios; `settings-hotkeys`, `minimum-six-keys` and `mini-six-keys` read at
-  125% in one skin each. The restart test fails with the `validate` change
+- `319740e` to `f866071`: `run-shell-tests.ps1 -Render` PASS at each, 440 render
+  scenarios; the hotkey, six-key, `settings-switches` and `theme-editor` ones
+  read at 125% in one or two skins each. The theme model has its own tests. The restart test fails with the `validate` change
   reverted. Capture is tested against a key table, never `GetAsyncKeyState`.
   The source zip builds on both SDKs.
 
@@ -106,14 +107,14 @@ QuartzMIDI is the ImGui shell (`ui/`) over `PlaybackCore`. The panel seat owns
   asking is authorized; creating the public repository is not.
 - This branch is pushed and clean apart from the owner's
   `x64\Release\MIDI++.exe` and `x64\Release\midi\`; leave `D:\Dev\mpp-panels`.
-- Demo v2 from `ed08fca`: `build\release\QuartzMIDI-demo-v2.zip`, SHA256
-  `2DCB46AE4202FFC5DFC58603AE69752AA2DD792993F3948127D4DDB06BED6DAD`, and
-  `QuartzMIDI-source-ed08fca.zip`; send no older pair.
+- Demo v2 from `f866071`: `build\release\QuartzMIDI-demo-v2.zip`, SHA256
+  `CA56C452B389FAB34905A9C982B334C302C3C02945775B455628FC157EE318E6`, and
+  `QuartzMIDI-source-f866071.zip`; send no older pair.
 - Never commit `x64/Release/midi/`, `build/`, `MIDI++/MIDI++/`, `.claude/`,
   `tools/mp3-to-midi/cookies.txt` or `tools/mp3-to-midi/browser/`.
 
 ## Next action
 
-Custom themes, from the decision above. Read `MIDI++/Skin.hpp` and every use of
-`preferences.skin` and `skin::All()`, then write in `SHELL-GAPS.md` item 2 how a
-skin is named once the fixed index gives way, before touching code.
+Whatever the owner reports from pressing hotkeys and themes comes first. Then
+`SHELL-GAPS.md` item 3, Legit mode: read `toggle_legit_mode` and its timing in
+`MIDI++/PlaybackCore.cpp`, and write what it is for before proposing a redesign.
