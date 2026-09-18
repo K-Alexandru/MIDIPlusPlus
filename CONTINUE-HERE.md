@@ -95,10 +95,10 @@ shell (`ui/`) over `PlaybackCore`, replacing the Win32 window (`MIDI++/`).
 - `5b12020`: the source zip builds on both SDKs; the zip before the fix shows
   the tester's LNK2019 on 26100; every suite PASSes built on 26100.
 - `d813c05`, after demo v2: AutoVol across a load, `ShellTests.exe` PASS.
-- `b674608`, after demo v2, a tester's Wooting report: strike speed measured
+- `b674608`, a tester's Wooting report: strike speed measured
   over 10 to 20ms, not one poll (`WootingPollStep`); with Roblox running, key
   downs go out only while it is in front (`InputInjector.cpp`). `-Render` PASS.
-  Neither has met a Wooting or Roblox; no rebuild, the owner's app was running.
+  Neither has met a Wooting or Roblox. Demo v2 rebuilt with both.
 
 ## Repository state
 
@@ -107,8 +107,8 @@ shell (`ui/`) over `PlaybackCore`, replacing the Win32 window (`MIDI++/`).
   asking is authorized; creating the public repository is not.
 - The main checkout is on this branch, pushed, clean apart from the owner's
   `x64\Release\MIDI++.exe` and `x64\Release\midi\`; leave `D:\Dev\mpp-panels`.
-- Demo v2 from `8baf9bd`: `build\release\QuartzMIDI-demo-v2.zip` (426 MB,
-  SHA256 `14237B7FCDD2D6C98604CA83D472BCCC885B9E9A5186FFFFB5AA6F3E4DC4164C`)
+- Demo v2 from `bef9436`: `build\release\QuartzMIDI-demo-v2.zip` (426 MB,
+  SHA256 `28ABF2FCCCB47FA14E41A4A64B52D933D4EFF5A9E43DF4F216EB9F9FBD89088D`)
   and `QuartzMIDI-source-5b12020.zip`; send no older source zip.
 - Never commit `x64/Release/midi/`, `build/`, `MIDI++/MIDI++/`, `.claude/`,
   `tools/mp3-to-midi/cookies.txt` or `tools/mp3-to-midi/browser/`.
