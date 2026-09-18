@@ -76,10 +76,9 @@ shell (`ui/`) over `PlaybackCore`, replacing the Win32 window (`MIDI++/`).
 
 - **Tester shampoojr** to confirm on a build from `4fafdb7` or later: Wooting
   velocity, tab-out, the 0 key on Everything Will Freeze, AutoVol's list.
-- **Publishing, staged in `build\publish`, owner's yes owed.** Unzip `QuartzMIDI-source-b0b5d22.zip`,
-  add a short README (upstream's claims latency this fork never measured)
-  and a `.gitignore`, commit as above, show the owner, then
-  `gh repo create greasebob/QuartzMIDI --public`.
+- **Publishing waits for the owner.** `build\publish` holds a staged commit
+  with the README and `.gitignore` to keep; restage it from the newest source
+  zip, show the owner, then `gh repo create greasebob/QuartzMIDI --public`.
 - **The Colab** (`colab.research.google.com/drive/1YNebID6yrtsqjCnXO5feFrG8LpLJqUR1`):
   put the new address in the notebook's three `PROJECT_URL`s, get the owner's
   yes on its wording, edit it in place in their Chrome so the link holds.
