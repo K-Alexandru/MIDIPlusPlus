@@ -74,7 +74,7 @@ shell (`ui/`) over `PlaybackCore`, replacing the Win32 window (`MIDI++/`).
 ## Unresolved
 
 - **Doubled notes, and sticking at high velocity**: a MIDI player into loopMIDI
-  into live keys. Owed: Velocity off, 88 keys off, the file. Tap fix untried.
+  into live keys. He reports it gone on `bef9436`; cause unknown, no file yet.
 - **Publishing, stopped before staging.** Unzip `QuartzMIDI-source-2864d9a.zip`,
   add a short README (upstream's claims latency this fork never measured)
   and a `.gitignore`, commit as above, show the owner, then
@@ -115,6 +115,6 @@ shell (`ui/`) over `PlaybackCore`, replacing the Win32 window (`MIDI++/`).
 
 ## Next action
 
-Rebuild demo v2 and the source zip from `2219610` (neither holds the tap fix)
-once the owner's app is closed, then get shampoojr's MIDI file and replay it
-through `FakeMidiInput` to see whether the doubled and sticking notes remain.
+Send shampoojr the `2864d9a` zips. He reports the doubled and sticking notes
+gone on `bef9436`, cause never found; if they return, get his MIDI file and
+replay it through `FakeMidiInput`. Then finish publishing the source.
