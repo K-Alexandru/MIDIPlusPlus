@@ -1835,14 +1835,16 @@ void Panels::DrawLog(HWND hwnd, const Fonts& fonts, const skin::Skin& design, fl
 // its own row. The legend gives way in steps as the title needs the width:
 // HintWords, then HintIcons, where each cap is followed by its transport
 // button's own icon, which six bound keys need at the smallest window, then
-// HintCaps alone.
+// HintCaps alone. A key and what it does share one outline, the key as the
+// filled end of it: with the box round the key only, the icon beside it
+// belonged to neither neighbour.
 float Panels::DrawTransportHints(ImDrawList* draw, const skin::Skin& s, float dpi, ImVec2 origin, int detail) const {
     // No seconds here: the seek buttons below carry the number. A double
     // chevron moves within the song and a single one moves between songs.
     const std::string actions[]{"Play/Pause", "Back", "Forward", "Stop", "Previous", "Next"};
     const Icon icons[]{Icon::Play, Icon::Back, Icon::Forward, Icon::Close, Icon::Left, Icon::Right};
     const float line = ImGui::GetTextLineHeight(), capPad = 5 * dpi, capHeight = line + 2 * dpi;
-    const float pairGap = detail == HintWords ? s.spacing.s4 : detail == HintIcons ? s.spacing.s3 : s.spacing.s2;
+    const float pairGap = s.spacing.s2;
     float x = origin.x;
     for (size_t i = 0; i < transportKeys.size(); ++i) {
         if (transportKeys[i].empty()) continue;
@@ -1850,17 +1852,23 @@ float Panels::DrawTransportHints(ImDrawList* draw, const skin::Skin& s, float dp
         const bool available = transportKeysAvailable[i];
         const bool icon = detail == HintIcons;
         const ImU32 ink = Colour(available ? s.ink.secondary : s.ink.tertiary);
+        const float labelWidth = detail == HintCaps ? 0 : capPad + (icon ? line : ImGui::CalcTextSize(actions[i].c_str()).x) + capPad;
         if (draw) {
-            const ImVec2 min(x, origin.y - dpi), max(x + capWidth, origin.y - dpi + capHeight);
-            if (available) draw->AddRectFilled(min, max, Colour(s.surface.elevated), 4 * dpi);
+            const ImVec2 min(x, origin.y - dpi), capMax(x + capWidth, origin.y - dpi + capHeight), max(capMax.x + labelWidth, capMax.y);
+            if (available) draw->AddRectFilled(min, capMax, Colour(s.surface.elevated), 4 * dpi,
+                                               labelWidth > 0 ? ImDrawFlags_RoundCornersLeft : 0);
             draw->AddRect(min, max, Colour(s.border.hairline), 4 * dpi, 0, dpi);
+            // The light skins' key fill is almost the card's, so the line
+            // is what divides the key from its action there.
+            if (labelWidth > 0) draw->AddLine(ImVec2(capMax.x, min.y), ImVec2(capMax.x, max.y), Colour(s.border.hairline), dpi);
             draw->AddText(ImVec2(x + capPad, origin.y), Colour(available ? s.ink.primary : s.ink.tertiary), transportKeys[i].c_str());
-            if (icon) DrawIcon(draw, icons[i], ImVec2(x + capWidth + s.spacing.s1, origin.y), line, ink, dpi);
-            else if (detail != HintCaps) draw->AddText(ImVec2(x + capWidth + s.spacing.s1, origin.y), ink, actions[i].c_str());
+            // Lucide's play fills 18 of its 24 units and a chevron 12, so at
+            // one size the triangle read as the larger control.
+            const float side = icons[i] == Icon::Play ? line * .78f : line;
+            if (icon) DrawIcon(draw, icons[i], ImVec2(capMax.x + capPad + (line - side) / 2, origin.y + (line - side) / 2), side, ink, dpi);
+            else if (detail != HintCaps) draw->AddText(ImVec2(capMax.x + capPad, origin.y), ink, actions[i].c_str());
         }
-        x += capWidth + pairGap;
-        if (icon) x += s.spacing.s1 + line;
-        else if (detail != HintCaps) x += s.spacing.s1 + ImGui::CalcTextSize(actions[i].c_str()).x;
+        x += capWidth + labelWidth + pairGap;
     }
     return std::max(0.f, x - origin.x - pairGap);
 }
