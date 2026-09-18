@@ -6,7 +6,7 @@ Updated 2026-09-18 on `claude/consolidate-2026-09-15`, the one branch. Read
 ## Goal
 
 Build the five items `SHELL-GAPS.md` lists under "Asked for on 2026-09-18", in
-its order: rebindable hotkeys with media keys, then custom colour themes.
+its order. Rebindable hotkeys are built (`319740e`); custom colour themes are next.
 QuartzMIDI is the ImGui shell (`ui/`) over `PlaybackCore`. The panel seat owns
 `ui/` (`SEATS.md`); the owner asked for these controls, so their `ui/` work is in scope.
 
@@ -38,10 +38,10 @@ QuartzMIDI is the ImGui shell (`ui/`) over `PlaybackCore`. The panel seat owns
 
 ## Relevant files
 
-- Hotkeys: `ui/Shell.cpp` (`NameToVK`, `RegisterHotkeys`, `WM_HOTKEY`, the frame
-  loop), `HotkeySettings` in `MIDI++/config.hpp`, `ui/ShellEngine.cpp` and
-  `.hpp` (actions, state, `configJson`, `touchConfig`), Settings in
-  `ui/Panels.cpp`.
+- Hotkeys, built: `ui/HotkeyNames.hpp` (names, keycaps, `HotkeyCapture`),
+  `ui/Shell.cpp` (registering and capture in the frame loop), `Action::Hotkey`
+  in `ui/ShellEngine.cpp`, the Hotkeys section of `DrawSettings` in
+  `ui/Panels.cpp`, `HotkeySettings` in `MIDI++/config.hpp`.
 - Themes: `MIDI++/Skin.hpp` (`All()` is a fixed array of four; preferences
   store its index and `skin ^= 1` toggles light and dark), `ui/SkinDraw.cpp`.
 - `tests/ShellTests.cpp` captures injection in process; `tests/RenderTests.cpp`
@@ -51,11 +51,11 @@ QuartzMIDI is the ImGui shell (`ui/`) over `PlaybackCore`. The panel seat owns
 
 ## Verified facts
 
-- Hotkeys today: four names read from `HOTKEY_SETTINGS` once at startup and
-  registered on the window's thread, with no control. `NameToVK` knows no
-  media key. A registered key never reaches `WM_KEYDOWN` and Settings can be
-  its own OS window, so capture cannot rely on the main window's messages.
-  The engine worker owns `config.json`.
+- Hotkeys: the shell registers from the snapshot's `hotkeys` whenever they
+  differ from the names it last asked for, never while a capture runs or the
+  captured key is still down. The engine worker owns `config.json`.
+- Skins: preferences store an index into `skin::All()`, `skin ^= 1` is the
+  light/dark toggle, and Settings picks a colour by `skin < 2`.
 - `ShellTests.exe` stops at its first failure and buffers output: run the exe
   itself to read what it printed.
 - `gh` holds two accounts, K-Alexandru active. Credential Manager offers
@@ -75,13 +75,19 @@ QuartzMIDI is the ImGui shell (`ui/`) over `PlaybackCore`. The panel seat owns
   note key; a stable load sort; notes of no length released in playback; one
   strike for two tracks on a key; Roblox preselected in AutoVol; light skins
   darker with no pure white.
+- 2026-09-18, `3fc9e86` and `319740e`: six rebindable hotkeys with media keys,
+  and `make-source.py` drops `MIDI++.APS`.
 
 ## Unresolved
 
-- **Tester shampoojr** to confirm that list on the `cfcaa99` build; none of it
+- **Hotkeys have never been pressed in the running app.** The Sol seat or the
+  owner: bind each action, a media key, a key another program holds, move a
+  key between actions, unbind, Escape out, hold the key past its repeat, and
+  capture with Settings as its own window in mini mode.
+- **Owner to say** whether a note key may be a hotkey: bound, it is taken from
+  the game while the app is open, and nothing stops it today.
+- **Tester shampoojr** to confirm that list on the `319740e` build; none of it
   has met a real Wooting or Roblox. His doubled note was never reproduced.
-- **`MIDI++\MIDI++.APS`** in the source zip is an upstream cache naming
-  upstream's user path, unneeded to build: drop it in `make-source.py`.
 - **Owner to say** whether light mode is dark enough; then `skin-system.html`,
   which shows the old values, takes the new ones.
 - **Publishing**, parked, and the Colab notice behind it. `build\publish` holds a
@@ -97,7 +103,10 @@ QuartzMIDI is the ImGui shell (`ui/`) over `PlaybackCore`. The panel seat owns
   Wooting, tap, load sort, playback and one-strike tests fail with their fix
   reverted; the AutoVol preselect has no test. The tester's own MIDI leaves no
   key owned through the real loader.
-- `cfcaa99`: the source zip builds on both SDKs; name scan, only the `.APS` file.
+- `319740e`: `run-shell-tests.ps1 -Render` PASS, 380 render scenarios with
+  `settings-hotkeys`, read at Blue Dark 125%. The restart test fails with the
+  `validate` change reverted. Capture is tested against a key table only,
+  never `GetAsyncKeyState`. The source zip builds on both SDKs.
 
 ## Repository state
 
@@ -106,14 +115,14 @@ QuartzMIDI is the ImGui shell (`ui/`) over `PlaybackCore`. The panel seat owns
   asking is authorized; creating the public repository is not.
 - This branch is pushed and clean apart from the owner's
   `x64\Release\MIDI++.exe` and `x64\Release\midi\`; leave `D:\Dev\mpp-panels`.
-- Demo v2 from `cfcaa99`: `build\release\QuartzMIDI-demo-v2.zip`, SHA256
-  `6688FD93758FD67CE7F9B7D50CA50BAA0CAE92DF7ACBCA89F210417AF00D36B3`, and
-  `QuartzMIDI-source-cfcaa99.zip`; send no older pair.
+- Demo v2 from `319740e`: `build\release\QuartzMIDI-demo-v2.zip`, SHA256
+  `9DE2F3268F40017585D5D0286B622316A93C9DCCFB7998D1D47BAFE40764E689`, and
+  `QuartzMIDI-source-319740e.zip`; send no older pair.
 - Never commit `x64/Release/midi/`, `build/`, `MIDI++/MIDI++/`, `.claude/`,
   `tools/mp3-to-midi/cookies.txt` or `tools/mp3-to-midi/browser/`.
 
 ## Next action
 
-Move `NameToVK` out of `ui/Shell.cpp`'s anonymous namespace into a header, write
-a failing test in `tests/ShellTests.cpp` that it maps the four `VK_MEDIA_*`
-names, then make it pass.
+Custom themes, from the decision above. Read `MIDI++/Skin.hpp` and every use of
+`preferences.skin` and `skin::All()`, then write in `SHELL-GAPS.md` item 2 how a
+skin is named once the fixed index gives way, before touching code.
