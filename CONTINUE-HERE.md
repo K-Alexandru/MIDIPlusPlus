@@ -81,10 +81,9 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
   free draw; WinMM devices, which the shell could not open before; the
   velocity editor while maximized; Miphas Court's Flutes reading Flute.
 - **Owner to test:** Solo Piano in mini; sections on a real file; Save image
-  from a page opened off disk.
+  from a page opened off disk; game delivery, Wooting, two devices, MIDI
+  out, live curve reconnection, mixed DPI.
 - **Tester on Visual Studio 2026** to build `398de08`, or send the error text.
-- **Owner at the keyboard:** game delivery, Wooting, two devices, MIDI out,
-  live curve reconnection, mixed DPI.
 
 ## Validation actually run
 
@@ -92,8 +91,7 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
   `run-native-tests.ps1` (DPI move skipped) and `LatencyTests.exe --loopback`
   PASS; the original window builds; eleven new tests fail with their fix
   reverted; the release exe carries no account, assistant or path string.
-- At `1de8a50`, not repeated since: the package scrub (no names, paths,
-  settings or MIDI) and the source zip building on its own.
+- The source zip builds on its own at `398de08`, as every one now must.
 
 ## Build and test
 
