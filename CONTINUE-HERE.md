@@ -6,7 +6,7 @@ Updated 2026-09-18 on `claude/consolidate-2026-09-15`, the one branch. Read
 ## Goal
 
 Build the five items `SHELL-GAPS.md` lists under "Asked for on 2026-09-18", in
-its order. Rebindable hotkeys are built (`319740e`); custom colour themes are next.
+its order. Rebindable hotkeys are built (`911439b`); custom colour themes are next.
 QuartzMIDI is the ImGui shell (`ui/`) over `PlaybackCore`. The panel seat owns
 `ui/` (`SEATS.md`); the owner asked for these controls, so their `ui/` work is in scope.
 
@@ -23,10 +23,8 @@ QuartzMIDI is the ImGui shell (`ui/`) over `PlaybackCore`. The panel seat owns
   2026-09-18: fixes and features come before the push.
 - UI copy is the owner's voice (`HANDOFF.md` section 15): no explanatory text,
   not even why a control is disabled; redesign the control.
-- Hotkeys: six actions (play or pause, back 10s, forward 10s, stop, previous
-  song, next song), each bindable to any key including media keys. The two new
-  ones start unbound. A media key is never a default: a global hotkey takes it
-  from every other application while the app is open.
+- Hotkeys, built: `SHELL-GAPS.md` item 1. No media key is ever a default, and
+  the legend and Settings never show the seek seconds.
 - Custom themes: every colour editable in a friendly way, text included, seen
   live. A theme has a light and dark pair or not; without one the light/dark
   toggle is greyed out while it is selected; with one the other half is edited
@@ -38,12 +36,7 @@ QuartzMIDI is the ImGui shell (`ui/`) over `PlaybackCore`. The panel seat owns
 
 ## Relevant files
 
-- Hotkeys, built: `ui/HotkeyNames.hpp` (names, keycaps, `HotkeyCapture`),
-  `ui/Shell.cpp` (registering and capture in the frame loop), `Action::Hotkey`
-  in `ui/ShellEngine.cpp`, the Hotkeys section of `DrawSettings` in
-  `ui/Panels.cpp`, `HotkeySettings` in `MIDI++/config.hpp`.
-- Themes: `MIDI++/Skin.hpp` (`All()` is a fixed array of four; preferences
-  store its index and `skin ^= 1` toggles light and dark), `ui/SkinDraw.cpp`.
+- Themes: `MIDI++/Skin.hpp`, `ui/SkinDraw.cpp`.
 - `tests/ShellTests.cpp` captures injection in process; `tests/RenderTests.cpp`
   writes a PNG per scenario to `build\render-tests`.
 - Run `tests\run-shell-tests.ps1 -Render`, then `tools\make-release.ps1` and
@@ -51,9 +44,7 @@ QuartzMIDI is the ImGui shell (`ui/`) over `PlaybackCore`. The panel seat owns
 
 ## Verified facts
 
-- Hotkeys: the shell registers from the snapshot's `hotkeys` whenever they
-  differ from the names it last asked for, never while a capture runs or the
-  captured key is still down. The engine worker owns `config.json`.
+- The engine worker owns `config.json`.
 - Skins: preferences store an index into `skin::All()`, `skin ^= 1` is the
   light/dark toggle, and Settings picks a colour by `skin < 2`.
 - `ShellTests.exe` stops at its first failure and buffers output: run the exe
@@ -73,12 +64,10 @@ QuartzMIDI is the ImGui shell (`ui/`) over `PlaybackCore`. The panel seat owns
 - 2026-09-18, `b674608` to `4fafdb7`, from one tester: Wooting strike speed over
   10 to 20ms; the Roblox tab-out gate; a velocity tap never lands on a held
   note key; a stable load sort; notes of no length released in playback; one
-  strike for two tracks on a key; Roblox preselected in AutoVol; light skins
-  darker with no pure white.
+  strike for two tracks on a key; Roblox preselected in AutoVol; darker light skins.
 - 2026-09-18, `3fc9e86` to `911439b`: six rebindable hotkeys with media keys;
-  the legend steps from words to its buttons' icons to bare caps, the owner
-  having found six keys left bare at the smallest window; `make-source.py`
-  drops `MIDI++.APS`. The legend names the seek keys with no seconds.
+  the legend steps from words to icons to bare caps and never shows the seek
+  seconds, both from the owner; `make-source.py` drops `MIDI++.APS`.
 
 ## Unresolved
 
@@ -105,12 +94,11 @@ QuartzMIDI is the ImGui shell (`ui/`) over `PlaybackCore`. The panel seat owns
   Wooting, tap, load sort, playback and one-strike tests fail with their fix
   reverted; the AutoVol preselect has no test. The tester's own MIDI leaves no
   key owned through the real loader.
-- `319740e`: `run-shell-tests.ps1 -Render` PASS, 380 render scenarios with
-  `settings-hotkeys`, read at Blue Dark 125%. The restart test fails with the
-  `validate` change reverted. Capture is tested against a key table only,
-  never `GetAsyncKeyState`.
-- `0e8b7ba`: the same PASS, 420 scenarios with `minimum-six-keys` and
-  `mini-six-keys`, read at Blue 125%; `911439b` the same PASS. The source zip builds on both SDKs.
+- `319740e` to `911439b`: `run-shell-tests.ps1 -Render` PASS at each, 420 render
+  scenarios; `settings-hotkeys`, `minimum-six-keys` and `mini-six-keys` read at
+  125% in one skin each. The restart test fails with the `validate` change
+  reverted. Capture is tested against a key table, never `GetAsyncKeyState`.
+  The source zip builds on both SDKs.
 
 ## Repository state
 
