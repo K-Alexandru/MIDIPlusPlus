@@ -76,13 +76,21 @@ bool IconButton(const char* id, Icon icon, const char* tip, const skin::Skin& s,
 // transport button two pixels wider on the right than on the left.
 // `active` marks a toggle that is on, the same way IconButton does: the soft
 // accent fill, accent ink and an outline.
+// `reserve` lists every label the button can carry, so it keeps the widest
+// one's width and the row beside it does not move when the label changes.
 bool TransportBody(const char* id, const Icon* icon, const char* label,
-                   const skin::Skin& s, float dpi, bool primary, bool active = false) {
-    const ImVec2 min = ImGui::GetCursorScreenPos();
+                   const skin::Skin& s, float dpi, bool primary, bool active = false,
+                   std::initializer_list<const char*> reserve = {}) {
+    ImVec2 min = ImGui::GetCursorScreenPos();
     const float pad = (primary ? 16.f : 12.f) * dpi;
     const float side = 16 * dpi;
     const float lead = icon ? side + s.spacing.s2 : 0.f;
-    const float width = 2 * pad + lead + ImGui::CalcTextSize(label).x;
+    const float labelWidth = ImGui::CalcTextSize(label).x;
+    float reserved = labelWidth;
+    for (const char* other : reserve) reserved = std::max(reserved, ImGui::CalcTextSize(other).x);
+    const float width = 2 * pad + lead + reserved;
+    const float frameX = min.x;
+    min.x += std::floor((reserved - labelWidth) / 2);
     if (active) ImGui::PushStyleColor(ImGuiCol_Button, Colour(s.accent.accentSoft));
     const bool clicked = ImGui::Button(id, ImVec2(width, s.metric.controlHeight));
     if (active) ImGui::PopStyleColor();
@@ -92,13 +100,21 @@ bool TransportBody(const char* id, const Icon* icon, const char* label,
         DrawIcon(draw, *icon, ImVec2(min.x + pad, min.y + (s.metric.controlHeight - side) / 2), side, ink, dpi);
     draw->AddText(ImVec2(min.x + pad + lead, min.y + (s.metric.controlHeight - ImGui::GetTextLineHeight()) / 2), ink, label);
     if (active)
-        draw->AddRect(min, ImVec2(min.x + width, min.y + s.metric.controlHeight), Colour(s.accent.accent), s.radius.control, 0, dpi);
+        draw->AddRect(ImVec2(frameX, min.y), ImVec2(frameX + width, min.y + s.metric.controlHeight), Colour(s.accent.accent), s.radius.control, 0, dpi);
     return clicked;
 }
 
 bool TransportButton(const char* id, Icon icon, const char* label, const skin::Skin& s,
-                     float dpi, bool primary = false, bool active = false) {
-    return TransportBody(id, &icon, label, s, dpi, primary, active);
+                     float dpi, bool primary = false, bool active = false,
+                     std::initializer_list<const char*> reserve = {}) {
+    return TransportBody(id, &icon, label, s, dpi, primary, active, reserve);
+}
+
+// Play, Pause and Cancel are one button. It has one width, and the mark
+// beside Cancel is the one that means cancel.
+bool PlayButton(const char* id, bool playing, int countdown, const skin::Skin& s, float dpi) {
+    return TransportButton(id, playing ? Icon::Pause : countdown ? Icon::Close : Icon::Play,
+        playing ? "Pause" : countdown ? "Cancel" : "Play", s, dpi, true, false, {"Play", "Pause", "Cancel"});
 }
 
 // Label only, for the seek buttons. The spec draws them as bare text: a
@@ -150,6 +166,50 @@ bool Groove(const char* id, float* value, float low, float high, float width, fl
                          3 * dpi, s, Colour(s.surface.elevated));
     }
     return changed;
+}
+
+// A whole-number setting: its name, its value at the right, and the same
+// groove the transpose and sustain controls use. Settings drew these three
+// as stock ImGui sliders, a second slider style inside one window.
+bool SettingSlider(const char* label, const char* id, int* value, int low, int high, const char* format,
+                   const skin::Skin& s, float dpi) {
+    char text[32]; snprintf(text, sizeof(text), format, *value);
+    const float width = ImGui::GetContentRegionAvail().x;
+    const float left = ImGui::GetCursorPosX();
+    ImGui::TextUnformatted(label);
+    ImGui::SameLine(); ImGui::SetCursorPosX(left + width - ImGui::CalcTextSize(text).x);
+    ImGui::PushStyleColor(ImGuiCol_Text, Colour(s.ink.secondary));
+    ImGui::TextUnformatted(text);
+    ImGui::PopStyleColor();
+    float position = static_cast<float>(*value);
+    Groove(id, &position, static_cast<float>(low), static_cast<float>(high), width, 22 * dpi, s, dpi, true);
+    const int next = std::clamp(static_cast<int>(std::lround(position)), low, high);
+    if (next == *value) return false;
+    *value = next;
+    return true;
+}
+
+// A section that opens, drawn like Velocity Response: a Lucide chevron and
+// the label, inside the content's margins. ImGui's CollapsingHeader is a
+// filled triangle on a bar wider than everything round it. Open state lives
+// in the window's storage, as CollapsingHeader's did.
+bool SettingSection(const char* label, const skin::Skin& s, float dpi) {
+    auto* storage = ImGui::GetStateStorage();
+    const ImGuiID key = ImGui::GetID(label);
+    bool open = storage->GetBool(key, false);
+    const ImVec2 min = ImGui::GetCursorScreenPos();
+    const ImVec2 size(ImGui::GetContentRegionAvail().x, s.metric.controlHeight);
+    ImGui::PushID(label);
+    if (ImGui::InvisibleButton("##section", size)) { open = !open; storage->SetBool(key, open); }
+    ImGui::PopID();
+    auto* draw = ImGui::GetWindowDrawList();
+    if (ImGui::IsItemHovered() || ImGui::IsItemFocused())
+        draw->AddRectFilled(min, ImVec2(min.x + size.x, min.y + size.y), Colour(s.surface.recessed), s.radius.control);
+    const float side = 16 * dpi;
+    const ImU32 ink = ImGui::GetColorU32(ImGuiCol_Text);
+    DrawIcon(draw, open ? Icon::Down : Icon::Right, ImVec2(min.x + 4 * dpi, min.y + (size.y - side) / 2), side, ink, dpi);
+    draw->AddText(ImVec2(min.x + 4 * dpi + side + s.spacing.s2, min.y + (size.y - ImGui::GetTextLineHeight()) / 2), ink, label);
+    return open;
 }
 
 void DrawEllipsis(const std::string& text, float width, ImVec2 min) {
@@ -271,7 +331,9 @@ bool DevicePill(const std::string& name, float maxWidth, const skin::Skin& s, fl
     DrawEllipsis(name, width - 24 * dpi, ImVec2(min.x + 12 * dpi,
         min.y + (s.metric.controlHeight - ImGui::GetTextLineHeight()) / 2));
     const bool clicked = ImGui::InvisibleButton("##device-pill", ImVec2(width, s.metric.controlHeight));
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("%s\nChoose MIDI input in Settings", name.c_str());
+    // The name alone, for when the pill has cut it short. A click opens
+    // Settings at the input, which is the instruction it used to print.
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("%s", name.c_str());
     return clicked;
 }
 
@@ -531,14 +593,26 @@ void Panels::DrawKeyMapping(const Fonts& fonts, const skin::Skin& design, float 
         preferences.keyMappingOpen = false; mappingArmed_ = false;
     }
     const float rowY = title + pad;
-    std::string readout = "Click a key to remap";
+    // The selected note, an arrow, and the key it types as a keycap. Armed,
+    // the cap is empty inside the accent ring, which is how a field waiting
+    // for a key looks everywhere. It said so in a sentence before, and told
+    // an idle window to "Click a key to remap".
     if (selectedNote_ >= 0) {
+        FontScope font(fonts, design, design.type.meta * SpecFontScale(design));
         const auto found = state->keyMappings.find(NoteName(selectedNote_));
-        readout = NoteName(selectedNote_) + (mappingArmed_ ? ": press a key to assign (Esc cancels)" :
-            " is typed as " + (found == state->keyMappings.end() || found->second.empty() ? "nothing" : found->second));
+        const std::string key = mappingArmed_ || found == state->keyMappings.end() ? std::string() : found->second;
+        const std::string note = NoteName(selectedNote_);
+        const float line = ImGui::GetTextLineHeight(), textY = rowY + (s.metric.controlHeight - line) / 2;
+        const float noteWidth = ImGui::CalcTextSize(note.c_str()).x, side = 14 * dpi;
+        draw->AddText(at(pad, textY), Colour(s.ink.primary), note.c_str());
+        DrawIcon(draw, Icon::Right, at(pad + noteWidth + s.spacing.s1, rowY + (s.metric.controlHeight - side) / 2), side, Colour(s.ink.tertiary), dpi);
+        const float capX = pad + noteWidth + side + 2 * s.spacing.s1;
+        const float capWidth = std::max(28 * dpi, ImGui::CalcTextSize(key.c_str()).x + 12 * dpi);
+        const ImVec2 capMin = at(capX, textY - 3 * dpi), capMax = at(capX + capWidth, textY + line + 3 * dpi);
+        draw->AddRectFilled(capMin, capMax, Colour(s.surface.elevated), 4 * dpi);
+        draw->AddRect(capMin, capMax, Colour(mappingArmed_ ? s.accent.accent : s.border.hairline), 4 * dpi, 0, mappingArmed_ ? 2 * dpi : dpi);
+        draw->AddText(at(capX + (capWidth - ImGui::CalcTextSize(key.c_str()).x) / 2, textY), Colour(s.ink.primary), key.c_str());
     }
-    { FontScope font(fonts, design, design.type.meta * SpecFontScale(design));
-      draw->AddText(at(pad, rowY + (s.metric.controlHeight - ImGui::GetTextLineHeight()) / 2), Colour(s.ink.secondary), readout.c_str()); }
     const float fullWidth = ImGui::CalcTextSize("Full 88").x + 24 * dpi;
     ImGui::SetCursorScreenPos(at(width - pad - 2 * s.metric.controlHeight - fullWidth - 16 * dpi, rowY));
     ImGui::BeginDisabled(fullKeyboard_ || rangeStart_ <= 21);
@@ -710,14 +784,6 @@ void Panels::DrawAutoVolume(const Fonts& fonts, const skin::Skin& design, float 
         }
         ComboChevron(); ImGui::SameLine();
         if (IconButton("##volume-refresh", Icon::Refresh, "Refresh game windows", s, dpi)) engine.Send({A::AutoVolumeScan});
-        const auto keyLabel = [](std::string key) {
-            if (key.starts_with("VK_")) key.erase(0, 3);
-            std::transform(key.begin(), key.end(), key.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-            if (!key.empty()) key[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(key[0])));
-            std::replace(key.begin(), key.end(), '_', ' ');
-            if (key == "Left" || key == "Right" || key == "Up" || key == "Down") key += " arrow";
-            return key;
-        };
         ImGui::Spacing();
         ImGui::BeginDisabled(!selected);
         if (ImGui::Button("Focus game and calibrate", ImVec2(-1, s.metric.controlHeight))) {
@@ -725,12 +791,9 @@ void Panels::DrawAutoVolume(const Fonts& fonts, const skin::Skin& design, float 
             command.window = volumeWindow_;
             engine.Send(std::move(command));
         }
-        // The key-by-key account is here rather than in the panel body: it
-        // matters when a sweep misbehaves, not every time the dialog opens.
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("After 3 seconds, focuses the game and sends %s 50 times, then %s to reach %d%%.",
-                              keyLabel(state->volumeDownKey).c_str(), keyLabel(state->volumeUpKey).c_str(),
-                              state->volumeInitial);
+        // The button says what it does, and the countdown above shows it
+        // happening. The key-by-key account that hung off it as a tooltip was
+        // a paragraph of explanation, and belongs to the help page.
         ImGui::EndDisabled();
         ImGui::EndDisabled();
         if (pending) {
@@ -871,6 +934,9 @@ void Panels::DrawVelocity(const Fonts& fonts, const skin::Skin& design, float dp
     if (editorRevision_ != state->curveRevision || (!state->error.empty() && state->error != editorError_)) {
         editor_ = state->curve; editorRevision_ = state->curveRevision;
         cutoffEditing_ = false;
+        // A gesture in flight was editing the curve this replaced. Carried
+        // on, it would commit the dragged point against an empty anchor list.
+        curveGesture_ = false; activeAnchor_ = -1; freeDraw_.clear();
     }
     editorError_ = state->error;
     const auto openName = [&](int operation) {
@@ -930,7 +996,10 @@ void Panels::DrawVelocity(const Fonts& fonts, const skin::Skin& design, float dp
     if (IconButton("##curve-redo", Icon::Redo, "Redo curve edit", s, dpi)) engine.Send({ShellEngine::Action::CurveRedo});
     ImGui::EndDisabled();
     ImGui::EndDisabled();
-    if (!state->comparingCurve && !ImGui::GetIO().WantTextInput && ImGui::GetIO().KeyCtrl) {
+    // Only with the main window focused. Key Mapping assigns "ctrl+z" as a
+    // binding, and that press must not also undo a curve behind it.
+    if (!state->comparingCurve && !ImGui::GetIO().WantTextInput && ImGui::GetIO().KeyCtrl &&
+        ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
         if (ImGui::IsKeyPressed(ImGuiKey_Z))
             engine.Send({ImGui::GetIO().KeyShift ? ShellEngine::Action::CurveRedo : ShellEngine::Action::CurveUndo});
         else if (ImGui::IsKeyPressed(ImGuiKey_Y)) engine.Send({ShellEngine::Action::CurveRedo});
@@ -1004,6 +1073,11 @@ void Panels::DrawVelocity(const Fonts& fonts, const skin::Skin& design, float dp
             if (activeAnchor_ < 0 && std::abs(curveY - mouse.y) * (plotMax.y - plotMin.y) <= 10 * dpi)
                 activeAnchor_ = static_cast<int>(VelocityAddAnchor(editor_.anchors, snapX(mouse.x), curveY));
             curveGesture_ = activeAnchor_ >= 0;
+            // The drag moves this anchor in this list, every frame. Moving it
+            // in last frame's result let a merge at a shared x shift the
+            // index onto a neighbour, and kept every flattening a drag passed
+            // through on the way to where it ended.
+            dragAnchors_ = editor_.anchors; dragIndex_ = activeAnchor_;
         } else {
             freeDraw_.clear(); freeDraw_.push_back(mousePoint()); curveGesture_ = true;
         }
@@ -1015,7 +1089,8 @@ void Panels::DrawVelocity(const Fonts& fonts, const skin::Skin& design, float dp
             const bool inside = mouse.x >= plotMin.x && mouse.x <= plotMax.x && mouse.y >= plotMin.y && mouse.y <= plotMax.y;
             if (inside) {
                 point.x = snapX(point.x);
-                activeAnchor_ = static_cast<int>(VelocityMoveAnchor(editor_.anchors, activeAnchor_, point));
+                editor_.anchors = dragAnchors_;
+                activeAnchor_ = static_cast<int>(VelocityMoveAnchor(editor_.anchors, dragIndex_, point));
             }
         } else if (curveTool_ == 1) {
             const auto& last = freeDraw_.back();
@@ -1039,9 +1114,22 @@ void Panels::DrawVelocity(const Fonts& fonts, const skin::Skin& design, float dp
         } else if (curveTool_ == 1 && freeDraw_.size() >= 2) {
             editor_.anchors = VelocityApplySweep(curveGestureBase_.anchors, freeDraw_);
         }
-        ShellEngine::Command command{ShellEngine::Action::CurveEdit};
-        command.anchors = editor_.anchors; engine.Send(std::move(command));
+        // A click that moved nothing is not an edit. Sent anyway, it turned
+        // an untouched built-in into "(edited)", stopped playback and reopened
+        // the MIDI device, for a curve nobody changed.
+        const auto& before = curveGestureBase_.anchors;
+        const bool changed = editor_.anchors.size() != before.size() ||
+            !std::equal(before.begin(), before.end(), editor_.anchors.begin(), [](const VelocityPoint& a, const VelocityPoint& b) {
+                return std::abs(a.x - b.x) < 1e-4f && std::abs(a.y - b.y) < 1e-4f; });
+        if (changed) {
+            ShellEngine::Command command{ShellEngine::Action::CurveEdit};
+            command.anchors = editor_.anchors; engine.Send(std::move(command));
+        } else editor_ = state->curve;
         activeAnchor_ = -1; freeDraw_.clear(); curveGesture_ = false;
+    } else if (ImGui::IsItemDeactivated()) {
+        // Pressed where there was nothing to take hold of. The press baked the
+        // preset into anchors and zeroed both sliders; put that back.
+        editor_ = state->curve;
     }
     if (ImGui::IsItemHovered() || ImGui::IsItemActive()) {
         ImGui::SetMouseCursor(curveTool_ == 0 ? ImGuiMouseCursor_Hand : ImGuiMouseCursor_ResizeAll);
@@ -1180,7 +1268,7 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
                 command.device = PreferredInput(group, state->liveDevice); engine.Send(std::move(command));
             }
             if (group.ambiguous && ImGui::IsItemHovered())
-                ImGui::SetTooltip("Same-name ports kept separate.\n%s\n%s", BackendName(group.inputs.front().backend),
+                ImGui::SetTooltip("%s\n%s", BackendName(group.inputs.front().backend),
                     Utf8(std::filesystem::path(group.inputs.front().id)).c_str());
             ImGui::PopID();
         }
@@ -1228,7 +1316,7 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
                 command.device = PreferredInput(group, state->outputDevice); engine.Send(std::move(command));
             }
             if (group.ambiguous && ImGui::IsItemHovered())
-                ImGui::SetTooltip("Same-name ports kept separate.\n%s\n%s", BackendName(group.inputs.front().backend),
+                ImGui::SetTooltip("%s\n%s", BackendName(group.inputs.front().backend),
                     Utf8(std::filesystem::path(group.inputs.front().id)).c_str());
             ImGui::PopID();
         }
@@ -1329,13 +1417,13 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
     ImGui::Separator();
     // Closed by default: it is a diagnostic, and open it was a screen of the
     // scroll. A measurement keeps running with the header closed.
-    if (ImGui::CollapsingHeader("Keyboard timing")) {
+    if (SettingSection("Keyboard timing", s, dpi)) {
     bool measure = measuring_;
     if (SettingCheck("Measure keyboard timing", measure, nullptr, fonts, design, dpi)) {
         if (measure) { timing_ = input_latency::Collector{}; timingSummary_ = {}; measuring_ = input_latency::start(); }
         else { input_latency::stop(); measuring_ = false; timingSummary_ = {}; }
     }
-    if (!measuring_ && input_latency::hookError()) ImGui::Text("Hook unavailable: %lu", input_latency::hookError());
+    if (!measuring_ && input_latency::hookError()) ImGui::Text("Hook error %lu", input_latency::hookError());
     ImGui::SetNextItemWidth(-1);
     const char* sourceLabels[]{"Live input", "Autoplay"};
     if (ImGui::Combo("##timing-source", &timingSource_, sourceLabels, 2)) { timingSummary_ = {}; nextTimingPoll_ = 0; }
@@ -1354,7 +1442,7 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
             if (observed > 0) draw->AddRectFilled(graph, ImVec2(graph.x + width * observed, graph.y + 8 * dpi), Colour(s.accent.okInk), 4 * dpi);
             ImGui::Dummy(ImVec2(width, 8 * dpi));
             ImGui::Text("%zu of %zu notes fully observed", t.callbackToHookMs.count, t.notes);
-        } else ImGui::TextUnformatted("Waiting for note observations");
+        }
         ImGui::Text("%zu incomplete   %llu failures   %llu dropped", t.incomplete,
             static_cast<unsigned long long>(t.failures), static_cast<unsigned long long>(input_latency::dropped()));
     }
@@ -1367,15 +1455,11 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
         nullptr, fonts, design, dpi))
         engine.Send({ShellEngine::Action::OutRange, {}, 0, 0, outRange});
     ImGui::EndDisabled();
-    ImGui::TextUnformatted("Play button countdown");
     int playbackDelay = state->playbackDelay;
-    ImGui::SetNextItemWidth(-1);
-    if (ImGui::SliderInt("##playback-delay", &playbackDelay, 0, 10, "%d seconds"))
+    if (SettingSlider("Play button countdown", "##playback-delay", &playbackDelay, 0, 10, "%d seconds", s, dpi))
         engine.Send({ShellEngine::Action::PlaybackDelay, {}, 0, 0, false, static_cast<double>(playbackDelay)});
-    ImGui::TextUnformatted("Skip step");
     int seekStep = state->seekStep;
-    ImGui::SetNextItemWidth(-1);
-    if (ImGui::SliderInt("##seek-step", &seekStep, 1, 60, "%d seconds"))
+    if (SettingSlider("Skip step", "##seek-step", &seekStep, 1, 60, "%d seconds", s, dpi))
         engine.Send({ShellEngine::Action::SeekStep, {}, 0, 0, false, static_cast<double>(seekStep)});
     // On and off are already on the pill. Calibration pending is not, and it is
     // the one state that wants something from you, so it keeps its suffix.
@@ -1402,7 +1486,7 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
     const std::string modifierName = state->velocityModifier == "ctrl" ? "Ctrl" :
         state->velocityModifier == "shift" ? "Shift" : "Alt";
     ImGui::BeginDisabled(state->outputMidi);
-    if (SettingSwitch(state->outputMidi ? "Velocity hotkeys unavailable" : "Velocity hotkeys", velocity,
+    if (SettingSwitch("Velocity hotkeys", velocity,
         nullptr, fonts, design, dpi))
         engine.Send({ShellEngine::Action::Velocity, {}, 0, 0, velocity});
     ImGui::EndDisabled();
@@ -1420,20 +1504,20 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
         ImGui::EndCombo();
     }
     if (!state->velocityModifierConflicts.empty()) {
-        std::string warning = "Warning: ";
+        // The combinations this modifier shares with mapped notes, in the
+        // warning colour under the control that caused them. The sentence
+        // round them explained; the list is the fact.
+        std::string warning;
         for (size_t i = 0; i < state->velocityModifierConflicts.size(); ++i) {
-            if (i) warning += ", ";
+            if (i) warning += "   ";
             warning += state->velocityModifierConflicts[i];
         }
-        warning += state->velocityModifierConflicts.size() == 1 ? " is also a mapped note in " : " are also mapped notes in ";
-        warning += state->eightyEightKeys ? "88 Keys. Velocity taps can play those notes."
-                                          : "61 Keys. Velocity taps can play those notes.";
         ImGui::PushStyleColor(ImGuiCol_Text, Colour(s.accent.warn));
         ImGui::TextWrapped("%s", warning.c_str());
         ImGui::PopStyleColor();
     }
     ImGui::BeginDisabled(!state->hasPreviousCurve);
-    if (ImGui::CollapsingHeader("Curve comparison")) {
+    if (SettingSection("Curve comparison", s, dpi)) {
         if (ImGui::Button(state->comparingCurve ? "Return to edited curve" : "Hear previous curve",
                           ImVec2(-1, s.metric.controlHeight)))
             engine.Send({ShellEngine::Action::CurveCompare});
@@ -1442,9 +1526,7 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
     SettingSwitch("Always on top", preferences.alwaysOnTop, nullptr, fonts, design, dpi);
     ImGui::Separator();
     section("Appearance");
-    ImGui::TextUnformatted("Window opacity");
-    ImGui::SetNextItemWidth(-1);
-    ImGui::SliderInt("##window-opacity", &preferences.opacity, 40, 100, "%d%%");
+    SettingSlider("Window opacity", "##window-opacity", &preferences.opacity, 40, 100, "%d%%", s, dpi);
     // The names come from the skins themselves. They were spelled out here as
     // "Classic" and "Modern", which is two more places to rename and two more
     // chances for the picker to disagree with what it picks.
@@ -1455,7 +1537,7 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
     if (SettingRadio(firstColour.c_str(), preferences.skin < 2, design, dpi)) preferences.skin %= 2;
     ImGui::SameLine(0, 16 * dpi);
     if (SettingRadio(secondColour.c_str(), preferences.skin >= 2, design, dpi)) preferences.skin = 2 + preferences.skin % 2;
-    if (ImGui::CollapsingHeader("About")) {
+    if (SettingSection("About", s, dpi)) {
         ImGui::TextWrapped("Based on Zephkek/MIDIPlusPlus (GPLv3)");
         ImGui::TextWrapped("Dear ImGui and RtMidi (MIT)");
         ImGui::TextWrapped("Sheet notation from ArijanJ/midi-converter (MIT)");
@@ -1473,6 +1555,17 @@ void Panels::SettingsControl(const Fonts& fonts, const skin::Skin& design, float
     if (IconButton("##settings", Icon::Settings, "Settings", s, dpi, ImGui::IsPopupOpen("Settings")))
         ImGui::OpenPopup("Settings");
 
+    // A position set here is taken as given, so keeping the panel on the
+    // screen is this code's job. Mini sits at the bottom edge beside a game,
+    // and the panel, its own window there, opened off the end of the monitor.
+    for (const auto& monitor : ImGui::GetPlatformIO().Monitors) {
+        const ImVec2 min = monitor.WorkPos, max(monitor.WorkPos.x + monitor.WorkSize.x, monitor.WorkPos.y + monitor.WorkSize.y);
+        if (popupPosition.x < min.x - 344 * dpi || popupPosition.x >= max.x || popupPosition.y < min.y || popupPosition.y >= max.y) continue;
+        popupMaxHeight = std::min(popupMaxHeight, max.y - min.y);
+        popupPosition.y = std::max(min.y, std::min(popupPosition.y, max.y - popupMaxHeight));
+        popupPosition.x = std::clamp(popupPosition.x, min.x, std::max(min.x, max.x - 344 * dpi));
+        break;
+    }
     ImGui::SetNextWindowSizeConstraints(ImVec2(344 * dpi, 0), ImVec2(344 * dpi, popupMaxHeight));
     ImGui::SetNextWindowPos(popupPosition);
     if (ImGui::BeginPopup("Settings")) {
@@ -1602,10 +1695,11 @@ void Panels::DrawStatus(const Fonts& fonts, const skin::Skin& design, float dpi,
         if (!state.liveDevice.empty() && !state.liveActive) input += " (off)";
         fields.push_back(input);
         fields.push_back(state.outputMidi ? "Output MIDI" : "Output Keystrokes");
-        if (!stopHotkeyAvailable) fields.push_back("Stop hotkey unavailable");
     }
-    const auto tracks = std::to_string(SilentTracks(state.rows)) + " of " + std::to_string(state.rows.size()) +
-        (state.eightyEightKeys ? " tracks silent \xc2\xb7 88-key" : " tracks silent \xc2\xb7 61-key");
+    // With nothing open there are no tracks to count, only the layout.
+    const auto tracks = (state.rows.empty() ? std::string() :
+        std::to_string(SilentTracks(state.rows)) + " of " + std::to_string(state.rows.size()) + " tracks silent \xc2\xb7 ") +
+        (state.eightyEightKeys ? "88-key" : "61-key");
     // Sized from the label. A fixed 56dpi left the caller's frame padding to
     // clip "Log" inside the button in mini mode.
     const float logWidth = ImGui::CalcTextSize("Log").x + 24 * dpi;
@@ -1655,11 +1749,9 @@ void Panels::DrawLog(HWND hwnd, const Fonts& fonts, const skin::Skin& design, fl
         if (IconButton("##clear-log", Icon::Clear, "Clear Log", s, dpi)) engine.Send({ShellEngine::Action::ClearLog});
         ImGui::SameLine();
         if (IconButton("##copy-log", Icon::Copy, "Copy Log", s, dpi)) CopyUtf8ToClipboard(hwnd, *state->log);
-        ImGui::SameLine(); ImGui::AlignTextToFramePadding(); ImGui::TextDisabled("Latest 256 KB");
         ImGui::BeginChild("##log-output", ImVec2(0, 0), ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar);
         const bool atBottom = ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 4 * dpi;
-        if (state->log->empty()) ImGui::TextDisabled("No engine messages.");
-        else ImGui::TextUnformatted(state->log->data(), state->log->data() + state->log->size());
+        if (!state->log->empty()) ImGui::TextUnformatted(state->log->data(), state->log->data() + state->log->size());
         if (atBottom) ImGui::SetScrollHereY(1.f);
         ImGui::EndChild();
     }
@@ -1669,24 +1761,31 @@ void Panels::DrawLog(HWND hwnd, const Fonts& fonts, const skin::Skin& design, fl
 // Keycaps, not a run of text. "F1 Play/Pause   F2 -10s   F3 +10s   F4 Stop"
 // read as one sentence in the meta face; a bordered cap round each key
 // separates the key from what it does, and a wider gap separates the pairs.
-float Panels::DrawTransportHints(ImDrawList* draw, const skin::Skin& s, float dpi, int seekStep, ImVec2 origin) const {
+// A key another program holds is drawn as a dead key, flat and in the
+// faintest ink, rather than labelled: the words pushed the song title out of
+// its own row. `labels` off leaves the caps alone, for when the title needs
+// the width.
+float Panels::DrawTransportHints(ImDrawList* draw, const skin::Skin& s, float dpi, int seekStep, ImVec2 origin, bool labels) const {
     const auto back = "-" + std::to_string(seekStep) + "s", forward = "+" + std::to_string(seekStep) + "s";
     const std::string actions[]{"Play/Pause", back, forward, "Stop"};
     const float line = ImGui::GetTextLineHeight(), capPad = 5 * dpi, capHeight = line + 2 * dpi;
+    const float pairGap = labels ? s.spacing.s4 : s.spacing.s2;
     float x = origin.x;
     for (size_t i = 0; i < transportKeys.size(); ++i) {
         const float capWidth = ImGui::CalcTextSize(transportKeys[i].c_str()).x + 2 * capPad;
-        const std::string action = actions[i] + (transportKeysAvailable[i] ? "" : " (unavailable)");
+        const bool available = transportKeysAvailable[i];
         if (draw) {
             const ImVec2 min(x, origin.y - dpi), max(x + capWidth, origin.y - dpi + capHeight);
-            draw->AddRectFilled(min, max, Colour(s.surface.elevated), 4 * dpi);
+            if (available) draw->AddRectFilled(min, max, Colour(s.surface.elevated), 4 * dpi);
             draw->AddRect(min, max, Colour(s.border.hairline), 4 * dpi, 0, dpi);
-            draw->AddText(ImVec2(x + capPad, origin.y), Colour(s.ink.primary), transportKeys[i].c_str());
-            draw->AddText(ImVec2(x + capWidth + s.spacing.s1, origin.y), Colour(s.ink.secondary), action.c_str());
+            draw->AddText(ImVec2(x + capPad, origin.y), Colour(available ? s.ink.primary : s.ink.tertiary), transportKeys[i].c_str());
+            if (labels) draw->AddText(ImVec2(x + capWidth + s.spacing.s1, origin.y),
+                                      Colour(available ? s.ink.secondary : s.ink.tertiary), actions[i].c_str());
         }
-        x += capWidth + s.spacing.s1 + ImGui::CalcTextSize(action.c_str()).x + s.spacing.s4;
+        x += capWidth + pairGap;
+        if (labels) x += s.spacing.s1 + ImGui::CalcTextSize(actions[i].c_str()).x;
     }
-    return x - origin.x - s.spacing.s4;
+    return x - origin.x - pairGap;
 }
 
 void Panels::DrawMini(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float dpi, ShellEngine& engine,
@@ -1794,8 +1893,7 @@ void Panels::DrawMini(HWND hwnd, const Fonts& fonts, const skin::Skin& design, f
         if (seeking_ && ImGui::IsItemDeactivatedAfterEdit()) { number(ShellEngine::Action::Seek, seekPosition_); seeking_ = false; }
         else if (changed && !ImGui::IsItemActive()) number(ShellEngine::Action::Seek, seekPosition_);
         ImGui::SetCursorScreenPos(ImVec2(origin.x + pad, transportY));
-        if (TransportButton("##mini-play", state->playing ? Icon::Pause : Icon::Play,
-            state->playing ? "Pause" : state->playbackCountdown ? "Cancel" : "Play", s, dpi, true))
+        if (PlayButton("##mini-play", state->playing, state->playbackCountdown, s, dpi))
             engine.Send({ShellEngine::Action::PlayCountdown, {}, state->generation});
         ImGui::SameLine();
         if (IconButton("##mini-restart", Icon::Refresh, "Restart", s, dpi)) engine.Send({ShellEngine::Action::Restart, {}, state->generation});
@@ -1950,7 +2048,7 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     // many controls for one small panel.
     // Marked while a conversion runs, because the popup can be closed over
     // it and this button is where the run is found again.
-    if (IconButton("##add-files", Icon::Plus, state->converting ? "Add MIDI files (converting audio)" : "Add MIDI files", s, dpi, state->converting))
+    if (IconButton("##add-files", Icon::Plus, "Add MIDI files", s, dpi, state->converting))
         ImGui::OpenPopup("Add MIDI files");
     bool convertRequested = openConvert;
     openConvert = false;
@@ -1977,17 +2075,20 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     skin::RecessedField(listMin, ImVec2(listMin.x + listSize.x, listMin.y + listSize.y), s, false);
     ImGui::BeginChild("##file-list", listSize, ImGuiChildFlags_None, ImGuiWindowFlags_NoBackground);
     if (state->files->empty()) {
-        // Centred both ways in the well, wrapped inside a side margin so it
-        // never runs into the edges.
-        static constexpr const char* kEmpty = "Open a MIDI file or choose its folder.";
+        // An empty list offers the thing that fills it, centred in the well.
+        // It used to describe that in a sentence and leave the doing to a
+        // menu behind the plus button.
+        static constexpr const char* kChoose = "Choose MIDI folder";
         const ImVec2 area = ImGui::GetContentRegionAvail();
-        const float wrap = std::max(1.f, area.x - 2 * s.spacing.s3);
-        const ImVec2 size = ImGui::CalcTextSize(kEmpty, nullptr, false, wrap);
-        ImGui::SetCursorPos(ImVec2(ImGui::GetCursorPosX() + std::max(0.f, (area.x - size.x) / 2),
-                                   ImGui::GetCursorPosY() + std::max(0.f, (area.y - size.y) / 2)));
-        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + size.x + 1);
-        ImGui::TextUnformatted(kEmpty);
-        ImGui::PopTextWrapPos();
+        const float width = 2 * 12 * dpi + 16 * dpi + s.spacing.s2 + ImGui::CalcTextSize(kChoose).x;
+        ImGui::SetCursorPos(ImVec2(ImGui::GetCursorPosX() + std::max(0.f, (area.x - width) / 2),
+                                   ImGui::GetCursorPosY() + std::max(0.f, (area.y - s.metric.controlHeight) / 2)));
+        ImGui::BeginDisabled(state->playing || state->busy);
+        if (TransportButton("##choose-folder", Icon::Open, kChoose, s, dpi)) {
+            const auto path = PickFolder(hwnd);
+            if (!path.empty()) { preferences.folder = path; engine.Send({ShellEngine::Action::Scan, path}); }
+        }
+        ImGui::EndDisabled();
     } else {
         std::string query(search_);
         const auto lowercase = [](std::string text) {
@@ -2055,14 +2156,25 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     const float contentWidth = ImGui::GetContentRegionAvail().x;
     const char* sheetLabel = "Export";
     const float sheetButtonWidth = 2 * 12 * dpi + 16 * dpi + s.spacing.s2 + ImGui::CalcTextSize(sheetLabel).x;
+    // The title is the song and the legend is the same four keys every day,
+    // so the legend gives way: whole, then caps only, then not at all.
+    const std::string title = state->loaded.empty() ? "Playback" : Utf8(state->loaded.stem());
+    float titleWidth = 0;
+    { FontScope font(fonts, design, 20 * SpecFontScale(design), Weight::Medium);
+      titleWidth = ImGui::CalcTextSize(title.c_str()).x; }
     float hintsWidth = 0;
     { FontScope font(fonts, design, design.type.meta * SpecFontScale(design));
-      hintsWidth = DrawTransportHints(nullptr, s, dpi, state->seekStep, {}) + s.spacing.s3;
-      DrawTransportHints(ImGui::GetWindowDrawList(), s, dpi, state->seekStep,
-          ImVec2(content.x + contentWidth - sheetButtonWidth - hintsWidth + s.spacing.s3 - s.spacing.s2,
-                 content.y + (titleHeight - ImGui::GetTextLineHeight()) / 2)); }
+      const float room = contentWidth - sheetButtonWidth - s.spacing.s2 - titleWidth - s.spacing.s3;
+      const float capsWidth = DrawTransportHints(nullptr, s, dpi, state->seekStep, {}, false);
+      const bool labels = DrawTransportHints(nullptr, s, dpi, state->seekStep, {}, true) <= room;
+      if (labels || capsWidth <= std::max(room, contentWidth * .25f)) {
+          hintsWidth = (labels ? DrawTransportHints(nullptr, s, dpi, state->seekStep, {}, true) : capsWidth) + s.spacing.s3;
+          DrawTransportHints(ImGui::GetWindowDrawList(), s, dpi, state->seekStep,
+              ImVec2(content.x + contentWidth - sheetButtonWidth - hintsWidth + s.spacing.s3 - s.spacing.s2,
+                     content.y + (titleHeight - ImGui::GetTextLineHeight()) / 2), labels);
+      } }
     { FontScope font(fonts, design, 20 * SpecFontScale(design), Weight::Medium);
-      DrawEllipsis(state->loaded.empty() ? "Playback" : Utf8(state->loaded.stem()),
+      DrawEllipsis(title,
                    contentWidth - sheetButtonWidth - hintsWidth - s.spacing.s2, ImVec2(content.x, content.y + (titleHeight - ImGui::GetTextLineHeight()) / 2)); }
     ImGui::SetCursorScreenPos(ImVec2(content.x + contentWidth - sheetButtonWidth, content.y));
     const bool haveFile = !state->loaded.empty() && !state->rows.empty();
@@ -2099,7 +2211,15 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
         ImGui::Separator();
         ImGui::TextDisabled("Files to save");
         const auto output = [&](const char* label, bool on, const char* key) {
-            if (ImGui::MenuItem(label, nullptr, on)) engine.Send({ShellEngine::Action::SheetFiles, {}, 0, 0, !on, 0, key});
+            if (ImGui::MenuItem(label)) engine.Send({ShellEngine::Action::SheetFiles, {}, 0, 0, !on, 0, key});
+            // The skin's tick. ImGui's own is a heavy black stroke beside a
+            // window of Lucide marks.
+            if (on) {
+                const ImVec2 min = ImGui::GetItemRectMin(), max = ImGui::GetItemRectMax();
+                const float side = 16 * dpi;
+                DrawIcon(ImGui::GetWindowDrawList(), Icon::Check, ImVec2(max.x - side - 2 * dpi, min.y + (max.y - min.y - side) / 2),
+                         side, Colour(s.accent.accent), dpi);
+            }
         };
         output("Image (.png)", state->sheetImage, "image");
         output("Text (.txt)", state->sheetTextFile, "text");
@@ -2143,8 +2263,10 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
         { FontScope font(fonts, design, design.type.body * SpecFontScale(design), Weight::Semibold);
           ImGui::TextUnformatted("Save sheet files for every MIDI in the list?"); }
         ImGui::Spacing();
-        if (kinds.empty()) ImGui::TextWrapped("Nothing is ticked under Files to save.");
-        else ImGui::TextWrapped("%s", (what + (total == 1 ? " for the one MIDI file, under" : " for each of the " + count + " MIDI files, under")).c_str());
+        // What and how many, then where on its own line: "under" used to
+        // wrap onto a line by itself. With nothing ticked the button is off
+        // and says so by being off.
+        if (!kinds.empty()) ImGui::TextWrapped("%s", (what + (total == 1 ? " for the one MIDI file" : " for each of the " + count + " MIDI files")).c_str());
         ImGui::PushStyleColor(ImGuiCol_Text, Colour(s.ink.secondary));
         ImGui::TextWrapped("%s", Utf8(sheetsFolder).c_str());
         ImGui::PopStyleColor();
@@ -2184,8 +2306,7 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     if (ImGui::IsItemHovered() || seeking_) ImGui::SetTooltip("%s", Time(seekPosition_).c_str());
     const float transportY = content.y + titleHeight + seekHeight + 2 * rowGap;
     ImGui::SetCursorScreenPos(ImVec2(content.x, transportY));
-    if (TransportButton("##play", state->playing ? Icon::Pause : Icon::Play,
-        state->playing ? "Pause" : state->playbackCountdown ? "Cancel" : "Play", s, dpi, true))
+    if (PlayButton("##play", state->playing, state->playbackCountdown, s, dpi))
         send(ShellEngine::Action::PlayCountdown);
     ImGui::SameLine();
     if (IconButton("##restart", Icon::Refresh, "Restart", s, dpi)) send(ShellEngine::Action::Restart);
@@ -2261,8 +2382,7 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     ImGui::BeginDisabled(state->rows.empty() || state->busy || allPiano);
     if (TransportButton("##solo-piano", Icon::Piano, "Solo Piano", s, dpi, false, applied))
         send(applied ? ShellEngine::Action::UnmuteAll : ShellEngine::Action::SoloPiano);
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip) && (applied || (allPiano && !state->rows.empty())))
-        ImGui::SetTooltip("%s", applied ? "Unmute all" : "Every track is piano.");
+    if (applied && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("Unmute all");
     ImGui::EndDisabled();
     const ImVec2 tableMin = ImGui::GetCursorScreenPos();
     const ImVec2 tableSize = ImGui::GetContentRegionAvail();
@@ -2277,13 +2397,24 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     std::vector<float> rules;
     float headerBottom = tableMin.y, headerHeight = 0.f;
     const float rowHeight = s.metric.controlHeight + 2 * s.spacing.s1;
+    // The two text columns share the width by what this file puts in them.
+    // Fixed at 1.2 to 1, "Acoustic Grand Piano" was cut short beside a TRACK
+    // column half empty. A weight is read once, when a table is created, so
+    // the table is keyed by the load.
+    float nameWeight = ImGui::CalcTextSize("TRACK").x, instrumentWeight = ImGui::CalcTextSize("INSTRUMENT").x;
+    for (const auto& row : state->rows) {
+        nameWeight = std::max(nameWeight, ImGui::CalcTextSize(row.name.c_str()).x * 1.06f);
+        instrumentWeight = std::max(instrumentWeight, ImGui::CalcTextSize(row.instrument.c_str()).x +
+            (row.piano ? 14 * dpi + s.spacing.s1 : 0.f));
+    }
+    const std::string tableId = "##tracks-" + std::to_string(state->generation);
     // PadOuterX, or the # column sits flush against the frame's left edge.
-    if (ImGui::BeginTable("##tracks", 7, ImGuiTableFlags_ScrollY | ImGuiTableFlags_RowBg |
+    if (ImGui::BeginTable(tableId.c_str(), 7, ImGuiTableFlags_ScrollY | ImGuiTableFlags_RowBg |
         ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_PadOuterX, tableSize)) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 20 * dpi);
-        ImGui::TableSetupColumn("TRACK", ImGuiTableColumnFlags_WidthStretch, 1.2f);
-        ImGui::TableSetupColumn("INSTRUMENT", ImGuiTableColumnFlags_WidthStretch, 1.f);
+        ImGui::TableSetupColumn("TRACK", ImGuiTableColumnFlags_WidthStretch, nameWeight);
+        ImGui::TableSetupColumn("INSTRUMENT", ImGuiTableColumnFlags_WidthStretch, instrumentWeight);
         ImGui::TableSetupColumn("CH", ImGuiTableColumnFlags_WidthFixed, 28 * dpi);
         ImGui::TableSetupColumn("NOTES", ImGuiTableColumnFlags_WidthFixed, 48 * dpi);
         ImGui::TableSetupColumn("##mute-heading", ImGuiTableColumnFlags_WidthFixed, s.metric.controlHeight + s.spacing.s2);
@@ -2352,7 +2483,9 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
             ImGui::TableNextRow(0, rowHeight);
             rules.push_back(table->RowPosY1);
             ImGui::TableSetColumnIndex(1); ImGui::AlignTextToFramePadding();
-            ImGui::TextUnformatted(state->loaded.empty() ? "Open a MIDI file" : "No note tracks");
+            // A file with nothing to play says so. No file says nothing: the
+            // list beside this is where one is opened.
+            if (!state->loaded.empty()) ImGui::TextUnformatted("No note tracks");
         }
         { FontScope font(fonts, design, design.type.meta * SpecFontScale(design), Weight::Semibold);
           auto* headers = ImGui::GetWindowDrawList();

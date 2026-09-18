@@ -240,11 +240,26 @@ std::shared_ptr<const EngineSnapshot> ShellEngine::Snapshot() const {
 }
 
 void ShellEngine::Publish(const EngineSnapshot& state) {
-    auto copy = std::make_shared<const EngineSnapshot>(state);
-    std::lock_guard lock(mutex_);
-    if (!state.error.empty() && state.error != snapshot_->error)
-        ShellLog::Instance().Append("[error] " + state.error + "\n");
-    snapshot_ = std::move(copy);
+    // Only the worker publishes, so reading the last error and installing the
+    // next snapshot need not be one critical section, and the log is not
+    // appended to under the lock the UI thread takes every frame.
+    bool newError = false;
+    { std::lock_guard lock(mutex_); newError = !state.error.empty() && state.error != snapshot_->error; }
+    if (newError) ShellLog::Instance().Append("[error] " + state.error + "\n");
+    auto copy = std::make_shared<EngineSnapshot>(state);
+    // Carried here, on the worker. Left out, every published snapshot differed
+    // from the log the UI thread compared it with, and Snapshot() made a
+    // second deep copy of the whole state on that thread: forty a second
+    // while playing, in the frame loop.
+    copy->log = ShellLog::Instance().Snapshot();
+    copy->playedVelocities = velocity_telemetry::snapshot();
+    { std::lock_guard lock(mutex_); snapshot_ = std::move(copy); }
+    // The window draws on demand, so it has to be told there is something new.
+    if (void* window = wakeWindow_.load(std::memory_order_acquire)) PostMessageW(static_cast<HWND>(window), WM_NULL, 0, 0);
+}
+
+void ShellEngine::SetWakeWindow(void* window) {
+    wakeWindow_.store(window, std::memory_order_release);
 }
 
 void ShellEngine::Run(std::stop_token stop) {
@@ -1688,6 +1703,10 @@ void ShellEngine::Run(std::stop_token stop) {
             if (volumePending) invalidateVolume();
             stopPlayback();
             state.error = error.what();
+            // A load that fails leaves the last file open and playable, so
+            // the message names the file it is about.
+            if (hasCommand && command.action == Action::Load && !command.path.empty())
+                state.error = Utf8(command.path.filename()) + ": " + state.error;
             state.busy = false;
         }
         state.playedVelocities = velocity_telemetry::snapshot();

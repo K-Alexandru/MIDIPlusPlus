@@ -123,6 +123,9 @@ void UnregisterHotkeys(HWND hwnd, const Registered& done) {
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM, LPARAM);
 
+// Set where a call reports the device gone; the frame loop rebuilds it.
+static bool g_deviceLost = false;
+
 static void CreateTarget() {
     ID3D11Texture2D* back = nullptr;
     g_swapChain->GetBuffer(0, IID_PPV_ARGS(&back));
@@ -224,9 +227,10 @@ static LRESULT WINAPI WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_SIZE:
         if (g_device && wp != SIZE_MINIMIZED) {
             ReleaseTarget();
-            g_swapChain->ResizeBuffers(0, (UINT)LOWORD(lp), (UINT)HIWORD(lp),
-                                       DXGI_FORMAT_UNKNOWN, 0);
-            CreateTarget();
+            const HRESULT resized = g_swapChain->ResizeBuffers(0, (UINT)LOWORD(lp), (UINT)HIWORD(lp),
+                                                               DXGI_FORMAT_UNKNOWN, 0);
+            if (resized == DXGI_ERROR_DEVICE_REMOVED || resized == DXGI_ERROR_DEVICE_RESET) g_deviceLost = true;
+            else CreateTarget();
         }
         return 0;
     case WM_SYSCOMMAND:
@@ -332,19 +336,43 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     bool running = true;
     bool appliedTopmost = false;
     int appliedOpacity = 100;
+    // Frames are drawn when something asks for one: input, a new snapshot
+    // from the engine (which posts WM_NULL), a change of size, skin or scale,
+    // and for a short tail after any of those, which is what lets a tooltip's
+    // delay run out and a popup settle. Drawn continuously, an idle window
+    // cost 3% of a core and a present every 16 ms to repeat the same picture,
+    // beside a game that wanted both.
+    engine.SetWakeWindow(hwnd);
+    struct WakeGuard { shell::ShellEngine& engine; ~WakeGuard() { engine.SetWakeWindow(nullptr); } } wakeGuard{engine};
+    std::shared_ptr<const shell::EngineSnapshot> drawnSnapshot;
+    auto drawUntil = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    bool occluded = false;
+    bool rendererUp = true;
     while (running) {
         MSG msg;
+        bool input = false;
         while (::PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
             ::TranslateMessage(&msg);
             ::DispatchMessageW(&msg);
             if (msg.message == WM_QUIT) running = false;
+            input = true;
         }
         if (!running) break;
         if (appliedOpacity != panels.preferences.opacity) {
+            // Layered only while it is translucent. The style costs a
+            // composition pass on every present, and it used to stay on
+            // after the slider went back to 100.
             const auto style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style | WS_EX_LAYERED);
-            if (SetLayeredWindowAttributes(hwnd, 0, static_cast<BYTE>(panels.preferences.opacity * 255 / 100), LWA_ALPHA))
-                appliedOpacity = panels.preferences.opacity;
+            const bool opaque = panels.preferences.opacity >= 100;
+            bool applied = true;
+            if (!opaque) {
+                SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style | WS_EX_LAYERED);
+                applied = SetLayeredWindowAttributes(hwnd, 0, static_cast<BYTE>(panels.preferences.opacity * 255 / 100), LWA_ALPHA) != FALSE;
+            } else if (style & WS_EX_LAYERED) {
+                SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style & ~static_cast<LONG_PTR>(WS_EX_LAYERED));
+                RedrawWindow(hwnd, nullptr, nullptr, RDW_ERASE | RDW_INVALIDATE | RDW_FRAME | RDW_ALLCHILDREN);
+            }
+            if (applied) appliedOpacity = panels.preferences.opacity;
             else {
                 panels.preferences.opacity = appliedOpacity;
                 shell::ShellLog::Instance().Append("[error] Could not change window opacity.\n");
@@ -358,6 +386,45 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
         }
         if (IsIconic(hwnd)) { WaitMessage(); continue; }
         const int active = panels.preferences.skin;
+        {
+            const auto now = std::chrono::steady_clock::now();
+            auto snapshot = engine.Snapshot();
+            const bool pending = appliedMini != panels.miniMode || appliedExpanded != panels.velocityExpanded ||
+                (panels.miniMode && appliedMiniAutoplay != panels.miniAutoplay) || appliedSkin != active || appliedDpi != g_dpi;
+            // Held, not compared by address: a freed snapshot's address can
+            // be handed to the next one, and that frame would never be drawn.
+            if (input || pending || snapshot != drawnSnapshot || panels.Animating() || snapshot->converting || snapshot->busy ||
+                (ImGui::GetCurrentContext() && ImGui::GetIO().WantTextInput) || g_deviceLost)
+                drawUntil = now + std::chrono::milliseconds(750);
+            if (now >= drawUntil) {
+                MsgWaitForMultipleObjectsEx(0, nullptr, 500, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+                continue;
+            }
+            drawnSnapshot = std::move(snapshot);
+        }
+        // A lost device, after a driver reset or an adapter going away, is
+        // rebuilt rather than left presenting nothing until a restart.
+        if (g_deviceLost) {
+            if (rendererUp) { ImGui_ImplDX11_Shutdown(); rendererUp = false; }
+            CleanupDevice();
+            if (!CreateDevice(hwnd)) {
+                // Nothing to draw with yet. The adapter may be a second away.
+                MsgWaitForMultipleObjectsEx(0, nullptr, 1000, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+                continue;
+            }
+            ImGui_ImplDX11_Init(g_device, g_context);
+            rendererUp = true;
+            g_deviceLost = false;
+            shell::ShellLog::Instance().Append("The graphics device was reset and has been rebuilt.\n");
+        }
+        // Covered or locked: nothing presented would be seen. Tested without
+        // drawing, unless another of this process's windows is still visible.
+        if (occluded && ImGui::GetPlatformIO().Viewports.Size <= 1 &&
+            g_swapChain->Present(0, DXGI_PRESENT_TEST) == DXGI_STATUS_OCCLUDED) {
+            MsgWaitForMultipleObjectsEx(0, nullptr, 250, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+            continue;
+        }
+        occluded = false;
         const bool modeChanged = appliedMini != panels.miniMode;
         const bool sizeChanged = modeChanged || appliedExpanded != panels.velocityExpanded ||
             (panels.miniMode && appliedMiniAutoplay != panels.miniAutoplay);
@@ -426,12 +493,16 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
         ImGui::Render();
         const ImVec4 bg = ImGui::GetStyle().Colors[ImGuiCol_WindowBg];
         const float clear[4] = { bg.x, bg.y, bg.z, 1.f };
-        g_context->OMSetRenderTargets(1, &g_target, nullptr);
-        g_context->ClearRenderTargetView(g_target, clear);
-        ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+        if (g_target) {
+            g_context->OMSetRenderTargets(1, &g_target, nullptr);
+            g_context->ClearRenderTargetView(g_target, clear);
+            ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+        }
         ImGui::UpdatePlatformWindows();
         ImGui::RenderPlatformWindowsDefault();
-        g_swapChain->Present(1, 0);
+        const HRESULT presented = g_swapChain->Present(1, 0);
+        if (presented == DXGI_STATUS_OCCLUDED) occluded = true;
+        else if (presented == DXGI_ERROR_DEVICE_REMOVED || presented == DXGI_ERROR_DEVICE_RESET || !g_target) g_deviceLost = true;
         // Playback never depends on frame rate. Cap idle redraw cost beside a game
         // and wake immediately for window input instead of spinning when unfocused.
         //
@@ -448,7 +519,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
                                     QS_ALLINPUT, MWMO_INPUTAVAILABLE);
     }
 
-    ImGui_ImplDX11_Shutdown();
+    if (rendererUp) ImGui_ImplDX11_Shutdown();
     ImGui_ImplWin32_Shutdown();
     ImGui::DestroyContext();
     UnregisterHotkeys(hwnd, hotkeys);

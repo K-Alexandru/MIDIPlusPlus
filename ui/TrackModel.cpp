@@ -2,6 +2,10 @@
 #include "GeneralMidi.hpp"
 #include <cctype>
 #include <utility>
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
 
 namespace shell {
 namespace {
@@ -14,7 +18,10 @@ namespace {
 // already treated as a flute was the app contradicting itself.
 const char* NamedNonPiano(std::string name) {
     for (char& c : name) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    if (name.find("piano") != std::string::npos || name.find("keys") != std::string::npos) return nullptr;
+    // Harpsichord and clavinet are programs 6 and 7, which count as piano,
+    // and "harpsichord" would otherwise be found by "harp" below.
+    for (const char* keyboard : {"piano", "keys", "harpsi", "clav"})
+        if (name.find(keyboard) != std::string::npos) return nullptr;
     // The longer word first where one contains another.
     static constexpr std::pair<const char*, const char*> kOthers[] = {
         {"flute", "Flute"}, {"piccolo", "Piccolo"}, {"recorder", "Recorder"}, {"ocarina", "Ocarina"},
@@ -31,6 +38,41 @@ const char* NamedNonPiano(std::string name) {
     for (const auto& [word, label] : kOthers)
         if (name.find(word) != std::string::npos) return label;
     return nullptr;
+}
+
+bool ValidUtf8(const std::string& text) {
+    for (size_t i = 0; i < text.size();) {
+        const unsigned char lead = static_cast<unsigned char>(text[i]);
+        const size_t length = lead < 0x80 ? 1 : lead >= 0xC2 && lead < 0xE0 ? 2 : lead >= 0xE0 && lead < 0xF0 ? 3 :
+                              lead >= 0xF0 && lead < 0xF5 ? 4 : 0;
+        if (!length || i + length > text.size()) return false;
+        for (size_t k = 1; k < length; ++k)
+            if ((static_cast<unsigned char>(text[i + k]) & 0xC0) != 0x80) return false;
+        i += length;
+    }
+    return true;
+}
+
+// A track name is bytes in whatever the sequencer's machine used, and the
+// file does not say which. UTF-8 is kept. Anything else is read in this
+// machine's own code page, which is right for a file made on it or in its
+// language, and then as Windows-1252, which cannot fail. Passed through
+// raw, "Fl\xf6te" reached the table as a replacement glyph.
+std::string NameToUtf8(const std::string& raw) {
+    if (raw.empty() || ValidUtf8(raw)) return raw;
+    std::wstring wide;
+    for (const auto& [page, flags] : {std::pair<UINT, DWORD>{CP_ACP, MB_ERR_INVALID_CHARS}, {1252, 0}}) {
+        const int size = MultiByteToWideChar(page, flags, raw.data(), static_cast<int>(raw.size()), nullptr, 0);
+        if (size <= 0) continue;
+        wide.resize(size);
+        MultiByteToWideChar(page, flags, raw.data(), static_cast<int>(raw.size()), wide.data(), size);
+        break;
+    }
+    if (wide.empty()) return raw;
+    const int size = WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), nullptr, 0, nullptr, nullptr);
+    std::string text(size > 0 ? size : 0, '\0');
+    if (size > 0) WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), text.data(), size, nullptr, nullptr);
+    return text;
 }
 }
 std::vector<TrackRow> DescribeTracks(const MidiFile& file) {
@@ -84,6 +126,7 @@ std::vector<TrackRow> DescribeTracks(const MidiFile& file) {
     for (auto& part : parts) {
         auto& row = part.row;
         if (!row.notes) continue;
+        row.name = NameToUtf8(row.name);
         if (row.name.empty()) row.name = "Track " + std::to_string(row.index + 1);
         for (char& c : row.name) if (static_cast<unsigned char>(c) < 32) c = ' ';
         row.piano = !part.nonPiano;

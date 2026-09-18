@@ -103,6 +103,12 @@ void ModelTests(const std::filesystem::path& fixture) {
     // a part the app had already decided was a flute.
     Require(namedRows[0].instrument == "Flute" && namedRows[1].instrument == "Acoustic Grand Piano" &&
             namedRows[2].instrument == "Acoustic Grand Piano", "a part told apart by name is labelled by that name");
+    // "harp" is inside "harpsichord", which is a keyboard and General MIDI
+    // program 6. And a name is bytes: Latin-1 has to reach the table as UTF-8.
+    named.tracks[0].name = "Harpsichord"; named.tracks[1].name = "Fl\xf6te";
+    const auto keyboardRows = shell::DescribeTracks(named);
+    Require(keyboardRows[0].piano && keyboardRows[0].instrument == "Acoustic Grand Piano", "a harpsichord part was read as a harp");
+    Require(keyboardRows[1].name == "Fl\xc3\xb6te", "a Latin-1 track name did not reach the table as UTF-8");
     bool rejected = false;
     try { (void)parser.parse(shell::Utf8(fixture.parent_path() / L".." / fixture.filename())); }
     catch (...) { rejected = true; }
@@ -618,8 +624,10 @@ void FailedConfigTests(const std::filesystem::path& directory) {
         const bool was = engine.Snapshot()->eightyEightKeys;
         engine.Send({A::EightyEightKeys, {}, 0, 0, !was});
         engine.Send({A::OutRange, {}, 0, 0, true});
-        engine.Send({A::Stop});
-        Await([&] { return !engine.Snapshot()->busy; }, "the engine did not survive a layout switch without a player");
+        // Commands run in order, so the channel arriving means both switches
+        // were dispatched; a shutdown before that would skip them unseen.
+        { shell::ShellEngine::Command channel{A::LiveChannel}; channel.amount = 7; engine.Send(channel); }
+        Await([&] { return engine.Snapshot()->liveChannel == 7; }, "the engine did not survive a layout switch without a player");
         Require(engine.Snapshot()->eightyEightKeys == was, "the layout switched although no player could be built");
     }
     std::filesystem::remove(unmapped);

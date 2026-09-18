@@ -8,6 +8,7 @@
 #include "DeviceModel.hpp"
 #include "../MIDI++/VelocityTelemetry.hpp"
 #include "../MIDI++/SheetExport.hpp"
+#include <atomic>
 #include <condition_variable>
 #include <deque>
 #include <filesystem>
@@ -193,6 +194,9 @@ public:
     ~ShellEngine();
     void Send(Command command);
     std::shared_ptr<const EngineSnapshot> Snapshot() const;
+    // The HWND to nudge with WM_NULL when a snapshot is published. The shell
+    // draws on demand and would otherwise not know the engine had moved.
+    void SetWakeWindow(void* window);
 private:
     void Run(std::stop_token stop);
     void Publish(const EngineSnapshot& state);
@@ -204,6 +208,7 @@ private:
     std::condition_variable wake_;
     std::deque<Command> commands_;
     mutable std::shared_ptr<const EngineSnapshot> snapshot_ = std::make_shared<const EngineSnapshot>();
+    std::atomic<void*> wakeWindow_{nullptr};
     std::jthread worker_; // Last member: every dependency is initialized before Run.
 };
 

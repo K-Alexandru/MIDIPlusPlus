@@ -52,6 +52,10 @@ public:
     void SavePreferences(const std::filesystem::path& path) const;
     void Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design,
               float dpi, ShellEngine& engine);
+    // Something on screen moves by the clock alone, with no input and no new
+    // snapshot behind it: the timing readout polls every 200 ms. The shell
+    // draws on demand and asks this before it decides there is nothing to draw.
+    bool Animating() const { return measuring_; }
 private:
     char search_[256]{};
     FileSort fileSort_ = FileSort::Name;
@@ -83,7 +87,7 @@ private:
     void DrawLog(HWND, const Fonts&, const skin::Skin&, float, ShellEngine&);
     // The hotkey legend: a keycap per key, its action after it. Measures
     // when draw is null. Callers push the meta face first.
-    float DrawTransportHints(ImDrawList* draw, const skin::Skin& s, float dpi, int seekStep, ImVec2 origin) const;
+    float DrawTransportHints(ImDrawList* draw, const skin::Skin& s, float dpi, int seekStep, ImVec2 origin, bool labels = true) const;
     bool volumeWasOpen_ = false;
     GameWindow volumeWindow_;
     void SettingsControl(const Fonts&, const skin::Skin&, float, ShellEngine&, ImVec2, float);
@@ -102,6 +106,9 @@ private:
     std::string editorError_;
     int curveTool_ = 0;
     int activeAnchor_ = -1;
+    // The anchors as the drag found them, and the dragged one's place there.
+    std::vector<VelocityPoint> dragAnchors_;
+    int dragIndex_ = -1;
     bool curveGesture_ = false;
     VelocityEdit curveGestureBase_;
     std::vector<VelocityPoint> freeDraw_;

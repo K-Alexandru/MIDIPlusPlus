@@ -199,7 +199,26 @@ inline std::vector<VelocityPoint> VelocityAnchorsFor(const VelocityPreset& prese
     if (!edit.anchors.empty()) return VelocityLegalAnchors(edit.anchors);
     std::vector<VelocityPoint> dense;
     for (int i = 0; i <= 127; ++i) dense.push_back({i / 127.f, VelocityShape(preset, edit, i / 127.f)});
-    return VelocityLegalAnchors(velocity_detail::Simplify(dense, .004f));
+    // Chosen by what the interpolation makes of them, not by distance from a
+    // chord. Simplifying the polyline kept the flat first step of every
+    // built-in as its own anchor, PCHIP leaves a plateau with no slope, and
+    // Linear Fine came back as an S sagging an eighth of the range. Each pass
+    // adds the sample the curve through the anchors misses by most, until it
+    // misses none by two thirds of an output step.
+    std::vector<VelocityPoint> anchors{dense.front(), dense.back()};
+    constexpr float tolerance = .02f;
+    constexpr size_t most = 12;
+    while (anchors.size() < most) {
+        float worst = tolerance; size_t at = dense.size();
+        for (size_t i = 1; i + 1 < dense.size(); ++i) {
+            const float miss = std::abs(VelocityPchipPrepared(anchors, dense[i].x) - dense[i].y);
+            if (miss > worst) { worst = miss; at = i; }
+        }
+        if (at == dense.size()) break;
+        anchors.insert(std::upper_bound(anchors.begin(), anchors.end(), dense[at].x,
+            [](float x, const VelocityPoint& point) { return x < point.x; }), dense[at]);
+    }
+    return VelocityLegalAnchors(std::move(anchors));
 }
 
 inline size_t VelocityAddAnchor(std::vector<VelocityPoint>& anchors, float x, float y) {
