@@ -2514,6 +2514,39 @@ void ZeroLengthNoteTests(const std::filesystem::path& config) {
     std::cout << "PASS a note of no length is released, whatever shares its tick\n";
 }
 
+// What actually held the tester's 0 key down. Playback runs a batch's releases
+// before its presses, so a note of no length had its release run first, finding
+// nothing to release, and then its press, which nothing ever released.
+void ZeroLengthPlaybackTests(const std::filesystem::path& config) {
+    VirtualPianoPlayer player(false, config);
+    player.enable_velocity_keypress = false;
+    player.legit_mode_active = false;
+    player.trackMuted.push_back(std::make_shared<std::atomic<bool>>(false));
+    player.trackSoloed.push_back(std::make_shared<std::atomic<bool>>(false));
+    player.note_events = {
+        {0ns, "E3", EventType::Press, 100, 0},
+        {0ns, "E3", EventType::Release, 0, 0},
+        {150ms, "G3", EventType::Press, 100, 0},
+        {250ms, "G3", EventType::Release, 0, 0},
+    };
+    TakeCaptured();
+    player.restart_song();
+    const auto isModifier = [](const Captured& e) {
+        return e.input.ki.wScan == 0x38 || e.input.ki.wScan == 0x1D || e.input.ki.wScan == 0x2A; };
+    std::vector<Captured> all;
+    Await([&] { for (auto& e : TakeCaptured()) if (!isModifier(e)) all.push_back(e);
+                 return std::count_if(all.begin(), all.end(), IsNotePress) >= 2 &&
+                        (all.back().input.ki.dwFlags & KEYEVENTF_KEYUP); }, "the later note never finished");
+    // Read before the player is stopped: stopping releases whatever is down.
+    Require(all.size() == 4, "a note of no length and the note after it are two downs and two ups");
+    Require(all[0].input.ki.wScan == all[1].input.ki.wScan && (all[1].input.ki.dwFlags & KEYEVENTF_KEYUP),
+            "a note of no length was pressed and never released");
+    player.should_stop = true;
+    SetEvent(player.command_event); player.playback_cv.notify_all();
+    player.playback_thread->join(); player.playback_thread.reset();
+    std::cout << "PASS a note of no length comes up during playback\n";
+}
+
 // Two hands on one key at one instant is one strike. Sent twice the game was
 // told down, up, down and played the note twice, which a tester heard as one
 // note sounding as two.
@@ -3515,6 +3548,7 @@ int wmain(int argc, wchar_t** argv) {
         LayoutTests(directory);
         VelocityTapOnHeldKeyTests(directory / L"config.json");
         ZeroLengthNoteTests(directory / L"config.json");
+        ZeroLengthPlaybackTests(directory / L"config.json");
         SharedStrikeTests(directory / L"config.json");
         AutoVolumeTests(directory / L"config.json", fixture);
         DeviceGroupingTests();

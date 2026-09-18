@@ -792,16 +792,35 @@ void VirtualPianoPlayer::play_notes() {
             // and a promise allocated per batch, and the SendInput itself
             // competing with the game's threads on equal terms. The work
             // was already serial, so the pool bought nothing.
+            // Releases run before presses, so a key let go and struck again in
+            // one batch is heard twice. A release whose own press is in this
+            // batch is the exception: a note of no length, or one shorter than
+            // the batch. Run first it found nothing to release, and its press
+            // then held the key for the rest of the song, which is how a
+            // tester's 0 key stuck. Those run after the presses.
+            const auto closesOwnPress = [&batch](const NoteEvent* release) {
+                for (const auto* e : batch) {
+                    if (e == release) return false;
+                    if (e->action == EventType::Press && e->isSustain == release->isSustain &&
+                        e->trackIndex == release->trackIndex && e->note == release->note) return true;
+                }
+                return false;
+            };
+
             [&]() -> size_t {
                 if (!legit) {
-                    // We release notes first, then press new ones
                     for (auto* e : batch) {
-                        if (e->action == EventType::Release) {
+                        if (e->action == EventType::Release && !closesOwnPress(e)) {
                             execute_note_event(*e);
                         }
                     }
                     for (auto* e : batch) {
                         if (e->action == EventType::Press) {
+                            execute_note_event(*e);
+                        }
+                    }
+                    for (auto* e : batch) {
+                        if (e->action == EventType::Release && closesOwnPress(e)) {
                             execute_note_event(*e);
                         }
                     }
@@ -813,7 +832,7 @@ void VirtualPianoPlayer::play_notes() {
                 }
                 // Releases stay on schedule; only attacks are spread.
                 for (auto* e : releases) {
-                    execute_note_event(*e);
+                    if (!closesOwnPress(e)) execute_note_event(*e);
                 }
                 std::chrono::nanoseconds elapsed{ 0 };
                 for (const auto& [offset, e] : presses) {
@@ -822,6 +841,9 @@ void VirtualPianoPlayer::play_notes() {
                         elapsed = offset;
                     }
                     execute_note_event(*e);
+                }
+                for (auto* e : releases) {
+                    if (closesOwnPress(e)) execute_note_event(*e);
                 }
                 return releases.size() + presses.size();
             }();
