@@ -560,6 +560,42 @@ From the owner and a tester in one session. Nothing here is optional.
 3. **Legit mode** is a reminder carried over from upstream, where it was
    removed for being poor. The owner wants it rethought entirely, not tuned. A
    tester found it laggy.
+
+   **What it is for, the owner's words on 2026-09-18:** make a human
+   performance sound played live, not the same each time. Most of what he plays
+   is a human recording, and a listener in the game also sees the input timing.
+   It is not there to make a poor or unplayable file sound real: no repair, no
+   thinning, no playability limits.
+
+   **Redesign, agreed in outline, not built:**
+   - The recording is the performance; Legit mode is a fresh take of it. Every
+     offset is a small displacement around what the file already says.
+   - A plan is built at song start and on the toggle: a second schedule beside
+     `note_buffer`, one offset per event, new seed each start. The dispatch
+     thread never sleeps for it, which removes the lag. Offsets may be early.
+     The score stays the ground truth for seek, position and duration.
+   - The take varies four things: a slow mean-reverting tempo drift, a small
+     per-note timing offset, velocity (a phrase-long drift plus a per-note
+     part, in steps of the game's 32 levels), and release time. A key is always
+     up before its next press.
+   - Dropped notes and the random hesitation are cut from the default. Mistakes
+     stays as a slider at 0: an inner chord note, never the top or the bottom.
+   - Settings: the switch, presets Subtle, Natural and Loose, and sliders
+     Timing, Tempo, Dynamics, Note Length, Mistakes; a moved slider reads
+     Custom. No text. Natural is sized to how much one player differs between
+     two takes of the same piece, which is small. Loose is what a quantised
+     file wants, and the user picks it; the app does not guess the file's kind.
+   - Old `LEGIT_MODE_SETTINGS` keys still load and are ignored.
+
+   **First, before the model:** measure whether plain playback flattens a
+   recording (one batch fires everything due together; velocity falls to 32
+   levels). Needs a few of the owner's usual recordings;
+   `x64\Release\midi\` holds two files.
+
+   **Proof:** the existing `--legit` tests, plus dispatch lateness on equals
+   off, two seeds differ, a fixed seed repeats, offsets stay inside their
+   bounds with the span preserved, and the humanised take exported as a `.mid`
+   for listening outside the game.
 4. **AutoVol's keys.** `HOTKEY_SETTINGS` carries `VOLUME_UP_KEY` and
    `VOLUME_DOWN_KEY` and the live path in `MIDI2Key.cpp` hardcodes the arrows.
    A tester will name a piano with other volume keys if they find one.
