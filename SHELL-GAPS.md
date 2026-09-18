@@ -554,8 +554,9 @@ From the owner and a tester in one session. Nothing here is optional.
    paired theme records which half is its source, so an edit to the derived
    half turns automatic off rather than the next edit to the source undoing
    it. Seen only in the `theme-editor` render: no swatch has been clicked, no
-   picker opened and no theme saved from the running app. Owed: the picker is
-   ImGui's own and unstyled; `skin-system.html` knows nothing of themes.
+   picker opened and no theme saved from the running app. The swatch and its
+   picker are the app's own since `9d0f64f`, seen in the `theme-picker` render
+   with no alpha bar in it. Owed: `skin-system.html` knows nothing of themes.
 3. **Legit mode** is a reminder carried over from upstream, where it was
    removed for being poor. The owner wants it rethought entirely, not tuned. A
    tester found it laggy.
