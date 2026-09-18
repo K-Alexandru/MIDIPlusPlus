@@ -1,8 +1,7 @@
 # Start here
 
 Updated 2026-09-18 on `claude/consolidate-2026-09-15`, the one branch. Read
-`REVIEW-2026-09-18.md` (open bugs, UI and performance findings), `HANDOFF.md`
-only where this points, `SHELL-GAPS.md` (owed) and `SEATS.md`.
+`HANDOFF.md` only where this points, `SHELL-GAPS.md` (owed) and `SEATS.md`.
 
 ## Goal
 
@@ -56,8 +55,9 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
   `$ErrorActionPreference = 'Stop'`; run `run-shell-tests.ps1` bare.
 - A `RenderTests` scenario opens a popup through a `Panels` flag, as
   `openConvert` does; its click positions follow the strip and Files width.
-- `make-source.py` builds the zip it wrote; the shell project falls back from
-  v143 to the installed toolset, and v145 is untried.
+- `make-source.py` builds the zip it wrote, but only against this PC's SDK
+  (10.0.22621) and v143: a newer SDK links C++/WinRT where this one does not,
+  which is why `<winrt/>` files name `runtimeobject.lib`. v145 is untried.
 - `build\shell\config.json` is rewritten by every run of the built shell. A
   release copies the tracked `x64\Release\config.json` and refuses if it is
   modified. `/d1trimfile` keeps the repository path out of the exe.
@@ -82,7 +82,7 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
 - **Owner to test:** Solo Piano in mini; sections on a real file; Save image
   from a page opened off disk; game delivery, Wooting, two devices, MIDI
   out, live curve reconnection, mixed DPI.
-- **Tester on Visual Studio 2026** to build `398de08`, or send the error text.
+- **Tester on Visual Studio 2026** to build `8c95e40`, or send the error text.
 
 ## Validation actually run
 
@@ -90,7 +90,7 @@ Nothing is optional. Demo v2 is the build the owner shares with testers.
   `run-native-tests.ps1` (DPI move skipped) and `LatencyTests.exe --loopback`
   PASS; the original window builds; eleven new tests fail with their fix
   reverted; the release exe carries no account, assistant or path string.
-- The source zip builds on its own at `398de08`, as every one now must.
+- The source zip builds on its own at `8c95e40`, as every one now must.
 
 ## Build and test
 
@@ -108,7 +108,7 @@ python .\tools\make-source.py
   `x64\Release\MIDI++.exe` and `x64\Release\midi\`; leave `D:\Dev\mpp-panels`.
 - Demo v2 from `8baf9bd`: `build\release\QuartzMIDI-demo-v2.zip` (426 MB,
   SHA256 `14237B7FCDD2D6C98604CA83D472BCCC885B9E9A5186FFFFB5AA6F3E4DC4164C`),
-  the staged folder beside it, and `QuartzMIDI-source-398de08.zip` (2.4 MB),
+  the staged folder beside it, and `QuartzMIDI-source-8c95e40.zip` (2.4 MB),
   the first with `QuartzMIDI.sln` and `BUILD.txt`; do not send an older one.
 - Never commit `x64/Release/midi/`, `build/`, `MIDI++/MIDI++/`, `.claude/`,
   `tools/mp3-to-midi/cookies.txt` or `tools/mp3-to-midi/browser/`.
