@@ -405,13 +405,17 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
         // A lost device, after a driver reset or an adapter going away, is
         // rebuilt rather than left presenting nothing until a restart.
         if (g_deviceLost) {
-            if (rendererUp) { ImGui_ImplDX11_Shutdown(); rendererUp = false; }
+            // Both backends. Shutting the renderer down destroys every platform
+            // window, and for the main viewport that clears the handle the
+            // Win32 backend gave it, which the next NewFrame asserts on.
+            if (rendererUp) { ImGui_ImplDX11_Shutdown(); ImGui_ImplWin32_Shutdown(); rendererUp = false; }
             CleanupDevice();
             if (!CreateDevice(hwnd)) {
                 // Nothing to draw with yet. The adapter may be a second away.
                 MsgWaitForMultipleObjectsEx(0, nullptr, 1000, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
                 continue;
             }
+            ImGui_ImplWin32_Init(hwnd);
             ImGui_ImplDX11_Init(g_device, g_context);
             rendererUp = true;
             g_deviceLost = false;
@@ -519,8 +523,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
                                     QS_ALLINPUT, MWMO_INPUTAVAILABLE);
     }
 
-    if (rendererUp) ImGui_ImplDX11_Shutdown();
-    ImGui_ImplWin32_Shutdown();
+    if (rendererUp) { ImGui_ImplDX11_Shutdown(); ImGui_ImplWin32_Shutdown(); }
     ImGui::DestroyContext();
     UnregisterHotkeys(hwnd, hotkeys);
     panels.SavePreferences(preferencesPath);
