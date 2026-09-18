@@ -39,8 +39,7 @@ QuartzMIDI is the ImGui shell (`ui/`) over `PlaybackCore`. The panel seat owns
 - Themes: `MIDI++/Skin.hpp`, `ui/SkinDraw.cpp`.
 - `tests/ShellTests.cpp` captures injection in process; `tests/RenderTests.cpp`
   writes a PNG per scenario to `build\render-tests`.
-- Run `tests\run-shell-tests.ps1 -Render`, then `tools\make-release.ps1` and
-  `python tools\make-source.py`.
+- Run `tests\run-shell-tests.ps1 -Render`, `tools\make-release.ps1`, `python tools\make-source.py`.
 
 ## Verified facts
 
