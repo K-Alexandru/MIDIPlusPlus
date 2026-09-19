@@ -70,9 +70,9 @@ seat owns `ui/` (`SEATS.md`); what the owner asks for there is in scope.
 
 ## Unresolved
 
-- **Legit mode: owner to say** whether the preset and Difficulty are remembered
-  per file (nothing is saved per song today). Eight of his recordings are in
-  `x64\Release\midi\`, measured by `tools\measure-midi.py` (item 3 has the numbers).
+- **Legit mode:** the preset, Difficulty and sliders are remembered per file,
+  the owner's yes; nothing is saved per song today. Eight of his recordings are
+  in `x64\Release\midi\`, measured by `tools\measure-midi.py` (item 3).
 - **Hotkeys: the owner bound F5 and F6; the rest is unpressed.** A media key, a
   key another program holds, move a key, unbind, Escape out, hold past repeat,
   and capture with Settings as its own window in mini mode.

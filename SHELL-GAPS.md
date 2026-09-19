@@ -598,21 +598,23 @@ From the owner and a tester in one session. Nothing here is optional.
      the song decides where variation and mistakes gather; the slider decides
      how much. Hesitation and falling behind belong to the loosest preset
      only, as plan offsets, bounded and recovered, never a sleep.
-     Nothing in the app is saved per song today, so whether the choice sticks
-     to a file is open.
+     The preset, Difficulty and the sliders are remembered per file, the
+     owner's yes on 2026-09-18; nothing in the app is saved per song today, so
+     this is new plumbing.
    - Old `LEGIT_MODE_SETTINGS` keys still load and are ignored.
 
    **Measured 2026-09-18** with `python tools\measure-midi.py x64\Release\midi`
    on eight of the owner's recordings, one each from Chewie Melodies,
-   ViddyWell, The Flaming Piano, Theishter, FrankTedesco and SL K out of
-   `D:\MIDI++ 1.0.4.R5 Release\midi`, plus the two already there:
-   - All eight are played: 0 to 4% of onsets sit on a 1/48 grid.
-   - Median chord spread is 7 to 20 ms, so a take's per-note offset has to stay
-     well under that, a few milliseconds, or it rewrites the player's chords.
+   ViddyWell, The Flaming Piano, Theishter, FrankTedesco's KOFI folder and SL K
+   out of `D:\MIDI++ 1.0.4.R5 Release\midi`, plus the two already there:
+   - All eight are played: 0 to 6% of onsets sit on a 1/48 grid.
+   - Median chord spread is 9 to 20 ms in seven files and 0 in the Chewie
+     file, so a take's per-note offset has to stay well under that, a few
+     milliseconds, or it rewrites the player's chords.
    - Chords whose notes share one tick are 0 to 15% in seven files and 81% in
      the Chewie file. Same-instant presses are in real recordings; Legit mode
      does not forbid them.
-   - 3 to 26% of distinct onsets are under 3 ms apart, which is what the
+   - 2 to 26% of distinct onsets are under 3 ms apart, which is what the
      dispatch batch could merge. Not yet measured on the playback side.
    - Velocities use 19 to 31 of the game's 32 levels, so one level is a
      meaningful Dynamics step.
