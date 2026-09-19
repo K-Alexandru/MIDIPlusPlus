@@ -602,6 +602,21 @@ From the owner and a tester in one session. Nothing here is optional.
      owner's yes on 2026-09-18, behind a switch of its own so a user can keep
      one setting for every song instead; nothing in the app is saved per song
      today, so this is new plumbing.
+   - The owner, later the same day: Legit mode also carries the ways a person
+     plays along, and stays open to what testers ask for next. Not built:
+     - **Hands:** Both, Right, Left. By track when the file has two; otherwise
+       an estimated split the user can move, shown as an estimate like
+       Difficulty. The app never presses or releases a key of the silent
+       hand, so the user can play that hand themselves.
+     - **Trigger:** Auto, Hold, Tap. Hold plays while a bound key is down and
+       lifts every key and the pedal when it comes up. Tap plays the next
+       note or chord per press, the chord keeping its own spread and
+       velocities; two keys may share the action, since one key cannot be
+       tapped as fast as a run. The keys bind in Hotkeys.
+     - **Speed as a slider**, 0.25 to 2, the minus and plus kept as fine steps.
+       Today a speed change rewrites every event's time
+       (`ui/ShellEngine.cpp:402`), which a drag would do every frame; with the
+       plan schedule speed becomes a rate on the clock instead.
    - Old `LEGIT_MODE_SETTINGS` keys still load and are ignored.
 
    **Measured 2026-09-18** with `python tools\measure-midi.py x64\Release\midi`
