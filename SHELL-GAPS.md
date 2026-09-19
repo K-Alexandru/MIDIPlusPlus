@@ -752,14 +752,28 @@ From the owner and a tester in one session. Nothing here is optional.
    - Wording is the owner's voice: a question, then one or two sentences.
    - **In folders,** the owner's, 2026-09-18, so someone past the basics goes
      straight to what is new. Sections that open, as Settings has them:
+     The owner turned down a folder called "New", and a folder per tool: the
+     categories can be better. Proposed, not settled, by what the person is
+     trying to do, since that is how they arrive:
      - **Basics**: opening a file, Play and the hotkeys, where the app types,
-       61 or 88 keys. The tour's replay button sits here.
-     - **New**: what the latest build added, newest first, each with the build
-       it arrived in. It opens by itself the first time after an update and
-       not again. An entry moves to its own folder once it is no longer new.
-     - Then one per tool, named as the app names it: Live input and devices,
-       MidiConnect, Velocity, AutoVol, Tracks, Sheets and the converter,
-       Themes, Hotkeys, Add-ons.
+       61 or 88 keys. The tour's replay button sits here. The owner: the name
+       may stay.
+     - **Playing a File**: speed, transpose, Hands, tracks and Solo Piano,
+       shuffle, the countdown.
+     - **Playing Live**: choosing an input, Kernel Streaming and WinMM,
+       MidiConnect, Wooting, the channel.
+     - **Velocity and Sound**: velocity hotkeys, the curve editor, the sustain
+       cutoff, AutoVol, MIDI output.
+     - **Making Files**: the converter and its sign-in, sheets, where files go.
+     - **Look and Keys**: themes, hotkeys, key mapping, mini, opacity.
+     - **Something Is Wrong**: it typed into my browser, extra notes, a greyed
+       hotkey, a stuck key, nothing plays.
+     - **Add-ons**.
+     - What a build added is not a folder. Each entry carries the build it
+       arrived in; a folder holding one shows a mark; and beside the search
+       field sits one chip named for the build, "Added in 2.1", that filters to
+       those entries. After an update Help opens once with the chip on. So
+       nothing is named New and an entry never has to move.
      - A search field at the top over every question, like the file list's.
    - Candidates, from what testers have tripped on and what this page records:
      - Why did it type into my browser? (it types into whatever has focus, and
