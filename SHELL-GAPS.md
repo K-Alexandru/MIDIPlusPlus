@@ -794,5 +794,10 @@ From the owner and a tester in one session. Nothing here is optional.
        for both readers. Someone new is shown the app control by control,
        where each thing is; someone experienced presses Skip once, never
        sees it again, and can play it back from Help when a control is new.
+       And the app is a different app. When the modal went in there was
+       nothing to explain: it was MIDI++ in a new skin. Now it is several
+       tools in one window (autoplay, live input, MidiConnect, MIDI out, the
+       converter, sheets, the velocity editor, themes, hotkeys, Hands) behind
+       controls that did not exist then, so there is something to show.
      - Mini has its own layout: the tour runs in the full window and leaves
        mini alone. The render tests get a scenario per stop.
