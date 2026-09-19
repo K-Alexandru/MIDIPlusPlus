@@ -31,7 +31,7 @@ seat owns `ui/` (`SEATS.md`); what the owner asks for there is in scope.
 - Legit Mode (`SHELL-GAPS.md` item 3) is a fresh live take of a human
   recording, never a repair of a poor file. Presets are the assumed player:
   Pro, Student, Beginner. Difficulty is an estimate the user overrides. It also
-  carries Hands, a Hold or Tap trigger and a Speed slider. Experimental tag stays.
+  carries Hands and a Hold or Tap trigger. Speed becomes a slider for everyone.
 - The game owns the key protocol: Alt is velocity, Ctrl is the 88-key notes,
   the velocity keys are the note keys. A fix or a test never changes a bind.
 - Test builds stay on this PC: `make-release.ps1` zips to `build\release\`.

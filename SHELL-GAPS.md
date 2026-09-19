@@ -613,7 +613,9 @@ From the owner and a tester in one session. Nothing here is optional.
        note or chord per press, the chord keeping its own spread and
        velocities; two keys may share the action, since one key cannot be
        tapped as fast as a run. The keys bind in Hotkeys.
-     - **Speed as a slider**, 0.25 to 2, the minus and plus kept as fine steps.
+     - **Speed is a slider by default**, the owner's words: for everyone, not
+       a Legit mode control, 0.25 to 2 with the value beside it, and the minus
+       and plus buttons go. The speed hotkeys still step it.
        Today a speed change rewrites every event's time
        (`ui/ShellEngine.cpp:402`), which a drag would do every frame; with the
        plan schedule speed becomes a rate on the clock instead.
