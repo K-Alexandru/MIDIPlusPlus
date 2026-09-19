@@ -349,9 +349,8 @@ See `CONTINUE-HERE.md` for the short version and the build commands.
 5. **UI rewrite** in ImGui. `skin-system.html` is the spec; zero ImGui code
    exists. Weeks, not hours.
 6. **YouTube→MIDI pipeline.** Lowest coupling, can happen anytime.
-7. **Legit mode, second attempt.** Only worth it if humanised autoplay actually
-   matters to you. Section 12 has why the first attempt fails and where a second
-   should start.
+7. ~~**Legit mode, second attempt.**~~ Built 2026-09-18 as a take made ahead of
+   time; `LEGIT-MODE.md` is its account. Not yet heard by the owner.
 
 ### Latency instrumentation: implemented with corrected boundaries
 
