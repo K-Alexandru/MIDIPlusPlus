@@ -31,7 +31,8 @@ seat owns `ui/` (`SEATS.md`); what the owner asks for there is in scope.
 - Legit Mode (`SHELL-GAPS.md` item 3) is a fresh live take of a human
   recording, never a repair of a poor file. Presets are the assumed player:
   Pro, Student, Beginner. Difficulty is an estimate the user overrides. It also
-  carries Hands and a Hold or Tap trigger. Speed becomes a slider for everyone.
+  carries Hands and a Hold or Tap trigger; its Experimental tag stays until the
+  owner says it convinces. Speed becomes a plain slider for everyone.
 - The game owns the key protocol: Alt is velocity, Ctrl is the 88-key notes,
   the velocity keys are the note keys. A fix or a test never changes a bind.
 - Test builds stay on this PC: `make-release.ps1` zips to `build\release\`.
@@ -82,8 +83,7 @@ seat owns `ui/` (`SEATS.md`); what the owner asks for there is in scope.
   the game while the app is open, and nothing stops it today.
 - **Tester shampoojr** to confirm the tester list on the `9d0f64f` build; none
   of it has met a real Wooting or Roblox. His doubled note was never reproduced.
-- **Owner to say** whether light mode is dark enough; then `skin-system.html`,
-  which shows the old values and knows nothing of themes, takes the new ones.
+- **Owner to say** if light mode is dark enough; then `skin-system.html` follows.
 - **Publishing**, parked, and the Colab notice behind it. `build\publish` holds a
   staged commit whose README and `.gitignore` are to keep; restage it first.
 - **Tester on VS 2026** to build the source zip. **Owner to test**: velocity
