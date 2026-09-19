@@ -106,9 +106,10 @@ panel seat owns `ui/` (`SEATS.md`); what the owner asks for there is in scope.
   asking is authorized; creating a repository and force-pushing are not.
 - This branch is pushed and clean apart from the owner's
   `x64\Release\MIDI++.exe` and `x64\Release\midi\`; leave `D:\Dev\mpp-panels`.
-- Demo v2 from `3bc3cf1`: `build\release\QuartzMIDI-demo-v2.zip`, SHA256
-  `0FD2997D91395F7EA363AA850EC47EC49C1D5A967D16DADC6CB4DC6A7B7DE7F4`, and
-  `QuartzMIDI-source-3bc3cf1.zip`; older pairs are stale. Two labels changed since.
+- Demo v2 with the folder browser (`BrowseFolder`, `ui/LibraryModel.hpp`), built
+  before its commit so stamped `71cebcd`: `build\release\QuartzMIDI-demo-v2.zip`,
+  SHA256 `AF4227A5B2CD8B8CF7E899CE9CC6F3B4F6196E6E35E05195C0361C4078A290E7`.
+  `QuartzMIDI-source-3bc3cf1.zip` is stale; the folder rows are unclicked.
 - Never commit `x64/Release/midi/`, `build/`, `MIDI++/MIDI++/`, `.claude/`,
   `tools/mp3-to-midi/cookies.txt` or `tools/mp3-to-midi/browser/`.
 

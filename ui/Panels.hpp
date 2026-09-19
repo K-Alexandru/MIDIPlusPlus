@@ -84,6 +84,10 @@ private:
     std::shared_ptr<const std::vector<MidiEntry>> filteredFiles_;
     std::string filteredQuery_;
     std::vector<size_t> fileFilter_;
+    // The folder the list is showing, as a prefix of MidiEntry::name. Search
+    // ignores it and covers the whole library.
+    std::string browse_;
+    std::vector<std::string> folderRows_;
     void DrawKeyMapping(const Fonts& fonts, const skin::Skin& design, float dpi, ShellEngine& engine);
     int rangeStart_ = 36;
     int selectedNote_ = -1;

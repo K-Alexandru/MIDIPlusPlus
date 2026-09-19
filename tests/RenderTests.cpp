@@ -71,6 +71,9 @@ int wmain() {
         const auto folder = std::filesystem::current_path();
         const auto fixture = folder / L"tracks.mid";
         WriteTrackFixture(fixture);
+        // A sub-folder, so the file list draws a folder row in every scenario.
+        std::filesystem::create_directories(folder / L"Classical");
+        WriteTrackFixture(folder / L"Classical" / L"sonata.mid");
         shell::ShellEngine engine(folder / L"config.json");
         engine.Send({shell::ShellEngine::Action::Load, fixture, 0, 0, true});
         const auto deadline = std::chrono::steady_clock::now() + 10s;

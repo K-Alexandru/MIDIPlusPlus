@@ -2609,7 +2609,7 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
         if (ImGui::MenuItem("Open MIDI file...")) load(PickMidiFile(hwnd));
         if (ImGui::MenuItem("Choose MIDI folder...", nullptr, false, !state->playing && !state->busy)) {
             const auto path = PickFolder(hwnd);
-            if (!path.empty()) { preferences.folder = path; engine.Send({ShellEngine::Action::Scan, path}); }
+            if (!path.empty()) { preferences.folder = path; browse_.clear(); engine.Send({ShellEngine::Action::Scan, path}); }
         }
         if (ImGui::MenuItem("Convert audio to MIDI...")) convertRequested = true;
         ImGui::EndPopup();
@@ -2639,7 +2639,7 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
         ImGui::BeginDisabled(state->playing || state->busy);
         if (TransportButton("##choose-folder", Icon::Open, kChoose, s, dpi)) {
             const auto path = PickFolder(hwnd);
-            if (!path.empty()) { preferences.folder = path; engine.Send({ShellEngine::Action::Scan, path}); }
+            if (!path.empty()) { preferences.folder = path; browse_.clear(); engine.Send({ShellEngine::Action::Scan, path}); }
         }
         ImGui::EndDisabled();
     } else {
@@ -2651,21 +2651,61 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
         query = lowercase(query);
         if (filteredFiles_ != state->files || filteredQuery_ != query) {
             fileFilter_.clear();
-            for (size_t i = 0; i < state->files->size(); ++i)
-                if (query.empty() || lowercase((*state->files)[i].name).find(query) != std::string::npos) fileFilter_.push_back(i);
+            folderRows_.clear();
+            if (query.empty()) {
+                // A rescan may have taken the open folder away; show the
+                // nearest one above it that still holds a file.
+                auto view = BrowseFolder(*state->files, browse_);
+                while (!browse_.empty() && view.files.empty() && view.folders.empty()) {
+                    browse_ = ParentFolder(browse_);
+                    view = BrowseFolder(*state->files, browse_);
+                }
+                fileFilter_ = std::move(view.files);
+                folderRows_ = std::move(view.folders);
+            } else {
+                for (size_t i = 0; i < state->files->size(); ++i)
+                    if (lowercase((*state->files)[i].name).find(query) != std::string::npos) fileFilter_.push_back(i);
+            }
             std::stable_sort(fileFilter_.begin(), fileFilter_.end(), [&](size_t a, size_t b) {
                 return FileBefore((*state->files)[a], (*state->files)[b], fileSort_, descendingFiles_);
             });
             filteredFiles_ = state->files;
             filteredQuery_ = query;
         }
+        // Rows in order: the way back up, the folders, then the files. The
+        // first two only exist while browsing; a search lists files alone.
+        const int upRows = query.empty() && !browse_.empty() ? 1 : 0;
+        const int folderCount = static_cast<int>(folderRows_.size());
+        const int fileStart = upRows + folderCount;
+        bool moved = false;
+        std::string moveTo;
         ImGuiListClipper clipper;
-        clipper.Begin(static_cast<int>(fileFilter_.size()), s.metric.controlHeight + s.spacing.s2);
+        clipper.Begin(fileStart + static_cast<int>(fileFilter_.size()), s.metric.controlHeight + s.spacing.s2);
         while (clipper.Step()) for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
-            const auto& file = (*state->files)[fileFilter_[i]];
-            ImGui::PushID(static_cast<int>(fileFilter_[i]));
             const auto pos = ImGui::GetCursorScreenPos();
             const float width = ImGui::GetContentRegionAvail().x;
+            if (i < fileStart) {
+                const bool up = i < upRows;
+                // The way up is named after where you are, separator dropped.
+                const std::string label = up ? browse_.substr(0, browse_.size() - 1) : folderRows_[i - upRows];
+                ImGui::PushID(i - fileStart);
+                if (ImGui::Selectable("##folder", false, 0, ImVec2(width, s.metric.controlHeight))) {
+                    moved = true;
+                    moveTo = up ? ParentFolder(browse_) : browse_ + label + '\\';
+                }
+                FontScope rowFont(fonts, design, design.type.body * SpecFontScale(design), Weight::Regular);
+                const float side = 16 * dpi;
+                DrawIcon(ImGui::GetWindowDrawList(), up ? Icon::Left : Icon::Folder,
+                         ImVec2(pos.x + s.spacing.s3, pos.y + (s.metric.controlHeight - side) / 2), side,
+                         Colour(s.ink.secondary), dpi);
+                const float inset = 2 * s.spacing.s3 + side;
+                DrawEllipsis(label, width - inset - s.spacing.s3,
+                             ImVec2(pos.x + inset, pos.y + (s.metric.controlHeight - ImGui::GetTextLineHeight()) / 2));
+                ImGui::PopID();
+                continue;
+            }
+            const auto& file = (*state->files)[fileFilter_[i - fileStart]];
+            ImGui::PushID(static_cast<int>(fileFilter_[i - fileStart]));
             ImGui::BeginDisabled(state->busy);
             if (ImGui::Selectable("##file", file.path == state->loaded, 0, ImVec2(width, s.metric.controlHeight))) load(file.path);
             ImGui::EndDisabled();
@@ -2676,12 +2716,20 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
             const auto bytes = std::to_string((file.bytes + 1023) / 1024) + " KB";
             const float sizeWidth = ImGui::CalcTextSize(bytes.c_str()).x;
             const float textY = pos.y + (s.metric.controlHeight - ImGui::GetTextLineHeight()) / 2;
-            DrawEllipsis(file.name, width - sizeWidth - 3 * s.spacing.s3, ImVec2(pos.x + s.spacing.s3, textY));
+            // A search result says which folder it is in; a browsed row is
+            // already under its folder.
+            DrawEllipsis(query.empty() ? file.name.substr(browse_.size()) : file.name,
+                         width - sizeWidth - 3 * s.spacing.s3, ImVec2(pos.x + s.spacing.s3, textY));
             listDraw->AddText(ImVec2(pos.x + width - s.spacing.s3 - sizeWidth, textY), Colour(s.ink.secondary), bytes.c_str());
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s\n%llu bytes", file.name.c_str(), static_cast<unsigned long long>(file.bytes));
             ImGui::PopID();
         }
-        if (fileFilter_.empty()) ImGui::TextDisabled("No matching files");
+        if (fileFilter_.empty() && fileStart == 0) ImGui::TextDisabled("No matching files");
+        if (moved) {
+            browse_ = std::move(moveTo);
+            filteredFiles_.reset();
+            ImGui::SetScrollY(0);
+        }
     }
     // The list's own draw list, after EndChild has drawn its scrollbar, so the
     // corners cover a square selected row and the scrollbar alike.

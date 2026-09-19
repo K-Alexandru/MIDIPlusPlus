@@ -1616,10 +1616,9 @@ void MappingPersistenceTests(const std::filesystem::path& source) {
     std::cout << "PASS keybind saves settle, survive shutdown and preserve the config\n";
 }
 
-// The folder scan reaches sub-folders. The original app browses instead --
-// folders are rows and you click into them -- so this is a deliberate
-// difference, not a port of the same behaviour, and it is what the search box
-// in that panel is worth having.
+// The folder scan reaches sub-folders, and the panel browses the result a
+// folder at a time as the original app does. The scan is whole so that the
+// search box in that panel covers the library.
 //
 // The two ways a recursive walk goes wrong are both asserted: a name that does
 // not say which folder a file came from, and a walk that does not terminate.
@@ -1655,6 +1654,18 @@ void FolderScanTests(const std::filesystem::path& config) {
     Require(names.count("top.mid") == 1, "a file in the chosen folder keeps its plain name");
     Require(names.count("Classical\\middle.mid") == 1, "a file one level down is named by its relative path");
     Require(names.count("Classical\\Beethoven\\deep.midi") == 1, "and so is one two levels down");
+
+    // The panel's view of that list: one folder at a time, folders before
+    // files, and a folder holding no MIDI file anywhere below it left out.
+    const auto top = shell::BrowseFolder(*found, "");
+    Require(top.folders == std::vector<std::string>{"Classical"}, "the chosen folder lists its sub-folder once, and not the empty one");
+    Require(top.files.size() == 1 && (*found)[top.files[0]].name == "top.mid", "and only the files directly in it");
+    const auto classical = shell::BrowseFolder(*found, "Classical\\");
+    Require(classical.folders == std::vector<std::string>{"Beethoven"} && classical.files.size() == 1,
+            "a sub-folder lists its own folder and file");
+    Require(shell::BrowseFolder(*found, "Classical\\Beethoven\\").files.size() == 1, "and so does one two levels down");
+    Require(shell::ParentFolder("Classical\\Beethoven\\") == "Classical\\" && shell::ParentFolder("Classical\\").empty(),
+            "the way up is one folder at a time");
 
     // A directory symlink pointing at its own parent is the shape that makes a
     // naive recursive walk run until it runs out of path. Skipped on machines

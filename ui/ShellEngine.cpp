@@ -955,11 +955,10 @@ void ShellEngine::Run(std::stop_token stop) {
                     Publish(state);
                     // Sub-folders are searched too, and a file found in one is
                     // named by its path relative to the folder you chose. The
-                    // original app browses instead: it lists folders as rows
-                    // with a ".." to go up, so you see one directory at a time.
-                    // A flat list is the better fit here because this panel has
-                    // a search box, and searching your whole library beats
-                    // searching whichever directory you last clicked into.
+                    // panel browses that list a folder at a time, as the
+                    // original app does (BrowseFolder in LibraryModel.hpp), and
+                    // the scan stays whole so the search box covers the library
+                    // rather than whichever directory you last clicked into.
                     auto files = std::make_shared<std::vector<MidiEntry>>();
                     std::error_code error;
                     // Permission-denied folders are stepped over rather than
