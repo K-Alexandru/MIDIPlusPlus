@@ -598,7 +598,10 @@ From the owner and a tester in one session. Nothing here is optional.
      app. The app keeps one extension point and draws whatever a mod declares:
      its name, sliders, presets, which sliders carry an Estimated mark, and
      its keys. With no mod there is no section.
-   - **The mod** is a DLL in a `mods` folder beside the exe, behind a C ABI:
+   - **It is called an add-on, and its folder `addons`,** the owner's point on
+     2026-09-18: "mods" reads like Minecraft, a folder people fill with
+     whatever they download, and this app loads only what the owner signed.
+   - **The add-on** is a DLL in an `addons` folder beside the exe, behind a C ABI:
      the app hands it the score, a seed and the speed and takes back a time, a
      velocity and a skip per event. Tap lives in the playback loop today, so the
      ABI also needs a way for a mod to hold the clock and step it.
