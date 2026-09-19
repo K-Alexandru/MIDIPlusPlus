@@ -1195,7 +1195,7 @@ ImVec2 Panels::DesiredSize() const {
     // width is the state pills and a window pad each side; 640 left a blank
     // fifth of the window to their right. The height is the 88dpi strip, the
     // rows at 8dpi apart, and the status bar.
-    if (miniMode) return ImVec2(528, miniAutoplay ? 256.f : 164.f);
+    if (miniMode) return ImVec2(528, miniAutoplay ? 300.f : 164.f);
     // 44 taller than it was: the Playback card gained the Hands and Trigger row.
     return ImVec2(940, velocityExpanded ? 1018.f : 644.f);
 }
@@ -2453,8 +2453,19 @@ void Panels::DrawMini(HWND hwnd, const Fonts& fonts, const skin::Skin& design, f
             Time(seeking_ ? seekPosition_ : state->position) + " / " + Time(state->duration);
         draw->AddText(ImVec2(origin.x + size.x - pad - ImGui::CalcTextSize(time.c_str()).x,
             transportY + (control - ImGui::GetTextLineHeight()) / 2), Colour(s.ink.secondary), time.c_str());
+        // Hands and Trigger, as on the Playback card. Unlabelled here, where the
+        // width is the state pills': the segments say what they are.
+        const float handsY = transportY + control + gap;
+        ImGui::SetCursorScreenPos(ImVec2(origin.x + pad, handsY));
+        ImGui::BeginDisabled(state->loaded.empty() || state->busy);
+        if (const int hand = Segments("##mini-hands", {"Both", "Right", "Left"}, state->hands, s, dpi); hand >= 0)
+            engine.Send({ShellEngine::Action::Hands, {}, 0, static_cast<size_t>(hand)});
+        ImGui::SameLine(0, s.spacing.s3);
+        if (const int trigger = Segments("##mini-trigger", {"Auto", "Hold", "Tap"}, state->trigger, s, dpi); trigger >= 0)
+            engine.Send({ShellEngine::Action::Trigger, {}, 0, static_cast<size_t>(trigger)});
+        ImGui::EndDisabled();
         { FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
-          DrawTransportHints(draw, s, dpi, ImVec2(origin.x + pad, transportY + control + gap), state->trigger); }
+          DrawTransportHints(draw, s, dpi, ImVec2(origin.x + pad, handsY + control + gap), state->trigger); }
     }
     DrawStatus(fonts, design, dpi, *state, ImVec2(origin.x, origin.y + size.y - status), size.x, status);
     ImGui::PopStyleVar();

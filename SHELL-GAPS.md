@@ -567,7 +567,21 @@ From the owner and a tester in one session. Nothing here is optional.
    It is not there to make a poor or unplayable file sound real: no repair, no
    thinning, no playability limits.
 
-   **Redesign, agreed in outline, not built:**
+   **Built 2026-09-18, `c60e46d` to the commit after `0dc3055`; never heard by
+   the owner and never pressed in the running app.** `LEGIT-MODE.md` is the
+   account of what was built. It differs from the outline below in three
+   places: a moved slider does not read Custom, the chosen player stays
+   chosen because it also sets how hard Difficulty bites and whether there
+   are hesitations, and choosing it again puts the sliders back; Hand Split
+   and Tap Holds the Note are in Settings and show only when they apply; the
+   mini window has Hands and Trigger, unlabelled, and no Speed, which it
+   never had.
+   Owed: the owner's ear on Pro, Student and Beginner with his recordings; a
+   real game with Hands, Hold and Tap, where the tap keys have only met a key
+   table; the native suite, which takes the cursor and was not run;
+   `skin-system.html` knows none of it.
+
+   **The outline as agreed:**
    - The recording is the performance; Legit mode is a fresh take of it. Every
      offset is a small displacement around what the file already says.
    - A plan is built at song start and on the toggle: a second schedule beside
