@@ -769,3 +769,27 @@ From the owner and a tester in one session. Nothing here is optional.
    - Open: where the button lives (the top strip beside Settings is the
      obvious place), and whether it is a popover like Settings or its own
      window in mini.
+   - **A tour on first open,** the owner's, 2026-09-18: it highlights one
+     control after another and says what each is, the highlight gliding
+     smoothly from one to the next, with Skip always there, and a button
+     inside Help plays it again. Not started.
+     - How: a dimmed layer over the window with a cut-out round the control and
+       a small card beside it (the text, Back, Next, Skip, and which stop of how
+       many). Each stop's control records its own rectangle when it is drawn,
+       so the tour follows the layout at any size and DPI, and the cut-out and
+       the card ease between rectangles. The shell draws on demand, so the
+       tour keeps frames coming while it moves, as the hotkey capture does.
+     - Seen once: a flag in the preferences file; Skip and the last stop both
+       set it. Escape skips. It never starts over a song that is playing.
+     - Short, or it gets skipped: eight stops at most. Candidates: the file
+       list; Play and the key legend, which is where to say that the app types
+       into whatever has focus, so the hotkeys are for when the game has it;
+       Speed and Transpose; Hands; Tracks and Solo Piano; the state pills; the
+       MIDI input pill; Settings and Help. That stop is the answer to the
+       warning question left open under "Reported by testers".
+     - Wording is the owner's voice, one sentence a stop.
+     - A first-run modal was removed in `c9ea480` for speaking before the user
+       had done anything. A tour is that risk again; Skip, the length and the
+       replay in Help are what is different this time.
+     - Mini has its own layout: the tour runs in the full window and leaves
+       mini alone. The render tests get a scenario per stop.
