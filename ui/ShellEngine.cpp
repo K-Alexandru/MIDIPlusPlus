@@ -262,6 +262,11 @@ void ShellEngine::SetWakeWindow(void* window) {
     wakeWindow_.store(window, std::memory_order_release);
 }
 
+void ShellEngine::SetKeyProbe(std::function<bool(int)> probe) {
+    std::lock_guard lock(keyProbeMutex_);
+    keyProbe_ = std::move(probe);
+}
+
 void ShellEngine::Run(std::stop_token stop) {
     using namespace std::chrono_literals;
     EngineSnapshot state;
@@ -320,8 +325,24 @@ void ShellEngine::Run(std::stop_token stop) {
         if (configJson.contains("AUTO_TRANSPOSE")) state.autoTranspose = configJson["AUTO_TRANSPOSE"].value("ENABLED", false);
         state.fileSort = static_cast<FileSort>(std::clamp(configJson.value("SHELL_FILE_SORT", 0), 0, 2));
         state.descendingFiles = configJson.value("SHELL_FILE_DESCENDING", false);
-        if (configJson.contains("LEGIT_MODE_SETTINGS"))
-            state.legitMode = configJson["LEGIT_MODE_SETTINGS"].value("ENABLED", false);
+        // Upstream's TIMING_VARIATION, NOTE_SKIP_CHANCE and EXTRA_DELAY keys may
+        // sit beside these in a config from the wild. They are left where they
+        // are and mean nothing now.
+        if (configJson.contains("LEGIT_MODE_SETTINGS") && configJson["LEGIT_MODE_SETTINGS"].is_object()) {
+            const auto& legitJson = configJson["LEGIT_MODE_SETTINGS"];
+            state.legitMode = legitJson.value("ENABLED", false);
+            state.legitPlayer = std::clamp(legitJson.value("PLAYER", 0), 0, 2);
+            const auto defaults = legit::Defaults(static_cast<legit::Player>(state.legitPlayer));
+            const double amounts[5]{defaults.timing, defaults.tempo, defaults.dynamics, defaults.length, defaults.mistakes};
+            for (size_t i = 0; i < 5; ++i)
+                state.legitAmounts[i] = std::clamp(legitJson.value(kLegitAmountFields[i], amounts[i]), 0.0, 1.0);
+            state.legitDifficulty = std::clamp(legitJson.value("DIFFICULTY", -1.0), -1.0, 1.0);
+            state.rememberPerSong = legitJson.value("REMEMBER_PER_SONG", true);
+        }
+        state.hands = std::clamp(configJson.value("SHELL_HANDS", 0), 0, 2);
+        state.handSplit = std::clamp(configJson.value("SHELL_HAND_SPLIT", -1), -1, 108);
+        state.trigger = std::clamp(configJson.value("SHELL_TRIGGER", 0), 0, 2);
+        state.tapHolds = configJson.value("SHELL_TAP_HOLDS", true);
         state.keyMappings = configJson.at("KEY_MAPPINGS").at(state.eightyEightKeys ? "FULL" : "LIMITED").get<decltype(state.keyMappings)>();
         state.velocityModifier = configJson.value("VELOCITY_MODIFIER", std::string("alt"));
         if (state.velocityModifier != "alt" && state.velocityModifier != "ctrl" && state.velocityModifier != "shift") {
@@ -338,7 +359,27 @@ void ShellEngine::Run(std::stop_token stop) {
     // an atomic rename, so the file is never seen half written. What was
     // dropped is WRITE_THROUGH, which waited on the physical disk while the
     // keystroke that caused it went unacknowledged.
+    // What Legit mode remembers per song, by file name, beside config.json. Its
+    // own file because it grows with the library and config.json is hand-edited.
+    const auto songsPath = config_.parent_path() / "songs.json";
+    nlohmann::json songsJson = nlohmann::json::object();
+    bool songsDirty = false;
+    try {
+        std::ifstream stream(songsPath);
+        if (stream) {
+            auto parsed = nlohmann::json::parse(stream);
+            if (parsed.is_object()) songsJson = std::move(parsed);
+        }
+    } catch (const std::exception&) { songsJson = nlohmann::json::object(); }
     const auto flushConfig = [&] {
+        if (songsDirty) {
+            auto temporary = songsPath; temporary += L".shell-tmp";
+            { std::ofstream output(temporary); output << songsJson.dump(1) << '\n'; output.flush();
+              if (!output) throw std::runtime_error("Cannot save the song settings."); }
+            if (!MoveFileExW(temporary.c_str(), songsPath.c_str(), MOVEFILE_REPLACE_EXISTING))
+                throw std::runtime_error("Cannot replace the saved song settings.");
+            songsDirty = false;
+        }
         if (!configDirty) return;
         // A config that failed to parse is held as null. Writing that back
         // would replace every saved setting with an empty file.
@@ -361,7 +402,7 @@ void ShellEngine::Run(std::stop_token stop) {
         if (player->playback_thread && player->playback_thread->joinable()) player->playback_thread->join();
         player->playback_thread.reset();
         if (state.playing)
-            state.position = std::clamp(player->get_adjusted_time().count() / 1e9 * state.speed, 0.0, state.duration);
+            state.position = std::clamp(player->get_adjusted_time().count() / 1e9, 0.0, state.duration);
         player->paused.store(true, std::memory_order_release);
         player->release_all_keys();
         state.playing = false;
@@ -390,18 +431,88 @@ void ShellEngine::Run(std::stop_token stop) {
         state.autoVolume = false;
         if (player) player->enable_volume_adjustment.store(false, std::memory_order_release);
     };
+    // Legit mode. The player takes the settings whole and rebuilds its take
+    // between two events, so none of this stops playback.
+    std::vector<legit::ScoreEvent> legitScore;
+    const auto applyLegit = [&] {
+        if (!player) return;
+        legit::Settings settings;
+        settings.player = static_cast<legit::Player>(state.legitPlayer);
+        settings.difficulty = state.legitDifficulty < 0 ? state.legitDifficultyEstimate : state.legitDifficulty;
+        settings.timing = state.legitAmounts[0];
+        settings.tempo = state.legitAmounts[1];
+        settings.dynamics = state.legitAmounts[2];
+        settings.length = state.legitAmounts[3];
+        settings.mistakes = state.legitAmounts[4];
+        settings.hands = static_cast<legit::Hands>(state.hands);
+        settings.split = state.handSplit;
+        player->set_legit_settings(settings);
+        player->trigger.store(state.trigger == 2 ? VirtualPianoPlayer::Trigger::Tap : VirtualPianoPlayer::Trigger::Auto,
+                              std::memory_order_release);
+        player->tap_holds_notes.store(state.tapHolds, std::memory_order_release);
+    };
+    // Estimates and only that: where the Difficulty and Split sliders start.
+    const auto estimateLegit = [&] {
+        state.legitDifficultyEstimate = legit::EstimateDifficulty(legitScore, state.speed);
+        state.handSplitEstimate = legit::EstimateSplit(legitScore);
+        state.handsByTrack = legit::SplitsByTrack(legitScore);
+    };
+    const auto songKey = [&] { return Utf8(state.loaded.filename()); };
+    // The open song's own settings, when there are any and the user keeps them.
+    const auto recallSong = [&] {
+        state.legitDifficulty = -1;
+        state.handSplit = -1;
+        if (!state.rememberPerSong || state.loaded.empty()) return;
+        const auto found = songsJson.find(songKey());
+        if (found == songsJson.end() || !found->is_object()) return;
+        state.legitPlayer = std::clamp(found->value("PLAYER", state.legitPlayer), 0, 2);
+        for (size_t i = 0; i < 5; ++i)
+            state.legitAmounts[i] = std::clamp(found->value(kLegitAmountFields[i], state.legitAmounts[i]), 0.0, 1.0);
+        state.legitDifficulty = std::clamp(found->value("DIFFICULTY", -1.0), -1.0, 1.0);
+        state.hands = std::clamp(found->value("HANDS", state.hands), 0, 2);
+        state.handSplit = std::clamp(found->value("HAND_SPLIT", -1), -1, 108);
+    };
+    // A change is the new default for songs never opened, and, kept per song,
+    // this song's own from here on.
+    const auto rememberLegit = [&] {
+        auto& saved = configJson["LEGIT_MODE_SETTINGS"];
+        saved["PLAYER"] = state.legitPlayer;
+        for (size_t i = 0; i < 5; ++i) saved[kLegitAmountFields[i]] = state.legitAmounts[i];
+        saved["REMEMBER_PER_SONG"] = state.rememberPerSong;
+        configJson["SHELL_HANDS"] = state.hands;
+        configJson["SHELL_TRIGGER"] = state.trigger;
+        configJson["SHELL_TAP_HOLDS"] = state.tapHolds;
+        if (state.rememberPerSong && !state.loaded.empty()) {
+            auto& song = songsJson[songKey()];
+            song = nlohmann::json::object();
+            song["PLAYER"] = state.legitPlayer;
+            for (size_t i = 0; i < 5; ++i) song[kLegitAmountFields[i]] = state.legitAmounts[i];
+            song["DIFFICULTY"] = state.legitDifficulty;
+            song["HANDS"] = state.hands;
+            song["HAND_SPLIT"] = state.handSplit;
+            songsDirty = true;
+        } else {
+            // One setting for every song: the difficulty and the split are
+            // about a song, so they stay estimates.
+            saved["DIFFICULTY"] = -1.0;
+            configJson["SHELL_HAND_SPLIT"] = -1;
+        }
+        touchConfig();
+        applyLegit();
+    };
     // Only the worker writes the clock fields. No legacy seek/speed calls run
     // concurrently with dispatch. Joining also drains the engine's batch future.
     const auto startPlayback = [&] {
         if (!state.typingAcknowledged) throw std::runtime_error("Read the typing warning in the app before starting output.");
         if (!player || state.loaded.empty() || state.rows.empty() || state.duration <= 0) return;
         stopConnect();
-        // The inherited scheduler waits in wall nanoseconds. Scale its event
-        // times here, so rates above 1x do not oversleep their next note.
-        for (size_t i = 0; i < scoreTimes.size(); ++i)
-            player->note_events[i].time = std::chrono::nanoseconds(static_cast<int64_t>(scoreTimes[i].count() / state.speed));
-        player->current_speed = 1.0;
-        player->total_adjusted_time = std::chrono::nanoseconds(static_cast<int64_t>(state.position / state.speed * 1e9));
+        // Speed is a rate on the player's clock. The event times stay the
+        // score's, and a change while playing is one store the playback thread
+        // picks up, so a dragged slider never stops a note.
+        applyLegit();
+        player->requested_speed.store(state.speed, std::memory_order_release);
+        player->current_speed = state.speed;
+        player->total_adjusted_time = std::chrono::nanoseconds(static_cast<int64_t>(state.position * 1e9));
         const auto next = std::lower_bound(player->note_events.begin(), player->note_events.end(),
             player->total_adjusted_time, [](const auto& event, auto time) { return event.time < time; });
         player->buffer_index.store(static_cast<size_t>(next - player->note_events.begin()));
@@ -543,6 +654,39 @@ void ShellEngine::Run(std::stop_token stop) {
     size_t convertedCount = 0;
     state.youtubeSignedIn = converterInstall().SignedIn();
     Publish(state);
+    // The Hold and Tap keys, read every millisecond on a thread of their own. A
+    // tap is a note, so it cannot wait for this worker's next pass, and
+    // WM_HOTKEY never says a key came up. A tap goes straight to the player,
+    // which queues it for the playback thread; Hold is play and pause, which
+    // are this worker's, so it sends those. Declared after the player, so it
+    // stops before the player goes.
+    std::atomic<int> pollTrigger{0};
+    std::array<std::atomic<int>, 3> pollKeys{};
+    std::atomic<VirtualPianoPlayer*> tapTarget{nullptr};
+    const auto syncPoller = [&] {
+        pollTrigger.store(state.trigger, std::memory_order_release);
+        for (size_t i = 0; i < 3; ++i) pollKeys[i].store(NameToVK(state.hotkeys[kHoldKey + i]), std::memory_order_release);
+        tapTarget.store(state.playing && state.trigger == 2 ? player.get() : nullptr, std::memory_order_release);
+    };
+    std::jthread poller([&](std::stop_token token) {
+        std::array<bool, 3> held{};
+        while (!token.stop_requested()) {
+            const int trigger = pollTrigger.load(std::memory_order_acquire);
+            if (trigger == 0) { held.fill(false); std::this_thread::sleep_for(50ms); continue; }
+            std::function<bool(int)> probe;
+            { std::lock_guard lock(keyProbeMutex_); probe = keyProbe_; }
+            for (size_t i = 0; i < 3; ++i) {
+                const int vk = pollKeys[i].load(std::memory_order_acquire);
+                const bool down = vk != 0 && probe && probe(vk);
+                if (down == held[i]) continue;
+                held[i] = down;
+                if (i == 0 && trigger == 1) Send({down ? Action::Play : Action::Pause, {}, Snapshot()->generation});
+                else if (i > 0 && trigger == 2)
+                    if (auto* target = tapTarget.load(std::memory_order_acquire)) target->tap(static_cast<int>(i) - 1, down);
+            }
+            std::this_thread::sleep_for(1ms);
+        }
+    });
     // A curve is committed on a slider release, not per keystroke, and the
     // documented behaviour is that a failed save reports and leaves the applied
     // response alone. So this one still writes immediately, and gives up only
@@ -695,6 +839,46 @@ void ShellEngine::Run(std::stop_token stop) {
                     if (player && player->legit_mode_active != command.value) player->toggle_legit_mode();
                     configJson["LEGIT_MODE_SETTINGS"]["ENABLED"] = command.value;
                     touchConfig();
+                    break;
+                case Action::LegitPlayer: {
+                    state.legitPlayer = static_cast<int>(std::min<size_t>(command.track, 2));
+                    const auto defaults = legit::Defaults(static_cast<legit::Player>(state.legitPlayer));
+                    state.legitAmounts = {defaults.timing, defaults.tempo, defaults.dynamics, defaults.length, defaults.mistakes};
+                    rememberLegit();
+                    break;
+                }
+                case Action::LegitAmount:
+                    if (!std::isfinite(command.amount) || command.track > 5) break;
+                    if (command.track == 5) state.legitDifficulty = command.amount < 0 ? -1 : std::min(command.amount, 1.0);
+                    else state.legitAmounts[command.track] = std::clamp(command.amount, 0.0, 1.0);
+                    rememberLegit();
+                    break;
+                case Action::Hands:
+                    state.hands = static_cast<int>(std::min<size_t>(command.track, 2));
+                    rememberLegit();
+                    break;
+                case Action::HandSplit:
+                    if (!std::isfinite(command.amount)) break;
+                    state.handSplit = command.amount < 0 ? -1 : std::clamp(static_cast<int>(std::lround(command.amount)), 21, 108);
+                    rememberLegit();
+                    break;
+                case Action::Trigger: {
+                    const int wanted = static_cast<int>(std::min<size_t>(command.track, 2));
+                    // Hold owns play and pause, so leaving it with the key up
+                    // leaves the song stopped where it is.
+                    if (state.trigger == 1 && wanted != 1 && state.playing) stopPlayback();
+                    state.trigger = wanted;
+                    rememberLegit();
+                    break;
+                }
+                case Action::TapLength:
+                    state.tapHolds = command.value;
+                    rememberLegit();
+                    break;
+                case Action::RememberPerSong:
+                    state.rememberPerSong = command.value;
+                    if (command.value) recallSong();
+                    rememberLegit();
                     break;
                 case Action::Shuffle:
                     state.shuffle = command.value;
@@ -953,6 +1137,10 @@ void ShellEngine::Run(std::stop_token stop) {
                     if (sameFile) state.position = std::clamp(keepPosition, 0.0, state.duration);
                     player->midiFileSelected = true;
                     state.loaded = command.path;
+                    legitScore = player->legit_score();
+                    if (!sameFile) recallSong();
+                    estimateLegit();
+                    applyLegit();
                     loadAutoSolo = command.value;
                     if (resumeAfterLoad) startPlayback();
                     break;
@@ -969,11 +1157,19 @@ void ShellEngine::Run(std::stop_token stop) {
                     }
                     break;
                 case Action::Pause: stopPlayback(); break;
+                case Action::Speed:
+                    // One store. The playback thread keeps its place and its
+                    // held notes and carries on at the new rate.
+                    if (!std::isfinite(command.amount)) break;
+                    state.speed = std::clamp(command.amount, .25, 2.0);
+                    if (player) player->requested_speed.store(state.speed, std::memory_order_release);
+                    estimateLegit();
+                    if (state.legitDifficulty < 0) applyLegit();
+                    break;
                 case Action::Restart:
                 case Action::Seek:
                 case Action::Back10:
                 case Action::Forward10:
-                case Action::Speed:
                 case Action::Transpose:
                     if (player && std::isfinite(command.amount)) {
                         const bool resume = state.playing;
@@ -983,7 +1179,6 @@ void ShellEngine::Run(std::stop_token stop) {
                         case Action::Seek: state.position = command.amount; break;
                         case Action::Back10: state.position -= state.seekStep; break;
                         case Action::Forward10: state.position += state.seekStep; break;
-                        case Action::Speed: state.speed = std::clamp(command.amount, .25, 2.0); break;
                         case Action::Transpose:
                             state.transpose = static_cast<int>(std::round(std::clamp(command.amount, -12.0, 12.0)));
                             applyMappings(); break;
@@ -1705,7 +1900,7 @@ void ShellEngine::Run(std::stop_token stop) {
                 else state.playbackCountdown = static_cast<int>(std::ceil(remaining));
             }
             if (state.playing) {
-                state.position = std::clamp(player->get_adjusted_time().count() / 1e9 * state.speed, 0.0, state.duration);
+                state.position = std::clamp(player->get_adjusted_time().count() / 1e9, 0.0, state.duration);
                 if (player->playback_started.load(std::memory_order_acquire) &&
                     player->buffer_index.load(std::memory_order_acquire) >= player->note_events.size()) {
                     stopPlayback();
@@ -1745,8 +1940,11 @@ void ShellEngine::Run(std::stop_token stop) {
                 configDue = std::chrono::steady_clock::now() + 5s;
             }
         }
+        syncPoller();
         Publish(state);
     }
+    poller.request_stop();
+    poller.join();
     stopPlayback();
     stopLive();
     stopConnect();

@@ -30,13 +30,14 @@ std::mutex capturedMutex;
 // batch is which injection call the event arrived in. Without it the harness
 // cannot tell one call of five events from two calls of four and one, which is
 // the only difference the velocity batching makes to what is sent.
-struct Captured { INPUT input; DWORD thread; uint64_t batch; };
+struct Captured { INPUT input; DWORD thread; uint64_t batch; int64_t qpc; };
 std::vector<Captured> captured;
 uint64_t capturedBatches = 0;
 UINT __fastcall Capture(ULONG count, LPINPUT inputs, int) {
     std::lock_guard lock(capturedMutex);
     const uint64_t batch = ++capturedBatches;
-    for (ULONG i = 0; i < count; ++i) captured.push_back({inputs[i], GetCurrentThreadId(), batch});
+    LARGE_INTEGER now{}; QueryPerformanceCounter(&now);
+    for (ULONG i = 0; i < count; ++i) captured.push_back({inputs[i], GetCurrentThreadId(), batch, now.QuadPart});
     return count;
 }
 std::vector<Captured> TakeCaptured() {
@@ -255,8 +256,8 @@ void HotkeyRebindTests(const std::filesystem::path& source) {
         shell::ShellEngine engine(config);
         Await([&] { return !engine.Snapshot()->curves.empty() || !engine.Snapshot()->error.empty(); }, "the engine did not start");
         const auto start = engine.Snapshot();
-        Require(start->hotkeys == std::array<std::string, 6>{"VK_F1", "VK_F2", "VK_F3", "VK_F4", "", ""},
-                "the four transport keys keep their defaults and the two song keys start unbound");
+        Require(start->hotkeys == std::array<std::string, shell::kHotkeys>{"VK_F1", "VK_F2", "VK_F3", "VK_F4", "", "", "", "", ""},
+                "the four transport keys keep their defaults and the song, hold and tap keys start unbound");
         const uint64_t revision = start->hotkeyRevision;
 
         bind(engine, 5, "VK_MEDIA_NEXT_TRACK");
@@ -273,12 +274,12 @@ void HotkeyRebindTests(const std::filesystem::path& source) {
         Await([&] { return !engine.Snapshot()->error.empty(); }, "a name that is no key was not refused");
         Require(engine.Snapshot()->hotkeys[1] == "VK_F2" && engine.Snapshot()->hotkeyRevision == revision + 2,
                 "a refused rebind changed a hotkey");
-        bind(engine, 6, "VK_F9");
+        bind(engine, shell::kHotkeys, "VK_F9");
         bind(engine, 3, "");
         Await([&] { return engine.Snapshot()->hotkeyRevision == revision + 3; }, "an unbind did not reach the snapshot");
         Require(engine.Snapshot()->hotkeys[3].empty(), "stop was not unbound");
-        Require(engine.Snapshot()->hotkeys == std::array<std::string, 6>{"", "VK_F2", "VK_F3", "", "VK_F1", "VK_MEDIA_NEXT_TRACK"},
-                "an action past the sixth changed a hotkey");
+        Require(engine.Snapshot()->hotkeys == std::array<std::string, shell::kHotkeys>{"", "VK_F2", "VK_F3", "", "VK_F1", "VK_MEDIA_NEXT_TRACK", "", "", ""},
+                "an action past the last changed a hotkey");
     }
     Require(saved("PLAY_PAUSE_KEY").empty() && saved("EMERGENCY_EXIT_KEY").empty() && saved("REWIND_KEY") == "VK_F2" &&
             saved("PREVIOUS_SONG_KEY") == "VK_F1" && saved("NEXT_SONG_KEY") == "VK_MEDIA_NEXT_TRACK",
@@ -288,7 +289,7 @@ void HotkeyRebindTests(const std::filesystem::path& source) {
         shell::ShellEngine engine(config);
         Await([&] { return !engine.Snapshot()->curves.empty() || !engine.Snapshot()->error.empty(); }, "the engine did not restart");
         Require(engine.Snapshot()->error.empty(), "a config with an unbound hotkey was refused");
-        Require(engine.Snapshot()->hotkeys == std::array<std::string, 6>{"", "VK_F2", "VK_F3", "", "VK_F1", "VK_MEDIA_NEXT_TRACK"},
+        Require(engine.Snapshot()->hotkeys == std::array<std::string, shell::kHotkeys>{"", "VK_F2", "VK_F3", "", "VK_F1", "VK_MEDIA_NEXT_TRACK", "", "", ""},
                 "the saved hotkeys were not read back");
     }
     std::filesystem::remove(config);
@@ -3398,6 +3399,8 @@ void LibraryParityTests(const std::filesystem::path& directory) {
     const auto config = directory / L"library-parity.json";
     nlohmann::json settings;
     { std::ifstream file(directory / L"config.json"); file >> settings; }
+    // Upstream's keys, as a config from the wild still carries them. They mean
+    // nothing now: were they read, every note below would be skipped.
     settings["LEGIT_MODE_SETTINGS"]["NOTE_SKIP_CHANCE"] = 1.0;
     settings["LEGIT_MODE_SETTINGS"]["EXTRA_DELAY_CHANCE"] = 0.0;
     settings["LEGIT_MODE_SETTINGS"]["TIMING_VARIATION"] = 0.0;
@@ -3427,13 +3430,32 @@ void LibraryParityTests(const std::filesystem::path& directory) {
         Require(!engine.Snapshot()->playing && OnlyModifierReleases(TakeCaptured()), "stopped file navigation typed a note");
         engine.Send({A::LegitMode, {}, 0, 0, true});
         Await([&] { return engine.Snapshot()->legitMode; }, "Legit Mode did not enable");
+        engine.Send({A::LegitPlayer, {}, 0, 2});
+        engine.Send({A::LegitAmount, {}, 0, 0, false, 1.0});
+        engine.Send({A::LegitAmount, {}, 0, 5, false, 1.0});
+        Await([&] { const auto s = engine.Snapshot(); return s->legitPlayer == 2 && s->legitAmounts[0] == 1.0 && s->legitDifficulty == 1.0; },
+              "the Legit player and amounts did not reach the snapshot");
         step(A::Next, alpha);
         Require(engine.Snapshot()->legitMode, "Load discarded Legit Mode");
         TakeCaptured(); engine.Send({A::Play, {}, engine.Snapshot()->generation});
         Await([&] { return engine.Snapshot()->playing; }, "Legit Mode playback did not start");
         Await([&] { return !engine.Snapshot()->playing; }, "Legit Mode playback did not finish");
-        const auto skipped = TakeCaptured();
-        Require(std::none_of(skipped.begin(), skipped.end(), IsNotePress), "Load reset the real Legit Mode flag and typed notes that should be skipped");
+        // The fixture strikes five notes in one instant. Played plainly they
+        // leave in one pass; a take gives each its own few milliseconds, which
+        // only happens if the player still has the flag after the Load.
+        const auto spread = [](const std::vector<Captured>& events) {
+            LARGE_INTEGER frequency{}; QueryPerformanceFrequency(&frequency);
+            int64_t first = 0, last = 0; size_t presses = 0;
+            for (const auto& event : events) {
+                if (!IsNotePress(event)) continue;
+                if (!presses++) first = event.qpc;
+                last = event.qpc;
+            }
+            return std::pair{presses, (last - first) * 1000.0 / frequency.QuadPart};
+        };
+        const auto [livePresses, liveSpread] = spread(TakeCaptured());
+        Require(livePresses == 5, "upstream's NOTE_SKIP_CHANCE was read and a note was skipped");
+        Require(liveSpread > 2.0, "Load reset the real Legit Mode flag: five notes of one instant left together");
         engine.Send({A::LegitMode, {}, 0, 0, false});
         engine.Send({A::Shuffle, {}, 0, 0, true});
         Await([&] { return engine.Snapshot()->shuffle; }, "shuffle did not enable");
@@ -3716,6 +3738,131 @@ void AudioToMidiTests(const std::filesystem::path& directory) {
     std::cout << "PASS audio to MIDI: status lines, argument quoting, process tree, silent exit, cancel and engine refusals\n";
 }
 
+// Legit mode's controls through the engine: speed as a rate, hands, what is
+// remembered per song, and the Hold and Tap keys read from a key table.
+void LegitShellTests(const std::filesystem::path& directory) {
+    using A = shell::ShellEngine::Action;
+    const auto config = directory / L"legit-shell.json", songs = directory / L"songs.json";
+    const auto fixture = directory / L"two-hands.mid", other = directory / L"legit-other.mid";
+    std::filesystem::remove(songs);
+    nlohmann::json settings;
+    { std::ifstream file(directory / L"config.json"); file >> settings; }
+    settings["SHELL_88_KEYS"] = true;
+    settings["SHELL_PLAYBACK_DELAY"] = 0;
+    settings["KEY_MAPPINGS"]["FULL"]["C2"] = "a";
+    settings["KEY_MAPPINGS"]["FULL"]["C5"] = "s";
+    settings["KEY_MAPPINGS"]["FULL"]["D2"] = "d";
+    settings["KEY_MAPPINGS"]["FULL"]["D5"] = "f";
+    { std::ofstream file(config); file << settings; }
+    // A bass note and a treble note together for a second, then another pair.
+    {
+        const std::vector<uint8_t> bytes{'M','T','h','d',0,0,0,6,0,0,0,1,1,0xe0,
+            'M','T','r','k',0,0,0,38,
+            0,0x90,36,80, 0,0x90,72,80, 0x87,0x40,0x80,36,0, 0,0x80,72,0,
+            0,0x90,38,80, 0,0x90,74,80, 0x87,0x40,0x80,38,0, 0,0x80,74,0, 0,0xff,0x2f,0};
+        std::ofstream output(fixture, std::ios::binary);
+        output.write(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+    }
+    WriteHeldNoteFixture(other, 60);
+    constexpr WORD bass = 0x1e, treble = 0x1f, secondBass = 0x20;
+    const auto amount = [](shell::ShellEngine& engine, A action, size_t track, double value = 0, bool flag = false) {
+        engine.Send({action, {}, 0, track, flag, value});
+    };
+    {
+        shell::ShellEngine engine(config);
+        std::array<std::atomic<bool>, 256> keys{};
+        engine.SetKeyProbe([&](int vk) { return keys[static_cast<size_t>(vk) & 255].load(); });
+        engine.Send({A::Load, fixture});
+        Await([&] { return engine.Snapshot()->loaded == fixture; }, "the two-hand fixture did not load");
+        Require(engine.Snapshot()->legitDifficultyEstimate >= 0 && engine.Snapshot()->handSplitEstimate > 36 &&
+                engine.Snapshot()->handSplitEstimate < 74, "the estimates were not made at load");
+
+        // Speed is one store: the note that is down stays down.
+        TakeCaptured();
+        engine.Send({A::Play, {}, engine.Snapshot()->generation});
+        AwaitKey(bass, true, "playback did not start");
+        engine.Send({A::Speed, {}, engine.Snapshot()->generation, 0, false, 2.0});
+        Await([&] { return engine.Snapshot()->speed == 2.0; }, "the speed did not reach the snapshot");
+        Require(engine.Snapshot()->playing, "a speed change stopped playback");
+        { std::lock_guard lock(capturedMutex); Require(!HasKey(captured, bass, false), "a speed change let go of a held note"); }
+        const auto faster = std::chrono::steady_clock::now();
+        Await([&] { return !engine.Snapshot()->playing; }, "playback at twice the speed did not finish");
+        Require(std::chrono::steady_clock::now() - faster < 1500ms, "twice the speed did not halve the two seconds that were left");
+        engine.Send({A::Speed, {}, engine.Snapshot()->generation, 0, false, 1.0});
+
+        // Right hand only: the bass is never pressed.
+        amount(engine, A::Hands, 1);
+        Await([&] { return engine.Snapshot()->hands == 1; }, "Hands did not reach the snapshot");
+        TakeCaptured();
+        engine.Send({A::Restart, {}, engine.Snapshot()->generation});
+        engine.Send({A::Play, {}, engine.Snapshot()->generation});
+        AwaitKey(treble, true, "the right hand did not play");
+        engine.Send({A::Stop});
+        Await([&] { return !engine.Snapshot()->playing; }, "Stop did not stop");
+        Require(!HasKey(TakeCaptured(), bass, true), "Right played a left-hand note");
+
+        // Kept per song: this song is a Beginner's right hand, the next is not.
+        amount(engine, A::LegitPlayer, 2);
+        Await([&] { return engine.Snapshot()->legitPlayer == 2; }, "the player did not reach the snapshot");
+        engine.Send({A::Load, other});
+        Await([&] { return engine.Snapshot()->loaded == other; }, "the second song did not load");
+        amount(engine, A::LegitPlayer, 0);
+        amount(engine, A::Hands, 0);
+        Await([&] { return engine.Snapshot()->legitPlayer == 0 && engine.Snapshot()->hands == 0; }, "the second song's settings did not apply");
+        engine.Send({A::Load, fixture});
+        Await([&] { return engine.Snapshot()->loaded == fixture; }, "the first song did not load again");
+        Require(engine.Snapshot()->legitPlayer == 2 && engine.Snapshot()->hands == 1, "a song's own settings were not recalled");
+        amount(engine, A::Hands, 0);
+
+        // Tap: nothing until a tap, one chord per tap, let go with the key.
+        shell::ShellEngine::Command bind{A::Hotkey};
+        bind.track = shell::kTapKey; bind.key = "VK_F9"; engine.Send(bind);
+        bind.track = shell::kTapKey2; bind.key = "VK_F10"; engine.Send(bind);
+        bind.track = shell::kHoldKey; bind.key = "VK_F8"; engine.Send(bind);
+        amount(engine, A::Trigger, 2);
+        Await([&] { return engine.Snapshot()->trigger == 2 && engine.Snapshot()->hands == 0; }, "Tap did not reach the snapshot");
+        TakeCaptured();
+        engine.Send({A::Restart, {}, engine.Snapshot()->generation});
+        engine.Send({A::Play, {}, engine.Snapshot()->generation});
+        Await([&] { return engine.Snapshot()->playing; }, "Tap playback did not arm");
+        std::this_thread::sleep_for(150ms);
+        { std::lock_guard lock(capturedMutex); Require(std::none_of(captured.begin(), captured.end(), IsNotePress), "Tap played before a tap"); }
+        keys[VK_F9] = true;
+        AwaitKey(bass, true, "a tap did not play the first chord");
+        AwaitKey(treble, true, "a tap played half a chord");
+        { std::lock_guard lock(capturedMutex); Require(!HasKey(captured, secondBass, true), "one tap played two chords"); }
+        keys[VK_F9] = false;
+        AwaitKey(bass, false, "the tap key coming up did not let the chord go");
+        keys[VK_F10] = true;
+        AwaitKey(secondBass, true, "the second tap key did not play the next chord");
+        keys[VK_F10] = false;
+        Await([&] { return !engine.Snapshot()->playing; }, "the song did not end after its last chord was let go");
+
+        // Hold: the song runs while the key is down.
+        amount(engine, A::Trigger, 1);
+        Await([&] { return engine.Snapshot()->trigger == 1; }, "Hold did not reach the snapshot");
+        engine.Send({A::Restart, {}, engine.Snapshot()->generation});
+        TakeCaptured();
+        keys[VK_F8] = true;
+        AwaitKey(bass, true, "Hold did not start playback");
+        keys[VK_F8] = false;
+        Await([&] { return !engine.Snapshot()->playing; }, "Hold did not stop when the key came up");
+        amount(engine, A::Trigger, 0);
+        Await([&] { return engine.Snapshot()->trigger == 0; }, "Auto did not reach the snapshot");
+    }
+    nlohmann::json saved, savedSongs;
+    { std::ifstream file(config); file >> saved; }
+    { std::ifstream file(songs); file >> savedSongs; }
+    Require(saved["LEGIT_MODE_SETTINGS"].value("PLAYER", -1) == 2 && saved.value("SHELL_TRIGGER", -1) == 0,
+            "the Legit settings were not saved to config.json");
+    Require(savedSongs.contains("two-hands.mid") && savedSongs["two-hands.mid"].value("PLAYER", -1) == 2 &&
+            savedSongs.contains("legit-other.mid") && savedSongs["legit-other.mid"].value("PLAYER", -1) == 0,
+            "each song's settings were not saved to songs.json");
+    std::filesystem::remove(config);
+    std::filesystem::remove(songs);
+    std::cout << "PASS legit shell: live speed, hands, per-song memory, Tap and Hold keys, persistence\n";
+}
+
 int wmain(int argc, wchar_t** argv) {
     // Before anything constructs a player, not partway through the run.
     //
@@ -3752,6 +3899,7 @@ int wmain(int argc, wchar_t** argv) {
             else if (group == L"vel-mod") VelocityModifierTests(directory / L"config.json");
             else if (group == L"hotkeys") { HotkeyNameTests(); HotkeyRebindTests(directory / L"config.json"); }
             else if (group == L"themes") ThemeModelTests(directory);
+            else if (group == L"legit") LegitShellTests(directory);
             else throw std::runtime_error("Unknown shell test group");
             return 0;
         }
@@ -3800,6 +3948,7 @@ int wmain(int argc, wchar_t** argv) {
         OutRangeSwitchTests(directory);
         CountdownTests(directory);
         LibraryParityTests(directory);
+        LegitShellTests(directory);
         ConnectAndWarningTests(directory);
         std::cout << "PASS all shell tests (injection captured in process)\n";
         return 0;

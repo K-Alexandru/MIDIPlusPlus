@@ -13,12 +13,19 @@
 #include <condition_variable>
 #include <deque>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <thread>
 #include <map>
 
 namespace shell {
+
+// Legit mode's amounts, in the order the snapshot, Settings and config.json
+// hold them.
+inline constexpr std::array<const char*, 5> kLegitAmounts{"Timing", "Tempo", "Dynamics", "Note Length", "Mistakes"};
+inline constexpr std::array<const char*, 5> kLegitAmountFields{"TIMING", "TEMPO", "DYNAMICS", "NOTE_LENGTH", "MISTAKES"};
+inline constexpr std::array<const char*, 3> kLegitPlayers{"Pro", "Student", "Beginner"};
 
 struct EngineSnapshot {
     std::shared_ptr<const std::vector<MidiEntry>> files = std::make_shared<const std::vector<MidiEntry>>();
@@ -40,6 +47,26 @@ struct EngineSnapshot {
     uint64_t hotkeyRevision = 0;
     bool typingAcknowledged = true;
     bool legitMode = false;
+    // Legit mode plays a fresh take of the file each time (MIDI++/LegitTake.hpp).
+    // The player is who we assume is playing: 0 Pro, 1 Student, 2 Beginner. The
+    // amounts are kLegitAmounts, each 0..1. Difficulty below zero means the
+    // estimate, which is where its slider starts; the same for the hand split.
+    int legitPlayer = 0;
+    std::array<double, 5> legitAmounts{.15, .15, .20, .20, 0};
+    double legitDifficulty = -1;
+    double legitDifficultyEstimate = 0;
+    bool rememberPerSong = true;
+    // 0 Both, 1 Right, 2 Left. Two tracks with notes are the hands as the file
+    // gives them, and then there is no split to move.
+    int hands = 0;
+    int handSplit = -1;
+    int handSplitEstimate = 60;
+    bool handsByTrack = false;
+    // 0 Auto, 1 Hold, 2 Tap. Hold plays while its key is down. Tap plays the
+    // next note or chord per press, held as long as the key or, with tapHolds
+    // off, for the recording's own length.
+    int trigger = 0;
+    bool tapHolds = true;
     bool shuffle = false;
     // Config-only in the original. Drum detection labels a kit that is not on
     // channel 10 so Solo Piano leaves it out; auto-transpose sets Transpose to
@@ -185,7 +212,15 @@ public:
                         // track is the hotkey's place in kHotkeyFields and key
                         // its new config name, empty to unbind. A key another
                         // hotkey holds moves here and leaves that one unbound.
-                        Hotkey };
+                        Hotkey,
+                        // Legit mode. LegitPlayer: track is the player, and the
+                        // amounts go to that player's. LegitAmount: track is the
+                        // place in kLegitAmounts, or 5 for Difficulty, where an
+                        // amount below zero goes back to the estimate. Hands:
+                        // track. HandSplit: amount is a MIDI note, below zero
+                        // the estimate. Trigger: track. TapLength: value is
+                        // whether the tap key holds the note.
+                        LegitPlayer, LegitAmount, Hands, HandSplit, Trigger, TapLength, RememberPerSong };
     struct Command {
         Action action;
         std::filesystem::path path;
@@ -206,7 +241,12 @@ public:
     // The HWND to nudge with WM_NULL when a snapshot is published. The shell
     // draws on demand and would otherwise not know the engine had moved.
     void SetWakeWindow(void* window);
+    // Whether a virtual key is down, for the Hold and Tap keys. GetAsyncKeyState
+    // in the app; a table in the tests. Set before the first command.
+    void SetKeyProbe(std::function<bool(int)> probe);
 private:
+    std::function<bool(int)> keyProbe_ = [](int vk) { return (GetAsyncKeyState(vk) & 0x8000) != 0; };
+    std::mutex keyProbeMutex_;
     void Run(std::stop_token stop);
     void Publish(const EngineSnapshot& state);
     std::filesystem::path config_;

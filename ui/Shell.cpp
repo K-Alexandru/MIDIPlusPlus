@@ -140,9 +140,11 @@ static LRESULT WINAPI WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         // Only enqueue. The engine worker owns the player.
         const uint64_t generation = g_engine->Snapshot()->generation;
         using Action = shell::ShellEngine::Action;
-        static constexpr std::array<Action, shell::kHotkeys> actions{
+        // The Hold and Tap keys are registered to keep them from the game and
+        // are read by the engine's poll, which also hears them come up.
+        static constexpr std::array<Action, 6> actions{
             Action::TogglePlayPause, Action::Back10, Action::Forward10, Action::Stop, Action::Previous, Action::Next};
-        if (wp >= 1 && wp <= shell::kHotkeys) g_engine->Send({actions[wp - 1], {}, generation});
+        if (wp >= 1 && wp <= actions.size()) g_engine->Send({actions[wp - 1], {}, generation});
         return 0;
     }
     case WM_DROPFILES: {

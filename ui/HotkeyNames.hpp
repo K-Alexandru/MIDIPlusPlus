@@ -15,10 +15,16 @@ namespace shell {
 // them. The first four are upstream's fields and defaults. The song keys start
 // unbound, and a media key is never a default: a global hotkey takes it from
 // every other application while the app is open.
-inline constexpr size_t kHotkeys = 6;
+// The last three are the Trigger's keys: Hold plays while its key is down, and
+// two keys tap so a run can alternate between them. They are registered like
+// the rest, which keeps them from the game, and read for down and up by the
+// engine's own poll, since WM_HOTKEY never says a key came up.
+inline constexpr size_t kHotkeys = 9;
+inline constexpr size_t kHoldKey = 6, kTapKey = 7, kTapKey2 = 8;
 inline constexpr std::array<const char*, kHotkeys> kHotkeyFields{
-    "PLAY_PAUSE_KEY", "REWIND_KEY", "SKIP_KEY", "EMERGENCY_EXIT_KEY", "PREVIOUS_SONG_KEY", "NEXT_SONG_KEY"};
-inline constexpr std::array<const char*, kHotkeys> kHotkeyDefaults{"VK_F1", "VK_F2", "VK_F3", "VK_F4", "", ""};
+    "PLAY_PAUSE_KEY", "REWIND_KEY", "SKIP_KEY", "EMERGENCY_EXIT_KEY", "PREVIOUS_SONG_KEY", "NEXT_SONG_KEY",
+    "HOLD_KEY", "TAP_KEY", "TAP_KEY_2"};
+inline constexpr std::array<const char*, kHotkeys> kHotkeyDefaults{"VK_F1", "VK_F2", "VK_F3", "VK_F4", "", "", "", "", ""};
 
 // Every named key, without its VK_ prefix. Characters and function keys are
 // computed. Escape, the modifiers and the mouse buttons are left out on

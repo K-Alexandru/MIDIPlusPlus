@@ -145,6 +145,18 @@ inline int EstimateSplit(const std::vector<ScoreEvent>& score) {
     return std::clamp(static_cast<int>(std::lround((low + high) / 2)), 21, 108);
 }
 
+// Two tracks that both carry notes are the two hands as the file gives them.
+inline bool SplitsByTrack(const std::vector<ScoreEvent>& score) {
+    int first = INT32_MIN, second = INT32_MIN;
+    for (const auto& e : score) {
+        if (!e.press || e.pitch < 0 || e.track == first || e.track == second) continue;
+        if (first == INT32_MIN) first = e.track;
+        else if (second == INT32_MIN) second = e.track;
+        else return false;
+    }
+    return second != INT32_MIN;
+}
+
 // An estimate and only that: notes per second, chord size and leaps, each
 // against what a hard piece shows, at the speed it will be played.
 inline double EstimateDifficulty(const std::vector<ScoreEvent>& score, double speed) {
