@@ -704,3 +704,22 @@ From the owner and a tester in one session. Nothing here is optional.
    A tester will name a piano with other volume keys if they find one.
 5. **Native network MIDI.** rtpMIDI already gives a session a Windows port, so
    this waits on the tester saying what sends the MIDI and which way it flows.
+6. **Themes that change the whole design, and can be shared.** The owner's,
+   2026-09-18, and nobody has asked for it: the testers have been busy and
+   short on feedback, and the owner expects the look to be the one thing people
+   want to make their own. It reopens item 2's "colour only". Not started; it
+   comes after Legit mode is tested and split.
+   - A skin already holds more than colour (`MIDI++/Skin.hpp`): radii, spacing
+     and padding, control heights, the type scale and shadows. A custom theme
+     edits only the colours today.
+   - The theme editor gains shape, spacing, size and shadow beside the
+     colours, with the app redrawing as they move, as it does for colour.
+   - Every value is clamped to a range where the layout still fits, at the
+     minimum window and at 100 to 200 percent, so no theme can break the app.
+     The render tests hold those ranges.
+   - Themes get Import and Export as one file. It is data, so it is safe to
+     pass round; this is the app's answer to mods, which as code would be a
+     malware route, would need the owner to review and sign each one, and
+     would let anyone share a Legit clone.
+   - Out of reach without code, and left alone: moving or removing panels,
+     other icons, fonts the app does not ship.

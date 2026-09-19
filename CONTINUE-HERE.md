@@ -5,7 +5,7 @@ Updated 2026-09-18 on `claude/consolidate-2026-09-15`, the one branch. Read
 
 ## Goal
 
-Build the five items `SHELL-GAPS.md` lists under "Asked for on 2026-09-18", in
+Build the six items `SHELL-GAPS.md` lists under "Asked for on 2026-09-18", in
 its order. Hotkeys, custom themes and Legit mode are built, none fully pressed;
 Legit mode has never been heard. AutoVol's keys (item 4) are next. The panel
 seat owns `ui/` (`SEATS.md`); what the owner asks for there is in scope.
