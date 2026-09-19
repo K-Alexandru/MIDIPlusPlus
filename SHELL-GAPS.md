@@ -788,8 +788,11 @@ From the owner and a tester in one session. Nothing here is optional.
        MIDI input pill; Settings and Help. That stop is the answer to the
        warning question left open under "Reported by testers".
      - Wording is the owner's voice, one sentence a stop.
-     - A first-run modal was removed in `c9ea480` for speaking before the user
-       had done anything. A tour is that risk again; Skip, the length and the
-       replay in Help are what is different this time.
+     - Not the "Before you play" modal removed in `c9ea480`, the owner's point:
+       that was a block of text put in front of everyone because a warning
+       seemed owed, with nothing to do but dismiss it. The tour is designed
+       for both readers. Someone new is shown the app control by control,
+       where each thing is; someone experienced presses Skip once, never
+       sees it again, and can play it back from Help when a control is new.
      - Mini has its own layout: the tour runs in the full window and leaves
        mini alone. The render tests get a scenario per stop.
