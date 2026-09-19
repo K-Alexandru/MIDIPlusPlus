@@ -574,8 +574,9 @@ VirtualPianoPlayer::~VirtualPianoPlayer() {
 }
 
 std::chrono::nanoseconds VirtualPianoPlayer::get_adjusted_time() noexcept {
-    // If paused, just return the last total time
-    if (paused.load(std::memory_order_relaxed))
+    // If paused, just return the last total time. In Tap the user is the clock
+    // and the position is the last note tapped.
+    if (paused.load(std::memory_order_relaxed) || clock_frozen.load(std::memory_order_relaxed))
         return total_adjusted_time;
     uint64_t current_tsc = __rdtsc();
     uint64_t tick_diff   = current_tsc - last_resume_tsc;
@@ -613,19 +614,75 @@ void VirtualPianoPlayer::prepare_event_queue() {
                                                   tIdx));
     }
 
-    std::stable_sort(note_buffer.begin(),
-                     note_buffer.end(),
-                     [](const NoteEvent* a, const NoteEvent* b) {
-                         return a->time < b->time;
-                     });
+    const auto byTime = [](const NoteEvent* a, const NoteEvent* b) { return a->time < b->time; };
+    std::stable_sort(note_buffer.begin(), note_buffer.end(), byTime);
+
+    // The take. note_events stays the score, which is what seek, the position
+    // and the duration read; only this buffer is displaced. With Legit mode off
+    // and both hands it changes nothing and still pairs each press with its
+    // release, which Tap reads.
+    auto settings = get_legit_settings();
+    settings.humanise = legit_mode_active.load(std::memory_order_relaxed);
+    std::vector<legit::ScoreEvent> score;
+    score.reserve(note_buffer.size());
+    for (const auto* e : note_buffer)
+        score.push_back({ e->time.count(), e->isSustain ? -1 : note_name_to_midi(e->note),
+                          e->action == EventType::Press, e->velocity, e->trackIndex });
+    const auto take = legit::Build(score, settings, take_seed, current_speed);
+    legit_split_estimate.store(legit::EstimateSplit(score), std::memory_order_relaxed);
+    legit_split_by_track.store(take.splitByTrack, std::memory_order_relaxed);
+    for (size_t i = 0; i < note_buffer.size(); ++i) {
+        auto& e = *note_buffer[i];
+        const auto& t = take.events[i];
+        e.time = std::chrono::nanoseconds(t.time);
+        e.skip = t.skip;
+        if (!e.isSustain) {
+            e.velocity = t.velocity;
+            if (e.action == EventType::Press && t.mate >= 0)
+                e.hold = std::chrono::nanoseconds(take.events[t.mate].time - t.time);
+        }
+    }
+    std::stable_sort(note_buffer.begin(), note_buffer.end(), byTime);
+}
+
+std::vector<legit::ScoreEvent> VirtualPianoPlayer::legit_score() const {
+    std::vector<legit::ScoreEvent> score;
+    score.reserve(note_events.size());
+    for (const auto& e : note_events) {
+        const bool pedal = e.note_or_control == "sustain";
+        score.push_back({ e.time.count(), pedal ? -1 : const_cast<VirtualPianoPlayer*>(this)->note_name_to_midi(e.note_or_control),
+                          e.action == EventType::Press, e.velocity, e.trackIndex });
+    }
+    std::stable_sort(score.begin(), score.end(), [](const auto& a, const auto& b) { return a.time < b.time; });
+    return score;
+}
+
+void VirtualPianoPlayer::set_legit_settings(const legit::Settings& settings) {
+    { std::lock_guard lock(legit_mutex); legit_settings = settings; }
+    take_stale.store(true, std::memory_order_release);
+}
+
+legit::Settings VirtualPianoPlayer::get_legit_settings() const {
+    std::lock_guard lock(legit_mutex);
+    return legit_settings;
 }
 
 void VirtualPianoPlayer::play_notes() {
+    // One seed per playthrough: a new one when the song starts from the top,
+    // the same one through every pause, seek and rebuilt take after that, so a
+    // take resumes as the take it was.
+    if (const uint64_t forced = legit_seed_override.load(std::memory_order_relaxed)) take_seed = forced;
+    else if (!take_seed || total_adjusted_time <= std::chrono::nanoseconds::zero())
+        take_seed = static_cast<uint64_t>(__rdtsc()) | 1ull;
+    current_speed = std::clamp(requested_speed.load(std::memory_order_acquire), .05, 8.0);
+    take_stale.store(false, std::memory_order_release);
     prepare_event_queue();
-
-    // One seed per song start, so a reported run can be reproduced from its log
-    // while still differing between playthroughs.
-    legit_reseed();
+    // The buffer is in the take's order, so where to resume is found by time.
+    buffer_index.store(find_next_event_index(total_adjusted_time), std::memory_order_release);
+    tap_releases.clear();
+    tap_held[0].clear();
+    tap_held[1].clear();
+    { std::lock_guard lock(tap_mutex); tap_queue.clear(); }
     // Enable MMCSS for low-latency pro audio.
     DWORD taskIndex = 0;
     HANDLE mmcss_handle = AvSetMmThreadCharacteristics(L"Pro Audio", &taskIndex);
@@ -673,6 +730,54 @@ void VirtualPianoPlayer::play_notes() {
         }());
 
     while (!should_stop.load(std::memory_order_acquire)) {
+        // A new speed keeps the position and changes the rate from here on.
+        const double wanted = std::clamp(requested_speed.load(std::memory_order_acquire), .05, 8.0);
+        if (wanted != current_speed) {
+            total_adjusted_time = get_adjusted_time();
+            last_resume_tsc = __rdtsc();
+            current_speed = wanted;
+            // The take's offsets are wall-clock amounts, so they follow the speed.
+            if (legit_mode_active.load(std::memory_order_relaxed)) take_stale.store(true, std::memory_order_release);
+        }
+        if (take_stale.exchange(false, std::memory_order_acquire)) {
+            prepare_event_queue();
+            buffer_size = note_buffer.size();
+            current_index = find_next_event_index(get_adjusted_time());
+            buffer_index.store(current_index, std::memory_order_release);
+            // A key the old take holds and the new one has already let go, or
+            // never pressed, would wait for a release that is now behind us.
+            std::unordered_map<std::string_view, int> due;
+            for (size_t i = 0; i < current_index; ++i) {
+                const auto* e = note_buffer[i];
+                if (e->isSustain) continue;
+                if (e->action == EventType::Press) { if (!e->skip) ++due[e->note]; }
+                else if (auto found = due.find(e->note); found != due.end() && found->second > 0) --found->second;
+            }
+            std::lock_guard lock(dispatch_mutex);
+            for (auto it = track_note_owners.begin(); it != track_note_owners.end();) {
+                const auto found = due.find(it->first);
+                if (found != due.end() && found->second > 0) { ++it; continue; }
+                if (output_target.load(std::memory_order_acquire) == OutputTarget::MidiDevice) {
+                    const int number = MidiNumberForNoteName(it->first.c_str());
+                    const uint8_t message[3] = { 0x80, static_cast<uint8_t>(number & 0x7F), 0 };
+                    if (number >= 0) send_midi_output(message, 3);
+                } else release_key(it->first);
+                it = track_note_owners.erase(it);
+            }
+        }
+        // Into Tap the clock stops where it is; out of it, it runs on from there.
+        const bool tapping = trigger.load(std::memory_order_acquire) == Trigger::Tap;
+        if (tapping != clock_frozen.load(std::memory_order_relaxed)) {
+            if (tapping) total_adjusted_time = get_adjusted_time();
+            else last_resume_tsc = __rdtsc();
+            clock_frozen.store(tapping, std::memory_order_release);
+            if (!tapping) { tap_lift(0); tap_lift(1); }
+        }
+        if (tapping && !paused.load(std::memory_order_acquire)) {
+            tap_step(current_index, buffer_size);
+            continue;
+        }
+
         auto current_time = get_adjusted_time();
 
         // Process any pending command events
@@ -708,7 +813,10 @@ void VirtualPianoPlayer::play_notes() {
         current_time = get_adjusted_time();
 
         if (next_event_time > current_time) {
-            auto wait_duration = next_event_time - current_time;
+            // Score time to the wall clock: at twice the speed the next note is
+            // half as far away.
+            auto wait_duration = std::chrono::nanoseconds(
+                static_cast<int64_t>((next_event_time - current_time).count() / current_speed));
             // condition_variable::wait_for rounds to the scheduler tick, so a
             // note due in 0.4 ms went out a millisecond or two late, and a
             // tick late when the tick is 15.6 ms. With a high-resolution
@@ -758,34 +866,6 @@ void VirtualPianoPlayer::play_notes() {
         buffer_index.store(current_index, std::memory_order_release);
 
         if (!batch.empty()) {
-            bool legit = legit_mode_active.load(std::memory_order_relaxed);
-            std::chrono::nanoseconds hesitation =
-                legit ? legit_batch_hesitation() : std::chrono::nanoseconds::zero();
-
-            // Press offsets are drawn here, on the loop thread, so the pool
-            // lambda stays free of generator state and the ordering below is
-            // decided before any injection happens.
-            std::vector<std::pair<std::chrono::nanoseconds, NoteEvent*>> presses;
-            std::vector<NoteEvent*> releases;
-            if (legit) {
-                presses.reserve(batch.size());
-                releases.reserve(batch.size());
-                for (auto* e : batch) {
-                    if (e->action == EventType::Release) { releases.push_back(e); continue; }
-                    if (e->action == EventType::Press && !e->isSustain && legit_should_skip()) {
-                        // A dropped press leaves pressed_keys false, and
-                        // release_key() only injects for a key it finds pressed,
-                        // so the orphaned note-off is already a no-op. Nothing
-                        // can be left held, which is what the 1.0.3 version got
-                        // wrong by dropping releases instead.
-                        continue;
-                    }
-                    presses.emplace_back(legit_press_offset(), e);
-                }
-                std::stable_sort(presses.begin(), presses.end(),
-                    [](const auto& a, const auto& b) { return a.first < b.first; });
-            }
-
             // Injected here, on the thread MMCSS raised for it. Each batch
             // used to be handed to a pool thread at normal priority while
             // this one blocked on its future: two context switches, a task
@@ -807,46 +887,19 @@ void VirtualPianoPlayer::play_notes() {
                 return false;
             };
 
-            [&]() -> size_t {
-                if (!legit) {
-                    for (auto* e : batch) {
-                        if (e->action == EventType::Release && !closesOwnPress(e)) {
-                            execute_note_event(*e);
-                        }
-                    }
-                    for (auto* e : batch) {
-                        if (e->action == EventType::Press) {
-                            execute_note_event(*e);
-                        }
-                    }
-                    for (auto* e : batch) {
-                        if (e->action == EventType::Release && closesOwnPress(e)) {
-                            execute_note_event(*e);
-                        }
-                    }
-                    return batch.size();
-                }
-
-                if (hesitation > std::chrono::nanoseconds::zero()) {
-                    std::this_thread::sleep_for(hesitation);
-                }
-                // Releases stay on schedule; only attacks are spread.
-                for (auto* e : releases) {
-                    if (!closesOwnPress(e)) execute_note_event(*e);
-                }
-                std::chrono::nanoseconds elapsed{ 0 };
-                for (const auto& [offset, e] : presses) {
-                    if (offset > elapsed) {
-                        std::this_thread::sleep_for(offset - elapsed);
-                        elapsed = offset;
-                    }
-                    execute_note_event(*e);
-                }
-                for (auto* e : releases) {
-                    if (closesOwnPress(e)) execute_note_event(*e);
-                }
-                return releases.size() + presses.size();
-            }();
+            // A note the take leaves out: a dropped inner note, or the silent
+            // hand. Only the press is withheld. Its release still runs and finds
+            // nothing to let go, which is what the 1.0.3 version had backwards
+            // when it dropped releases and left keys held.
+            for (auto* e : batch) {
+                if (e->action == EventType::Release && !closesOwnPress(e)) execute_note_event(*e);
+            }
+            for (auto* e : batch) {
+                if (e->action == EventType::Press && !(e->skip && !e->isSustain)) execute_note_event(*e);
+            }
+            for (auto* e : batch) {
+                if (e->action == EventType::Release && closesOwnPress(e)) execute_note_event(*e);
+            }
         }
     }
 
@@ -980,6 +1033,7 @@ void VirtualPianoPlayer::restart_song() {
         constexpr auto initialBuffer = std::chrono::milliseconds(50);
         total_adjusted_time = -initialBuffer;
         current_speed       = 1.0;
+        requested_speed.store(1.0, std::memory_order_release);
         buffer_index.store(0, std::memory_order_release);
         release_all_keys();
 
@@ -1371,82 +1425,102 @@ void VirtualPianoPlayer::toggle_volume_adjustment() {
 // ---------------------------------------------------------------------------
 // Legit mode
 //
-// The score in note_buffer is never modified. Every effect below is applied at
-// the moment events fire, which is what makes the toggle work mid-song, keeps
-// find_next_event_index() and the position readout exact, and gives a different
-// performance on every playthrough instead of one fixed set of mistakes baked
-// in at load. See LEGIT-MODE.md for the reasoning and the discarded
-// alternative.
-//
-// Three rules keep this out of the way of the dispatch loop:
-//   * Offsets are late-only. The loop only learns an event exists once it is
-//     due, so firing early would need a fixed lookahead, and a permanent
-//     lookahead is exactly the latency this project is trying not to add.
-//   * Offsets are never added to total_adjusted_time. A hesitation displaces
-//     the notes it applies to and nothing else, so error cannot accumulate the
-//     way it did in the 1.0.3 parse-time version.
-//   * Only presses are displaced. Releases stay on schedule, so a key is always
-//     released before it can be pressed again and no note can be left held.
+// A take is built ahead of time (LegitTake.hpp) and written into note_buffer by
+// prepare_event_queue(), so the dispatch loop plays a Legit song exactly as it
+// plays any other: it waits for the next event and fires it. Nothing here
+// sleeps. The first attempt drew its offsets at dispatch and slept them out on
+// this thread, and everything due in that window waited behind the sleep,
+// which a tester heard as lag. See LEGIT-MODE.md.
 // ---------------------------------------------------------------------------
 
-// splitmix64. Seeded per song start so a run is reproducible from its log.
-double VirtualPianoPlayer::legit_unit() noexcept {
-    uint64_t z = (legit_rng_state += 0x9E3779B97F4A7C15ull);
-    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull;
-    z = (z ^ (z >> 27)) * 0x94D049BB133111EBull;
-    z = z ^ (z >> 31);
-    // 53 bits is the whole mantissa, so this is uniform over [0,1).
-    return static_cast<double>(z >> 11) * 0x1.0p-53;
-}
-
-void VirtualPianoPlayer::legit_reseed() noexcept {
-    uint64_t forced = legit_seed_override.load(std::memory_order_relaxed);
-    legit_rng_state = forced ? forced : (static_cast<uint64_t>(__rdtsc()) | 1ull);
-}
-
-bool VirtualPianoPlayer::legit_should_skip() noexcept {
-    const auto& cfg = midi::Config::getInstance().legit_mode;
-    return cfg.NOTE_SKIP_CHANCE > 0.0 && legit_unit() < cfg.NOTE_SKIP_CHANCE;
-}
-
-// Attack spread. Full TIMING_VARIATION spans MAX_SPREAD_MS, which sits at the
-// top of the 30-50 ms asynchrony range measured in human piano performance.
-// Applied per press, so a chord stops landing on one sample and a single note
-// stops landing exactly on the grid, from one mechanism.
-std::chrono::nanoseconds VirtualPianoPlayer::legit_press_offset() noexcept {
-    const auto& cfg = midi::Config::getInstance().legit_mode;
-    if (cfg.TIMING_VARIATION <= 0.0) return std::chrono::nanoseconds::zero();
-    double ms = legit_unit() * cfg.TIMING_VARIATION * midi::LegitModeSettings::MAX_SPREAD_MS;
-    return std::chrono::nanoseconds(static_cast<long long>(ms * 1e6));
-}
-
-// Hesitation before a batch: one roll for the whole chord, because a player
-// hesitates before a chord rather than before one finger of it. Keeping it at
-// batch granularity also means no event ever has to overtake another.
-std::chrono::nanoseconds VirtualPianoPlayer::legit_batch_hesitation() noexcept {
-    const auto& cfg = midi::Config::getInstance().legit_mode;
-    if (cfg.EXTRA_DELAY_CHANCE <= 0.0 || legit_unit() >= cfg.EXTRA_DELAY_CHANCE)
-        return std::chrono::nanoseconds::zero();
-    double span = cfg.EXTRA_DELAY_MAX - cfg.EXTRA_DELAY_MIN;
-    double seconds = cfg.EXTRA_DELAY_MIN + legit_unit() * span;
-    return std::chrono::nanoseconds(static_cast<long long>(seconds * 1e9));
-}
-
 void VirtualPianoPlayer::toggle_legit_mode() {
-    bool newVal = !legit_mode_active.load(std::memory_order_relaxed);
-    legit_mode_active.store(newVal, std::memory_order_relaxed);
-    const auto& cfg = midi::Config::getInstance().legit_mode;
-    if (newVal) {
-        std::cout << "[LEGIT] Enabled: spread="
-                  << (cfg.TIMING_VARIATION * midi::LegitModeSettings::MAX_SPREAD_MS)
-                  << "ms skip=" << (cfg.NOTE_SKIP_CHANCE * 100.0)
-                  << "% hesitate=" << (cfg.EXTRA_DELAY_CHANCE * 100.0) << "%\n";
-        std::cout << "[LEGIT] Autoplay only. Notes are dropped on purpose; "
-                     "turn this off before judging a mapping or a curve.\n";
+    const bool on = !legit_mode_active.load(std::memory_order_relaxed);
+    legit_mode_active.store(on, std::memory_order_relaxed);
+    take_stale.store(true, std::memory_order_release);
+    std::cout << (on ? "[LEGIT] Enabled\n" : "[LEGIT] Disabled\n");
+}
+
+// ---------------------------------------------------------------------------
+// Tap
+//
+// The clock stands still and the user is the clock: each tap plays the next
+// note or chord. A chord goes out with the spread and the velocities the take
+// gave it, so the rhythm is the user's and the touch is the recording's. The
+// pedal between two taps is run on the way to the second.
+// ---------------------------------------------------------------------------
+
+void VirtualPianoPlayer::tap(int key, bool down) {
+    { std::lock_guard lock(tap_mutex); tap_queue.emplace_back(key & 1, down); }
+    signalPlayback();
+}
+
+void VirtualPianoPlayer::tap_lift(int key) {
+    for (const auto& [note, track] : tap_held[key & 1]) {
+        const NoteEvent release(std::chrono::nanoseconds::zero(), note, EventType::Release, 0, false, 0, track);
+        execute_note_event(release);
     }
-    else {
-        std::cout << "[LEGIT] Disabled\n";
+    tap_held[key & 1].clear();
+}
+
+void VirtualPianoPlayer::tap_step(size_t& current_index, size_t buffer_size) {
+    // The recording's own lengths, when the user asked for those: due on the
+    // wall clock, since the song's clock is not running.
+    const uint64_t now = __rdtsc();
+    for (auto it = tap_releases.begin(); it != tap_releases.end();) {
+        if (it->dueTsc > now) { ++it; continue; }
+        const NoteEvent release(std::chrono::nanoseconds::zero(), it->note, EventType::Release, 0, false, 0, it->track);
+        execute_note_event(release);
+        it = tap_releases.erase(it);
     }
+
+    std::vector<std::pair<int, bool>> taps;
+    { std::lock_guard lock(tap_mutex); taps.swap(tap_queue); }
+    const bool holds = tap_holds_notes.load(std::memory_order_acquire);
+    for (const auto& [key, down] : taps) {
+        if (!down) { if (holds) tap_lift(key); continue; }
+        // A key tapped again before it came up lets go of what it held.
+        if (holds) tap_lift(key);
+        // On to the next note that sounds. Releases on the way belong to the
+        // tap key or to the wall clock above; the pedal is run as it comes.
+        while (current_index < buffer_size) {
+            const auto* e = note_buffer[current_index];
+            if (e->action == EventType::Press && !e->isSustain && !e->skip) break;
+            if (e->isSustain) execute_note_event(*e);
+            ++current_index;
+        }
+        if (current_index >= buffer_size) break;
+        // The chord: what the take placed within a chord's width of this note.
+        constexpr std::chrono::nanoseconds window(legit::kChordWindowNs + 15'000'000);
+        const auto start = note_buffer[current_index]->time;
+        const uint64_t base = __rdtsc();
+        while (current_index < buffer_size && note_buffer[current_index]->time - start <= window) {
+            const auto* e = note_buffer[current_index++];
+            if (e->isSustain) { execute_note_event(*e); continue; }
+            if (e->action != EventType::Press || e->skip) continue;
+            const uint64_t due = base + static_cast<uint64_t>((e->time - start).count() / current_speed / cyclesToNs);
+            while (__rdtsc() < due && !should_stop.load(std::memory_order_relaxed)) _mm_pause();
+            execute_note_event(*e);
+            if (holds) tap_held[key & 1].emplace_back(e->note, e->trackIndex);
+            else if (e->hold >= std::chrono::nanoseconds::zero())
+                tap_releases.push_back({ __rdtsc() + static_cast<uint64_t>(e->hold.count() / current_speed / cyclesToNs),
+                                         e->note, e->trackIndex });
+            total_adjusted_time = e->time;
+        }
+        // Past the last note that sounds, what is left is the pedal coming up.
+        size_t next = current_index;
+        while (next < buffer_size && !(note_buffer[next]->action == EventType::Press &&
+               !note_buffer[next]->isSustain && !note_buffer[next]->skip)) ++next;
+        if (next >= buffer_size)
+            for (; current_index < buffer_size; ++current_index)
+                if (note_buffer[current_index]->isSustain) execute_note_event(*note_buffer[current_index]);
+        buffer_index.store(current_index, std::memory_order_release);
+    }
+    // The song ends when its last note has been tapped and let go.
+    if (current_index >= buffer_size && (!tap_releases.empty() || !tap_held[0].empty() || !tap_held[1].empty()))
+        buffer_index.store(buffer_size ? buffer_size - 1 : 0, std::memory_order_release);
+    else if (current_index >= buffer_size) buffer_index.store(buffer_size, std::memory_order_release);
+    WaitForSingleObject(command_event, 1);
+    ResetEvent(command_event);
 }
 
 void VirtualPianoPlayer::toggle_velocity_keypress() {
@@ -2121,6 +2195,8 @@ void VirtualPianoPlayer::adjust_playback_speed(double factor) {
     if (std::fabs(current_speed - 1.0) < 0.05) {
         current_speed = 1.0; // Snap to normal speed if close
     }
+
+    requested_speed.store(current_speed, std::memory_order_release);
 
     // Update time_factor to reflect the new speed
     time_factor = cyclesToNs * current_speed;

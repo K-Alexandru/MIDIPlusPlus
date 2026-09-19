@@ -325,9 +325,120 @@ void awaitLoopbackReady(Send midiSend, Source source) {
     throw std::runtime_error("loopMIDI route did not become ready");
 }
 
-// Legit mode. Needs no MIDI hardware: it drives the real autoplay dispatch path
-// with a synthetic score and reads back what actually reached the keyboard hook.
+// The take itself, with no keyboard in it: LegitTake.hpp is a pure function.
+void legitTakeTests() {
+    using namespace legit;
+    // A minute of playing: a bass note and a three-note chord every 400 ms, the
+    // chord rolled over 12 ms the way a recording has it, each held 300 ms.
+    std::vector<ScoreEvent> score;
+    for (int bar = 0; bar < 150; ++bar) {
+        const int64_t at = bar * 400'000'000ll;
+        const int pitches[4] = {40 + bar % 5, 60, 64, 67};
+        for (int n = 0; n < 4; ++n) score.push_back({at + n * 4'000'000, pitches[n], true, 70, 0});
+        for (int n = 0; n < 4; ++n) score.push_back({at + 300'000'000 + n * 4'000'000, pitches[n], false, 0, 0});
+    }
+    std::stable_sort(score.begin(), score.end(), [](const auto& a, const auto& b) { return a.time < b.time; });
+    const auto displaced = [&](const Take& take, bool pressesOnly = false) {
+        int64_t worst = 0;
+        for (size_t i = 0; i < score.size(); ++i)
+            if (score[i].press || !pressesOnly) worst = std::max<int64_t>(worst, std::llabs(take.events[i].time - score[i].time));
+        return worst / 1e6;
+    };
+    const auto skipped = [&](const Take& take) {
+        size_t n = 0;
+        for (size_t i = 0; i < score.size(); ++i) if (score[i].press && take.events[i].skip) ++n;
+        return n;
+    };
+
+    auto off = Defaults(Player::Beginner);
+    const auto plain = Build(score, off, 7, 1.0);
+    require(displaced(plain) == 0 && skipped(plain) == 0, "with Legit mode off the take is the score");
+    for (size_t i = 0; i < score.size(); ++i) require(plain.events[i].mate >= 0, "every press is paired with its release");
+
+    auto pro = Defaults(Player::Pro);
+    pro.humanise = true;
+    const auto proTake = Build(score, pro, 7, 1.0);
+    std::cout << "legit take: Pro moves a press by up to " << displaced(proTake, true) << " ms and a release by up to "
+        << displaced(proTake) << " ms\n";
+    require(displaced(proTake, true) > 0 && displaced(proTake, true) < 40, "Pro moves every press a little and none far");
+    require(displaced(proTake) < 90, "Pro varies a note's length more than its start, and still not far");
+    require(skipped(proTake) == 0, "Pro drops nothing");
+
+    auto beginner = Defaults(Player::Beginner);
+    beginner.humanise = true;
+    beginner.difficulty = 1;
+    const auto rough = Build(score, beginner, 7, 1.0);
+    require(displaced(rough) < 400, "the loosest take is still bounded: a hesitation is caught up, never accumulated");
+    require(skipped(rough) > 0 && skipped(rough) < 30, "Beginner drops a few notes, no two close together");
+    for (size_t i = 0; i < score.size(); ++i) {
+        const auto& e = rough.events[i];
+        // The bass and the top of the chord sound together here, so 60 and 64 are the inner notes.
+        if (score[i].press && e.skip) require(score[i].pitch == 60 || score[i].pitch == 64, "only an inner chord note is ever dropped");
+        if (!score[i].press) require(e.time >= rough.events[e.mate].time + kMinimumHoldNs, "a key is down before it comes up");
+        require(e.velocity >= 0 && e.velocity <= 127, "velocity stays a MIDI velocity");
+    }
+    // A key is up before it is struck again.
+    std::unordered_map<int, int64_t> up;
+    std::vector<size_t> order(score.size());
+    for (size_t i = 0; i < order.size(); ++i) order[i] = i;
+    std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) { return rough.events[a].time < rough.events[b].time; });
+    std::unordered_map<int, bool> down;
+    for (size_t i : order) {
+        if (score[i].press) { require(!down[score[i].pitch], "no key is struck while the take still holds it"); down[score[i].pitch] = true; }
+        else down[score[i].pitch] = false;
+    }
+
+    const auto again = Build(score, beginner, 7, 1.0), other = Build(score, beginner, 8, 1.0);
+    bool same = true, differs = false;
+    for (size_t i = 0; i < score.size(); ++i) {
+        same = same && again.events[i].time == rough.events[i].time && again.events[i].velocity == rough.events[i].velocity;
+        differs = differs || other.events[i].time != rough.events[i].time;
+    }
+    require(same, "one seed is one take");
+    require(differs, "another seed is another take");
+
+    // The drift is slow: with only the Tempo slider up, a note's offset is
+    // close to its neighbour's, which independent noise would not be.
+    Settings drift = Defaults(Player::Student);
+    drift.humanise = true; drift.timing = 0; drift.length = 0; drift.mistakes = 0; drift.tempo = 1;
+    const auto drifting = Build(score, drift, 7, 1.0);
+    double sum = 0, sumSquares = 0, lagged = 0; size_t n = 0; double previous = 0;
+    for (size_t i = 0; i < score.size(); ++i) {
+        if (!score[i].press) continue;
+        const double offset = (drifting.events[i].time - score[i].time) / 1e6;
+        if (n) lagged += offset * previous;
+        sum += offset; sumSquares += offset * offset; previous = offset; ++n;
+    }
+    const double mean = sum / n, variance = sumSquares / n - mean * mean;
+    require(variance > 1 && (lagged / (n - 1) - mean * mean) / variance > .8, "the tempo drift is slow and correlated, not noise");
+
+    // At twice the speed the same wall-clock offset is twice the score time.
+    const auto fast = Build(score, drift, 7, 2.0);
+    require(std::abs(displaced(fast) - 2 * displaced(drifting)) < 1, "offsets are wall-clock amounts at any speed");
+
+    // Hands. One track: the bass goes left and the chord right. Two tracks: the
+    // file's own division, the higher track the right hand.
+    Settings right = off; right.hands = Hands::Right;
+    const auto rightOnly = Build(score, right, 7, 1.0);
+    for (size_t i = 0; i < score.size(); ++i)
+        if (score[i].press) require(rightOnly.events[i].skip == (score[i].pitch < 50), "Right leaves out the bass and nothing else");
+    auto twoTracks = score;
+    for (auto& e : twoTracks) e.track = e.pitch < 50 ? 1 : 0;
+    Settings left = off; left.hands = Hands::Left;
+    const auto leftOnly = Build(twoTracks, left, 7, 1.0);
+    require(leftOnly.splitByTrack, "two tracks with notes are the two hands");
+    for (size_t i = 0; i < twoTracks.size(); ++i)
+        if (twoTracks[i].press) require(leftOnly.events[i].skip == (twoTracks[i].track == 0), "Left plays the lower track");
+
+    require(EstimateDifficulty(score, 1.0) > 0 && EstimateDifficulty(score, 2.0) > EstimateDifficulty(score, 1.0),
+        "the difficulty estimate rises with the speed");
+    std::cout << "PASS legit take: bounded, paired, no stranded or doubled key, seeded, slow drift, speed, hands\n";
+}
+
+// Legit mode on the real dispatch path. Needs no MIDI hardware: a synthetic
+// score goes through autoplay and the keyboard hook reads back what arrived.
 void legitModeTests() {
+    legitTakeTests();
     std::cout << "Initializing real PlaybackCore for legit mode..." << std::endl;
     VirtualPianoPlayer player;
     g_player = &player;
@@ -335,11 +446,14 @@ void legitModeTests() {
     TestSink sink;
     require(start(), "measurement hook start");
     player.enable_velocity_keypress = false;
-    auto& cfg = midi::Config::getInstance().legit_mode;
 
-    // Plays a score to completion and returns the injected keyboard events. The
-    // trailing wait covers a batch that is still spreading when the last event
-    // is consumed.
+    const auto finish = [&] {
+        player.should_stop.store(true, std::memory_order_release);
+        SetEvent(player.command_event);
+        player.playback_thread->join();
+        return takeCaptured();
+    };
+    // Plays a score to completion and returns the injected keyboard events.
     const auto run = [&](std::vector<RawNoteEvent> events) {
         const size_t total = events.size();
         player.note_events = std::move(events);
@@ -349,11 +463,8 @@ void legitModeTests() {
                std::chrono::steady_clock::now() < deadline) {
             std::this_thread::sleep_for(2ms);
         }
-        std::this_thread::sleep_for(400ms);
-        player.should_stop.store(true, std::memory_order_release);
-        SetEvent(player.command_event);
-        player.playback_thread->join();
-        return takeCaptured();
+        std::this_thread::sleep_for(100ms);
+        return finish();
     };
     const auto downs = [](const std::vector<KBDLLHOOKSTRUCT>& events) {
         size_t n = 0;
@@ -365,77 +476,108 @@ void legitModeTests() {
         for (const auto& e : events) if (e.flags & LLKHF_UP) ++n;
         return n;
     };
+    const auto span = [](const std::vector<KBDLLHOOKSTRUCT>& events) {
+        DWORD first = 0, last = 0;
+        for (const auto& e : events) {
+            if (e.flags & LLKHF_UP) continue;
+            if (!first) first = e.time;
+            last = e.time;
+        }
+        return static_cast<long>(last - first);
+    };
 
     const std::vector<RawNoteEvent> chord = {
         {0ns, "C4", EventType::Press, 70, -1}, {0ns, "E4", EventType::Press, 70, -1},
         {0ns, "G4", EventType::Press, 70, -1},
         {80ms, "C4", EventType::Release, 0, -1}, {80ms, "E4", EventType::Release, 0, -1},
         {80ms, "G4", EventType::Release, 0, -1}};
-
-    // 1. Disabled is the original path: three presses, three releases, nothing else.
-    player.legit_mode_active.store(false, std::memory_order_relaxed);
-    auto plain = run(chord);
-    require(plain.size() == 6 && downs(plain) == 3 && ups(plain) == 3, "legit off leaves dispatch unchanged");
-
-    // 2. Skipping drops presses only, and can never strand a held key. The
-    //    orphaned note-off is a no-op because release_key() checks pressed_keys,
-    //    which is the bug the 1.0.3 parse-time version had backwards.
-    player.legit_seed_override.store(0xA5A5A5A5A5A5A5A5ull, std::memory_order_relaxed);
-    cfg.ENABLED = true;
-    cfg.TIMING_VARIATION = 0.0;
-    cfg.EXTRA_DELAY_CHANCE = 0.0;
-    cfg.NOTE_SKIP_CHANCE = 1.0;
-    player.legit_mode_active.store(true, std::memory_order_relaxed);
-    auto allSkipped = run(chord);
-    require(allSkipped.empty(), "every press skipped leaves no injected event at all");
-
-    cfg.NOTE_SKIP_CHANCE = 0.5;
-    std::vector<RawNoteEvent> run40;
-    for (int i = 0; i < 40; ++i) {
-        run40.push_back({std::chrono::milliseconds(i * 12), "C4", EventType::Press, 70, -1});
-        run40.push_back({std::chrono::milliseconds(i * 12 + 6), "C4", EventType::Release, 0, -1});
-    }
-    auto partial = run(run40);
-    require(downs(partial) > 0 && downs(partial) < 40, "half the presses were dropped");
-    require(downs(partial) == ups(partial), "every surviving press was released; no key left held");
-
-    // 3. Hesitation shifts, it does not stretch. A forced 60ms pause on every
-    //    batch must delay each note by the same 60ms rather than accumulating
-    //    into the schedule the way the parse-time version did.
-    cfg.NOTE_SKIP_CHANCE = 0.0;
-    cfg.EXTRA_DELAY_CHANCE = 1.0;
-    cfg.EXTRA_DELAY_MIN = 0.06;
-    cfg.EXTRA_DELAY_MAX = 0.06;
+    std::vector<RawNoteEvent> chords;
+    for (int i = 0; i < 40; ++i)
+        for (const char* note : {"C4", "E4", "G4"}) {
+            chords.push_back({std::chrono::milliseconds(i * 60), note, EventType::Press, 70, -1});
+            chords.push_back({std::chrono::milliseconds(i * 60 + 40), note, EventType::Release, 0, -1});
+        }
+    std::stable_sort(chords.begin(), chords.end(), [](const auto& a, const auto& b) { return a.time < b.time; });
     std::vector<RawNoteEvent> spaced;
     for (int i = 0; i < 5; ++i) {
         spaced.push_back({std::chrono::milliseconds(i * 200), "C4", EventType::Press, 70, -1});
         spaced.push_back({std::chrono::milliseconds(i * 200 + 100), "C4", EventType::Release, 0, -1});
     }
-    auto hesitated = run(spaced);
-    require(downs(hesitated) == 5, "hesitation drops nothing");
-    DWORD first = 0, last = 0;
-    for (const auto& e : hesitated) {
-        if (e.flags & LLKHF_UP) continue;
-        if (!first) first = e.time;
-        last = e.time;
-    }
-    const long span = static_cast<long>(last - first);
-    // True span is 800ms. Accumulating five 60ms pauses would reach ~1040ms.
-    std::cout << "legit: skipped=" << (40 - downs(partial)) << "/40 presses, hesitation span="
-        << span << "ms (score 800ms, accumulating five pauses would be ~1040ms)\n";
-    require(span > 600 && span < 950, "hesitation shifted the score without stretching it");
 
-    cfg.ENABLED = false;
-    cfg.TIMING_VARIATION = 0.1;
-    cfg.NOTE_SKIP_CHANCE = 0.02;
-    cfg.EXTRA_DELAY_CHANCE = 0.05;
-    cfg.EXTRA_DELAY_MIN = 0.05;
-    cfg.EXTRA_DELAY_MAX = 0.2;
+    // 1. Off is the original path: three presses, three releases, nothing else.
     player.legit_mode_active.store(false, std::memory_order_relaxed);
+    auto plain = run(chord);
+    require(plain.size() == 6 && downs(plain) == 3 && ups(plain) == 3, "legit off leaves dispatch unchanged");
+    const long plainSpan = span(run(spaced));
+
+    // 2. The loosest player at full Mistakes: notes are dropped, and every press
+    //    that went out is released. A dropped press takes its release with it
+    //    because release_key() only lets go of a key it holds.
+    player.legit_seed_override.store(0xA5A5A5A5A5A5A5A5ull, std::memory_order_relaxed);
+    auto settings = legit::Defaults(legit::Player::Beginner);
+    settings.difficulty = 1;
+    settings.mistakes = 1;
+    player.set_legit_settings(settings);
+    player.legit_mode_active.store(true, std::memory_order_relaxed);
+    auto partial = run(chords);
+    require(downs(partial) > 80 && downs(partial) < 120, "a few inner notes were dropped");
+    require(downs(partial) == ups(partial), "every surviving press was released; no key left held");
+
+    // 3. A take displaces, it does not stretch, and nothing on the dispatch
+    //    thread sleeps for it: five notes over 800 ms still span 800 ms.
+    const long legitSpan = span(run(spaced));
+    std::cout << "legit: dropped=" << (120 - downs(partial)) << "/120 presses, span off/on=" << plainSpan << '/' << legitSpan
+        << "ms (score 800ms)\n";
+    require(std::abs(plainSpan - 800) < 40 && std::abs(legitSpan - 800) < 120, "the take kept the song's length");
+
+    // 4. Speed is a rate on the clock: at 2 the same score takes half as long,
+    //    and the event times were never rewritten.
+    player.legit_mode_active.store(false, std::memory_order_relaxed);
+    player.note_events = spaced;
+    player.restart_song();
+    player.requested_speed.store(2.0, std::memory_order_release);
+    std::this_thread::sleep_for(700ms);
+    const auto fast = finish();
+    require(downs(fast) == 5 && std::abs(span(fast) - 400) < 40, "twice the speed is half the time");
+    require(player.note_events[8].time == 800ms, "the score was not rescaled");
+    player.requested_speed.store(1.0, std::memory_order_release);
+
+    // 5. Tap. The clock stands still; a tap plays the next chord and the key
+    //    coming up lets it go. With the recording's lengths the chord lets go
+    //    by itself and the key coming up does nothing.
+    player.trigger.store(VirtualPianoPlayer::Trigger::Tap, std::memory_order_release);
+    player.tap_holds_notes.store(true, std::memory_order_release);
+    player.note_events = chords;
+    player.restart_song();
+    std::this_thread::sleep_for(150ms);
+    require(takeCaptured().empty(), "in Tap nothing plays until a tap");
+    player.tap(0, true);
+    std::this_thread::sleep_for(60ms);
+    auto tapped = takeCaptured();
+    require(downs(tapped) == 3 && ups(tapped) == 0, "one tap is one chord, held");
+    player.tap(1, true);
+    std::this_thread::sleep_for(60ms);
+    tapped = takeCaptured();
+    require(downs(tapped) == 3 && ups(tapped) == 3, "a second key re-strikes the chord; the first still owns its notes");
+    player.tap(0, false);
+    player.tap(1, false);
+    std::this_thread::sleep_for(60ms);
+    tapped = takeCaptured();
+    require(downs(tapped) == 0 && ups(tapped) == 3, "both keys up lets the chord go");
+    player.tap_holds_notes.store(false, std::memory_order_release);
+    player.tap(0, true);
+    std::this_thread::sleep_for(150ms);
+    tapped = takeCaptured();
+    require(downs(tapped) == 3 && ups(tapped) == 3, "with the recording's lengths a tapped chord lets go by itself");
+    finish();
+    player.trigger.store(VirtualPianoPlayer::Trigger::Auto, std::memory_order_release);
+    player.tap_holds_notes.store(true, std::memory_order_release);
+
     player.legit_seed_override.store(0, std::memory_order_relaxed);
+    player.set_legit_settings(legit::Defaults(legit::Player::Pro));
     stop();
     g_player = nullptr;
-    std::cout << "PASS legit mode: disabled path, skip pairing, no stranded keys, no accumulated drift\n";
+    std::cout << "PASS legit mode: off path, dropped notes paired, length kept, speed on the clock, tap\n";
 }
 
 // Does plain playback keep a recording's own timing? Plays the opening of each

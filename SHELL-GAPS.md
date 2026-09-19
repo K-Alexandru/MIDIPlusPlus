@@ -612,9 +612,9 @@ From the owner and a tester in one session. Nothing here is optional.
        lifts every key and the pedal when it comes up. Tap plays the next
        note or chord per press, the chord keeping its own spread and
        velocities; two keys may share the action, since one key cannot be
-       tapped as fast as a run. The keys bind in Hotkeys. A tapped note is
-       held as long as its key is: the user's finger sets the length, the
-       recording's pedal still applies.
+       tapped as fast as a run. The keys bind in Hotkeys. Note length in Tap
+       is an option, the owner's ask: held as long as the key is, or the
+       recording's own length. The recording's pedal applies in both.
      - Left to Claude by the owner: Hands and Trigger sit on the main panel
        beside Speed, since they change per song and mid-song; the player
        preset, Difficulty and the sliders stay in Settings.

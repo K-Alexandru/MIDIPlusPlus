@@ -37,6 +37,8 @@
 #include <condition_variable>
 #include <functional>
 
+#include "LegitTake.hpp"
+
 // Project-specific headers
 #include "resource.h"
 #include "MidiOutput.hpp"  // IMidiOutput, for the output target below
@@ -83,6 +85,10 @@ struct alignas(64) NoteEvent {
     bool isSustain;           // true if sustain pedal event
     int sustainValue;
     int trackIndex;
+    // Written by the take (LegitTake.hpp): a note this playthrough leaves out,
+    // and for a press how long the take holds it, or -1 with no release.
+    bool skip = false;
+    std::chrono::nanoseconds hold{ -1 };
 
     NoteEvent() noexcept;
     NoteEvent(std::chrono::nanoseconds t, std::string_view n, EventType a, int v, bool s, int sv, int trackIdx) noexcept;
@@ -341,16 +347,35 @@ public:
     // Legit mode. Read on the playback thread, written from the UI thread, so the
     // enable flag is atomic; the generator state below it is only ever touched by
     // the dispatch path, which is one batch at a time.
+    // Legit mode. The switch is atomic because the UI thread writes it; the rest
+    // of the settings travel under legit_mutex. Both mark the take stale and the
+    // playback thread rebuilds it between two events, so nothing on the
+    // dispatch path ever waits for Legit mode. See LegitTake.hpp.
     std::atomic<bool> legit_mode_active{ false };
-    uint64_t legit_rng_state{ 0x9E3779B97F4A7C15ull };
     // Non-zero forces a fixed seed instead of the per-song one, so a reported run
     // can be reproduced exactly. Tests use it; nothing in the app sets it.
     std::atomic<uint64_t> legit_seed_override{ 0 };
-    void   legit_reseed() noexcept;
-    double legit_unit() noexcept;               // uniform [0,1)
-    std::chrono::nanoseconds legit_press_offset() noexcept;
-    std::chrono::nanoseconds legit_batch_hesitation() noexcept;
-    bool   legit_should_skip() noexcept;
+    void set_legit_settings(const legit::Settings& settings);
+    legit::Settings get_legit_settings() const;
+    // What the last take estimated, for the controls that start from it.
+    std::atomic<int> legit_split_estimate{ 60 };
+    std::atomic<bool> legit_split_by_track{ false };
+    // The score as the take sees it, for the estimates before anything plays.
+    std::vector<legit::ScoreEvent> legit_score() const;
+
+    // Speed is a rate on the clock. Written from any thread; the playback
+    // thread picks it up within a slice, keeps the position and carries on, so
+    // a dragged slider changes the tempo without a note being cut.
+    std::atomic<double> requested_speed{ 1.0 };
+
+    // Trigger. In Tap the clock stands still and each tap plays the next note
+    // or chord with the take's own spread and velocities. A tap names the key
+    // that made it, 0 or 1, so two keys can alternate through a run and each
+    // lets go of its own notes.
+    enum class Trigger : uint8_t { Auto, Tap };
+    std::atomic<Trigger> trigger{ Trigger::Auto };
+    std::atomic<bool> tap_holds_notes{ true };   // false keeps the recording's lengths
+    void tap(int key, bool down);
 
     // Key mapping
     std::map<std::string, std::string> limited_key_mappings;
@@ -461,8 +486,23 @@ private:
     void precompute_volume_adjustments();
     void AdjustVolumeBasedOnVelocity(int velocity) noexcept;
     std::pair<std::map<std::string, std::string>, std::map<std::string, std::string>> define_key_mappings();
-    // Pool 
+    // Pool
     NoteEventPool event_pool;
+
+    // Legit mode, playback thread only unless noted.
+    mutable std::mutex legit_mutex;          // guards legit_settings
+    legit::Settings legit_settings = legit::Defaults(legit::Player::Pro);
+    std::atomic<bool> take_stale{ false };
+    uint64_t take_seed{ 0 };
+    // Tap. The UI thread queues, the playback thread drains.
+    std::mutex tap_mutex;
+    std::vector<std::pair<int, bool>> tap_queue;       // key, down
+    std::vector<std::pair<std::string_view, int>> tap_held[2];   // note and track each tap key holds
+    std::atomic<bool> clock_frozen{ false };           // Tap: the user is the clock
+    struct TapRelease { uint64_t dueTsc; std::string_view note; int track; };
+    std::vector<TapRelease> tap_releases;              // the recording's lengths, on the wall clock
+    void tap_step(size_t& current_index, size_t buffer_size);
+    void tap_lift(int key);
 
     TransposeEngine transposeEngine;
     size_t currentVelocityCurveIndex = 0;
