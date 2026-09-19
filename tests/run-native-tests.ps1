@@ -107,7 +107,7 @@ try {
     Set-NativeShellRect -Shell $shell -X 60 -Y 60 -Width 300 -Height 300 -Topmost
     $clamped = Get-NativeShellGeometry -Shell $shell
     $minimumWidth = [int](884 * $clamped.Scale)
-    $minimumHeight = [int](560 * $clamped.Scale)
+    $minimumHeight = [int](604 * $clamped.Scale)
     Check -Ok ($clamped.ClientWidth -ge $minimumWidth - 4 -and $clamped.ClientHeight -ge $minimumHeight - 4) `
           -Message 'a resize below the minimum is clamped, not obeyed' `
           -Detail "asked for 300x300, client is $($clamped.ClientWidth)x$($clamped.ClientHeight), floor is ${minimumWidth}x${minimumHeight}"

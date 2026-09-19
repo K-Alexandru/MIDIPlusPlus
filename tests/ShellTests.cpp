@@ -3433,7 +3433,9 @@ void LibraryParityTests(const std::filesystem::path& directory) {
         engine.Send({A::LegitPlayer, {}, 0, 2});
         engine.Send({A::LegitAmount, {}, 0, 0, false, 1.0});
         engine.Send({A::LegitAmount, {}, 0, 5, false, 1.0});
-        Await([&] { const auto s = engine.Snapshot(); return s->legitPlayer == 2 && s->legitAmounts[0] == 1.0 && s->legitDifficulty == 1.0; },
+        // No Mistakes: a Beginner may drop an inner note, and all five are counted below.
+        engine.Send({A::LegitAmount, {}, 0, 4, false, 0.0});
+        Await([&] { const auto s = engine.Snapshot(); return s->legitPlayer == 2 && s->legitAmounts[0] == 1.0 && s->legitAmounts[4] == 0.0 && s->legitDifficulty == 1.0; },
               "the Legit player and amounts did not reach the snapshot");
         step(A::Next, alpha);
         Require(engine.Snapshot()->legitMode, "Load discarded Legit Mode");

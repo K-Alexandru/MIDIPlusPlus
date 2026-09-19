@@ -193,6 +193,73 @@ bool SettingSlider(const char* label, const char* id, int* value, int low, int h
     return true;
 }
 
+// A slider that starts where the app guessed. The guess stays on the track as
+// a tick under the word Estimated while the handle is the user's, so the app
+// offers its reading of the song without pressing it. `value` below zero is
+// the estimate itself; double-click goes back to it.
+bool EstimatedSlider(const char* label, const char* id, float* value, float estimate, float low, float high,
+                     const char* text, const Fonts& fonts, const skin::Skin& design, const skin::Skin& s, float dpi) {
+    const float width = ImGui::GetContentRegionAvail().x;
+    const float left = ImGui::GetCursorPosX();
+    ImGui::TextUnformatted(label);
+    ImGui::SameLine(); ImGui::SetCursorPosX(left + width - ImGui::CalcTextSize(text).x);
+    ImGui::PushStyleColor(ImGuiCol_Text, Colour(s.ink.secondary));
+    ImGui::TextUnformatted(text);
+    ImGui::PopStyleColor();
+    const ImVec2 min = ImGui::GetCursorScreenPos();
+    const float grooveHeight = 22 * dpi;
+    float position = *value < low ? estimate : *value;
+    bool changed = Groove(id, &position, low, high, width, grooveHeight, s, dpi, true);
+    if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) { *value = low - 1; changed = true; }
+    else if (changed) *value = position;
+    {
+        FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
+        auto* draw = ImGui::GetWindowDrawList();
+        const float share = high > low ? std::clamp((estimate - low) / (high - low), 0.f, 1.f) : 0.f;
+        const float x = min.x + share * width;
+        const float trackBottom = min.y + (grooveHeight + 6 * dpi) / 2;
+        draw->AddLine(ImVec2(x, trackBottom + 2 * dpi), ImVec2(x, trackBottom + 7 * dpi), Colour(s.ink.tertiary), dpi);
+        const char* word = "Estimated";
+        const float wordWidth = ImGui::CalcTextSize(word).x;
+        const float wordX = std::clamp(x - wordWidth / 2, min.x, min.x + width - wordWidth);
+        draw->AddText(ImVec2(wordX, trackBottom + 8 * dpi), Colour(s.ink.tertiary), word);
+        ImGui::Dummy(ImVec2(width, 8 * dpi + ImGui::GetTextLineHeight() - (grooveHeight - 6 * dpi) / 2));
+    }
+    return changed;
+}
+
+// A recessed well of labelled segments, the chosen one raised and outlined: the
+// mini Live/Autoplay control, for any short list. Returns the segment clicked,
+// or -1.
+int Segments(const char* id, std::initializer_list<const char*> labels, int selected, const skin::Skin& s, float dpi) {
+    const float height = s.metric.controlHeight, inset = 4 * dpi;
+    float segment = 0;
+    for (const char* label : labels) segment = std::max(segment, ImGui::CalcTextSize(label).x);
+    segment += 20 * dpi;
+    const ImVec2 well = ImGui::GetCursorScreenPos();
+    const float width = 2 * inset + segment * labels.size() + inset * (labels.size() - 1);
+    auto* draw = ImGui::GetWindowDrawList();
+    skin::RecessedRect(draw, well, ImVec2(well.x + width, well.y + height), s.radius.control, s);
+    ImGui::PushID(id);
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, s.radius.element);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+    int clicked = -1, index = 0;
+    for (const char* label : labels) {
+        const bool chosen = index == selected;
+        ImGui::SetCursorScreenPos(ImVec2(well.x + inset + index * (segment + inset), well.y + inset));
+        ImGui::PushStyleColor(ImGuiCol_Button, chosen ? Colour(s.surface.elevated) : IM_COL32(0, 0, 0, 0));
+        if (ImGui::Button(label, ImVec2(segment, height - 2 * inset)) && !chosen) clicked = index;
+        ImGui::PopStyleColor();
+        if (chosen) draw->AddRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), Colour(s.accent.accent), s.radius.element, 0, dpi);
+        ++index;
+    }
+    ImGui::PopStyleVar(2);
+    ImGui::PopID();
+    ImGui::SetCursorScreenPos(well);
+    ImGui::Dummy(ImVec2(width, height));
+    return clicked;
+}
+
 // A section that opens, drawn like Velocity Response: a Lucide chevron and
 // the label, inside the content's margins. ImGui's CollapsingHeader is a
 // filled triangle on a bar wider than everything round it. Open state lives
@@ -1129,7 +1196,8 @@ ImVec2 Panels::DesiredSize() const {
     // fifth of the window to their right. The height is the 88dpi strip, the
     // rows at 8dpi apart, and the status bar.
     if (miniMode) return ImVec2(528, miniAutoplay ? 256.f : 164.f);
-    return ImVec2(940, velocityExpanded ? 974.f : 600.f);
+    // 44 taller than it was: the Playback card gained the Hands and Trigger row.
+    return ImVec2(940, velocityExpanded ? 1018.f : 644.f);
 }
 
 namespace {
@@ -1820,6 +1888,43 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
         draw->AddRect(tagMin, tagMax, Colour(s.accent.warn), height / 2, 0, dpi);
         draw->AddText(ImVec2(tagMin.x + padX, tagMin.y + 2 * dpi), Colour(s.accent.warn), tag);
     }
+    if (state->legitMode) {
+        // Who is playing, how hard the piece is for them, and the five things a
+        // take varies. Choosing a player puts the five where that player has
+        // them; after that they are the user's.
+        if (const int player = Segments("##legit-player", {kLegitPlayers[0], kLegitPlayers[1], kLegitPlayers[2]},
+                                        state->legitPlayer, s, dpi); player >= 0)
+            engine.Send({ShellEngine::Action::LegitPlayer, {}, 0, static_cast<size_t>(player)});
+        float difficulty = static_cast<float>(state->legitDifficulty);
+        const float shown = difficulty < 0 ? static_cast<float>(state->legitDifficultyEstimate) : difficulty;
+        char difficultyText[16]; snprintf(difficultyText, sizeof(difficultyText), "%d%%", static_cast<int>(std::lround(shown * 100)));
+        if (EstimatedSlider("Difficulty", "##legit-difficulty", &difficulty, static_cast<float>(state->legitDifficultyEstimate),
+                            0.f, 1.f, difficultyText, fonts, design, s, dpi))
+            engine.Send({ShellEngine::Action::LegitAmount, {}, 0, 5, false, static_cast<double>(difficulty)});
+        for (size_t i = 0; i < kLegitAmounts.size(); ++i) {
+            int percent = static_cast<int>(std::lround(state->legitAmounts[i] * 100));
+            const std::string id = std::string("##legit-amount-") + std::to_string(i);
+            if (SettingSlider(kLegitAmounts[i], id.c_str(), &percent, 0, 100, "%d%%", s, dpi))
+                engine.Send({ShellEngine::Action::LegitAmount, {}, 0, i, false, percent / 100.0});
+        }
+        bool remember = state->rememberPerSong;
+        if (SettingSwitch("Remember per Song", remember, nullptr, fonts, design, dpi))
+            engine.Send({ShellEngine::Action::RememberPerSong, {}, 0, 0, remember});
+    }
+    if (state->hands != 0 && !state->handsByTrack) {
+        // Where one track divides into two hands. A file with a track for each
+        // hand divides itself, and then there is nothing here to move.
+        float split = static_cast<float>(state->handSplit);
+        const int shownSplit = state->handSplit < 0 ? state->handSplitEstimate : state->handSplit;
+        if (EstimatedSlider("Hand Split", "##hand-split", &split, static_cast<float>(state->handSplitEstimate),
+                            21.f, 108.f, NoteName(shownSplit).c_str(), fonts, design, s, dpi))
+            engine.Send({ShellEngine::Action::HandSplit, {}, 0, 0, false, split < 21 ? -1.0 : std::round(split)});
+    }
+    if (state->trigger == 2) {
+        bool holds = state->tapHolds;
+        if (SettingSwitch("Tap Holds the Note", holds, nullptr, fonts, design, dpi))
+            engine.Send({ShellEngine::Action::TapLength, {}, 0, 0, holds});
+    }
     bool shuffle = state->shuffle;
     if (SettingSwitch("Shuffle Play", shuffle, nullptr, fonts, design, dpi))
         engine.Send({ShellEngine::Action::Shuffle, {}, 0, 0, shuffle});
@@ -1878,7 +1983,8 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
         // The action, its key as a keycap, and a way to take the key off.
         // Armed, the cap is empty inside the accent ring, as in Key Mapping.
         // A key another program holds wears the legend's dead-key ink.
-        const std::string actions[kHotkeys]{"Play/Pause", "Skip back", "Skip forward", "Stop", "Previous song", "Next song"};
+        const std::string actions[kHotkeys]{"Play/Pause", "Skip back", "Skip forward", "Stop", "Previous song", "Next song",
+                                            "Hold to play", "Tap", "Tap, second key"};
         const float height = s.metric.controlHeight, gap = 8 * dpi, capWidth = 112 * dpi;
         auto* draw = ImGui::GetWindowDrawList();
         for (size_t i = 0; i < kHotkeys; ++i) {
@@ -2181,15 +2287,21 @@ void Panels::DrawLog(HWND hwnd, const Fonts& fonts, const skin::Skin& design, fl
 // bound keys: it used to spell the actions out when four keys left room and
 // fall back to icons for six, and the same legend read two ways. A key
 // another program holds is drawn as a dead key, flat and in the faintest ink.
-float Panels::DrawTransportHints(ImDrawList* draw, const skin::Skin& s, float dpi, ImVec2 origin) const {
+float Panels::DrawTransportHints(ImDrawList* draw, const skin::Skin& s, float dpi, ImVec2 origin, int trigger) const {
     // No seconds here: the seek buttons below carry the number. A double
     // chevron moves within the song and a single one moves between songs.
-    const Icon icons[]{Icon::Play, Icon::Back, Icon::Forward, Icon::Close, Icon::Left, Icon::Right};
+    // The Hold and Tap keys show while theirs is the trigger: Hold is then the
+    // play key, and a tap is a note.
+    const Icon icons[kHotkeys]{Icon::Play, Icon::Back, Icon::Forward, Icon::Close, Icon::Left, Icon::Right,
+                               Icon::Play, Icon::Piano, Icon::Piano};
     const float line = ImGui::GetTextLineHeight(), capPad = 5 * dpi, capHeight = line + 2 * dpi;
     const float pairGap = s.spacing.s2;
     float x = origin.x;
     for (size_t i = 0; i < transportKeys.size(); ++i) {
         if (transportKeys[i].empty()) continue;
+        if ((i == kHoldKey && trigger != 1) || ((i == kTapKey || i == kTapKey2) && trigger != 2)) continue;
+        // Hold takes the place of the play key it replaces.
+        if (i == 0 && trigger == 1 && !transportKeys[kHoldKey].empty()) continue;
         const float capWidth = ImGui::CalcTextSize(transportKeys[i].c_str()).x + 2 * capPad;
         const bool available = transportKeysAvailable[i];
         const ImU32 ink = Colour(available ? s.ink.secondary : s.ink.tertiary);
@@ -2342,7 +2454,7 @@ void Panels::DrawMini(HWND hwnd, const Fonts& fonts, const skin::Skin& design, f
         draw->AddText(ImVec2(origin.x + size.x - pad - ImGui::CalcTextSize(time.c_str()).x,
             transportY + (control - ImGui::GetTextLineHeight()) / 2), Colour(s.ink.secondary), time.c_str());
         { FontScope meta(fonts, design, design.type.meta * SpecFontScale(design));
-          DrawTransportHints(draw, s, dpi, ImVec2(origin.x + pad, transportY + control + gap)); }
+          DrawTransportHints(draw, s, dpi, ImVec2(origin.x + pad, transportY + control + gap), state->trigger); }
     }
     DrawStatus(fonts, design, dpi, *state, ImVec2(origin.x, origin.y + size.y - status), size.x, status);
     ImGui::PopStyleVar();
@@ -2578,7 +2690,7 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     // the status bar now reports.
     const float titleHeight = s.metric.controlHeight;
     const float rowGap = 8 * dpi, seekHeight = 22 * dpi;
-    const float playbackHeight = 2 * s.spacing.panelPad + titleHeight + seekHeight + 3 * rowGap + 2 * s.metric.controlHeight;
+    const float playbackHeight = 2 * s.spacing.panelPad + titleHeight + seekHeight + 4 * rowGap + 3 * s.metric.controlHeight;
     BeginPanel("Playback", ImVec2(right, top), ImVec2(edge, top + playbackHeight), s,
                ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     ImGui::PushFont(fonts.Get(design), design.type.body * SpecFontScale(design));
@@ -2597,12 +2709,12 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     float hintsWidth = 0;
     { FontScope font(fonts, design, design.type.meta * SpecFontScale(design));
       const float room = contentWidth - sheetButtonWidth - s.spacing.s2 - titleWidth - s.spacing.s3;
-      const float width = DrawTransportHints(nullptr, s, dpi, {});
+      const float width = DrawTransportHints(nullptr, s, dpi, {}, state->trigger);
       if (width > 0 && width <= std::max(room, contentWidth * .67f)) {
           hintsWidth = width + s.spacing.s3;
           DrawTransportHints(ImGui::GetWindowDrawList(), s, dpi,
               ImVec2(content.x + contentWidth - sheetButtonWidth - hintsWidth + s.spacing.s3 - s.spacing.s2,
-                     content.y + (titleHeight - ImGui::GetTextLineHeight()) / 2));
+                     content.y + (titleHeight - ImGui::GetTextLineHeight()) / 2), state->trigger);
       } }
     { FontScope font(fonts, design, 20 * SpecFontScale(design), Weight::Medium);
       DrawEllipsis(title,
@@ -2766,18 +2878,23 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
         ImGui::GetWindowDrawList()->AddText(ImVec2(pos.x, pos.y + (s.metric.controlHeight - ImGui::GetTextLineHeight()) / 2), Colour(s.ink.secondary), text);
         ImGui::Dummy(ImVec2(width, s.metric.controlHeight)); ImGui::SameLine();
     };
+    // Speed is a rate on the player's clock, so the groove can be dragged
+    // while a song plays. In steps of 0.05; the value is a button back to 1.
     label("Speed");
-    ImGui::BeginDisabled(state->speed <= .25);
-    if (IconButton("##slower", Icon::Minus, "Slower", s, dpi)) number(ShellEngine::Action::Speed, state->speed - .05);
-    ImGui::EndDisabled(); ImGui::SameLine();
-    const auto speedMin = ImGui::GetCursorScreenPos();
-    char speed[32]; snprintf(speed, sizeof(speed), "%.2f\xc3\x97", state->speed);
-    dl->AddText(ImVec2(speedMin.x + (56 * dpi - ImGui::CalcTextSize(speed).x) / 2,
-                      speedMin.y + (s.metric.controlHeight - ImGui::GetTextLineHeight()) / 2), Colour(s.ink.primary), speed);
-    ImGui::Dummy(ImVec2(56 * dpi, s.metric.controlHeight)); ImGui::SameLine();
-    ImGui::BeginDisabled(state->speed >= 2);
-    if (IconButton("##faster", Icon::Plus, "Faster", s, dpi)) number(ShellEngine::Action::Speed, state->speed + .05);
-    ImGui::EndDisabled(); ImGui::SameLine();
+    float speedValue = static_cast<float>(state->speed);
+    if (Groove("##speed", &speedValue, .25f, 2.f, 120 * dpi, s.metric.controlHeight, s, dpi, true))
+        number(ShellEngine::Action::Speed, std::round(speedValue * 20) / 20);
+    ImGui::SameLine();
+    {
+        char speed[32]; snprintf(speed, sizeof(speed), "%.2f\xc3\x97", std::round(speedValue * 20) / 20);
+        const auto speedMin = ImGui::GetCursorScreenPos();
+        ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(0, 0, 0, 0));
+        if (ImGui::Button("##speed-reset", ImVec2(48 * dpi, s.metric.controlHeight))) number(ShellEngine::Action::Speed, 1.0);
+        ImGui::PopStyleColor();
+        ImGui::GetWindowDrawList()->AddText(ImVec2(speedMin.x + 48 * dpi - ImGui::CalcTextSize(speed).x - 4 * dpi,
+            speedMin.y + (s.metric.controlHeight - ImGui::GetTextLineHeight()) / 2), Colour(s.ink.primary), speed);
+    }
+    ImGui::SameLine();
     label("Transpose");
     float transpose = static_cast<float>(state->transpose);
     if (Groove("##transpose", &transpose, -12, 12, 160 * dpi, s.metric.controlHeight, s, dpi, true))
@@ -2788,6 +2905,16 @@ void Panels::Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design, float
     dl->AddText(ImVec2(transposeMin.x + 32 * dpi - ImGui::CalcTextSize(transposeText).x,
                        transposeMin.y + (s.metric.controlHeight - ImGui::GetTextLineHeight()) / 2), Colour(s.ink.primary), transposeText);
     ImGui::Dummy(ImVec2(32 * dpi, s.metric.controlHeight));
+    // Which hand plays and what drives the song. They change per song and
+    // mid-song, so they sit here and not in Settings.
+    ImGui::SetCursorScreenPos(ImVec2(content.x, transportY + 2 * (s.metric.controlHeight + rowGap)));
+    label("Hands");
+    if (const int hand = Segments("##hands", {"Both", "Right", "Left"}, state->hands, s, dpi); hand >= 0)
+        engine.Send({ShellEngine::Action::Hands, {}, 0, static_cast<size_t>(hand)});
+    ImGui::SameLine(0, s.spacing.s3);
+    label("Trigger");
+    if (const int trigger = Segments("##trigger", {"Auto", "Hold", "Tap"}, state->trigger, s, dpi); trigger >= 0)
+        engine.Send({ShellEngine::Action::Trigger, {}, 0, static_cast<size_t>(trigger)});
     ImGui::EndDisabled();
     ImGui::PopFont();
     ImGui::EndChild();

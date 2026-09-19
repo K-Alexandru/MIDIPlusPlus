@@ -104,16 +104,32 @@ int wmain() {
         }();
         // Returning to 100% catches cumulative scaling after a monitor move.
         for (const float dpi : {1.f, 1.25f, 1.5f, 2.f, 1.f}) for (int i = 0; i < 4; ++i)
-        for (int mode = 0; mode < 23; ++mode) {
-            panels.preferences.theme = mode >= 21 ? custom : i < 2 ? "blue" : "orange";
+        for (int mode = 0; mode < 25; ++mode) {
+            const bool themeMode = mode == 21 || mode == 22;
+            panels.preferences.theme = themeMode ? custom : i < 2 ? "blue" : "orange";
             panels.preferences.dark = (i & 1) != 0;
-            panels.themeEditorOpen = mode >= 21;
-            const skin::Skin design = mode >= 21 ? panels.ActiveSkin() : skins[i];
+            panels.themeEditorOpen = themeMode;
+            const skin::Skin design = themeMode ? panels.ActiveSkin() : skins[i];
             panels.miniMode = mode == 1 || mode == 2 || mode == 8 || mode == 9 || mode == 10 || mode == 20;
             panels.miniAutoplay = mode == 2 || mode == 8 || mode == 10 || mode == 20;
             // All six hotkeys bound, where the legend has the least room.
             panels.transportKeys[4] = mode == 19 || mode == 20 ? "F5" : "";
             panels.transportKeys[5] = mode == 19 || mode == 20 ? "F6" : "";
+            // Legit mode on, the right hand only, and Tap with both its keys bound.
+            const bool legitMode = mode == 23 || mode == 24;
+            panels.transportKeys[shell::kTapKey] = legitMode ? "F9" : "";
+            panels.transportKeys[shell::kTapKey2] = legitMode ? "F10" : "";
+            {
+                using A = shell::ShellEngine::Action;
+                engine.Send({A::LegitMode, {}, 0, 0, legitMode});
+                engine.Send({A::LegitPlayer, {}, 0, static_cast<size_t>(legitMode ? 1 : 0)});
+                engine.Send({A::Hands, {}, 0, static_cast<size_t>(legitMode ? 1 : 0)});
+                engine.Send({A::Trigger, {}, 0, static_cast<size_t>(legitMode ? 2 : 0)});
+                const auto appliedBy = std::chrono::steady_clock::now() + 2s;
+                while ((engine.Snapshot()->legitMode != legitMode || engine.Snapshot()->trigger != (legitMode ? 2 : 0)) &&
+                       std::chrono::steady_clock::now() < appliedBy) std::this_thread::sleep_for(5ms);
+                Require(engine.Snapshot()->trigger == (legitMode ? 2 : 0), "render Legit settings did not apply");
+            }
             panels.logOpen = mode == 3 || mode == 9;
             panels.velocityExpanded = mode == 11;
             // "minimum" is the smallest window WM_GETMINMAXINFO allows, where
@@ -134,7 +150,10 @@ int wmain() {
                                    // its dark half guessed, and the editor open on it.
                                    "theme-editor",
                                    // The same, with the Accent swatch clicked and its picker open.
-                                   "theme-picker"};
+                                   "theme-picker",
+                                   // Settings at Legit mode with its controls open, and
+                                   // the full window with Hands, Tap and the tap keys.
+                                   "settings-legit", "full-tap"};
             const int picksBefore = pickerCalls;
             if (mode == 7 || mode == 8) {
                 engine.Send({shell::ShellEngine::Action::PlaybackDelay, {}, 0, 0, false, 10});
@@ -192,7 +211,7 @@ int wmain() {
                 ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0);
                 ImGui::Begin("##shell", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoScrollbar);
                 ImGui::PopStyleVar(2);
-                if ((mode == 4 || mode == 14 || mode == 18) && frame == 2) ImGui::OpenPopup("Settings");
+                if ((mode == 4 || mode == 14 || mode == 18 || mode == 23) && frame == 2) ImGui::OpenPopup("Settings");
                 panels.revealSettingsHotkeys = mode == 18;
                 panels.hotkeyCapture = mode == 18 && frame > 2 ? 1 : -1;
                 panels.transportKeysAvailable[2] = mode != 18;
@@ -200,11 +219,11 @@ int wmain() {
                 panels.openLibrarySave = mode == 17 && frame == 2;
                 // Settings scrolls, and the drum and auto-transpose switches
                 // sit below the fold, so this scenario scrolls to them.
-                panels.revealSettingsSwitches = mode == 14;
+                panels.revealSettingsSwitches = mode == 14 || mode == 23;
                 panels.preferences.keyMappingOpen = mode == 15;
                 panels.autoVolumeOpen = mode == 16;
                 panels.Draw(nullptr, fonts, design, dpi, engine);
-                if (frame == 6) Require(ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) == ((mode >= 4 && mode <= 6) || mode == 12 || mode == 14 || mode == 17 || mode == 18 || mode == 22),
+                if (frame == 6) Require(ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) == ((mode >= 4 && mode <= 6) || mode == 12 || mode == 14 || mode == 17 || mode == 18 || mode == 22 || mode == 23),
                                         "render scenario popup did not open or leaked from a previous capture");
                 ImGui::End(); ImGui::PopFont(); ImGui::Render();
                 Require(ImGui::GetDrawData()->TotalVtxCount > 1000, "blank or incomplete frame");

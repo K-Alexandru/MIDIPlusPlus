@@ -36,7 +36,7 @@ public:
     bool stopHotkeyAvailable = false;
     // Keycap text per hotkey, empty when unbound, and whether the key
     // registered; the shell sets both each time it registers.
-    std::array<std::string, kHotkeys> transportKeys{"F1", "F2", "F3", "F4", "", ""};
+    std::array<std::string, kHotkeys> transportKeys{"F1", "F2", "F3", "F4", "", "", "", "", ""};
     std::array<bool, kHotkeys> transportKeysAvailable{};
     // The hotkey Settings is reading a key for, or -1. The shell owns the
     // read: it unregisters the hotkeys, polls, and sends the rebind.
@@ -62,7 +62,7 @@ public:
     ImVec2 DesiredSize() const;
     // The smallest full window: Files at its 240 and the right column at its
     // 600. Mini has one size, DesiredSize.
-    static ImVec2 MinimumSize() { return ImVec2(884, 560); }
+    static ImVec2 MinimumSize() { return ImVec2(884, 604); }
     void LoadPreferences(const std::filesystem::path& path);
     void SavePreferences(const std::filesystem::path& path) const;
     void Draw(HWND hwnd, const Fonts& fonts, const skin::Skin& design,
@@ -108,7 +108,7 @@ private:
     void DrawLog(HWND, const Fonts&, const skin::Skin&, float, ShellEngine&);
     // The hotkey legend: a keycap per key, its action after it. Measures
     // when draw is null. Callers push the meta face first.
-    float DrawTransportHints(ImDrawList* draw, const skin::Skin& s, float dpi, ImVec2 origin) const;
+    float DrawTransportHints(ImDrawList* draw, const skin::Skin& s, float dpi, ImVec2 origin, int trigger) const;
     bool volumeWasOpen_ = false;
     GameWindow volumeWindow_;
     void SettingsControl(const Fonts&, const skin::Skin&, float, ShellEngine&, ImVec2, float);
