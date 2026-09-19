@@ -599,8 +599,9 @@ From the owner and a tester in one session. Nothing here is optional.
      how much. Hesitation and falling behind belong to the loosest preset
      only, as plan offsets, bounded and recovered, never a sleep.
      The preset, Difficulty and the sliders are remembered per file, the
-     owner's yes on 2026-09-18; nothing in the app is saved per song today, so
-     this is new plumbing.
+     owner's yes on 2026-09-18, behind a switch of its own so a user can keep
+     one setting for every song instead; nothing in the app is saved per song
+     today, so this is new plumbing.
    - Old `LEGIT_MODE_SETTINGS` keys still load and are ignored.
 
    **Measured 2026-09-18** with `python tools\measure-midi.py x64\Release\midi`
