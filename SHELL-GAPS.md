@@ -605,6 +605,23 @@ From the owner and a tester in one session. Nothing here is optional.
      the app hands it the score, a seed and the speed and takes back a time, a
      velocity and a skip per event. Tap lives in the playback loop today, so the
      ABI also needs a way for a mod to hold the clock and step it.
+   - **Help says it exists,** the owner's, 2026-09-18. First thought was a line
+     under About; better, his words, the help button, which is already where
+     the app's explaining is meant to go (one button, no text on the controls).
+     The entry is framed as the question a user would have, "What is the addons
+     folder for?", and its answer is the one place the word Legit stays in the
+     app. The question only comes up if the folder is there, so the public zip
+     ships an empty `addons` folder after all. Open: what the answer tells
+     people to do. "DM me" needs a name, and the standing decision is that
+     nothing sent out carries an account name. The help button itself is not
+     built and is its own item.
+   - **Open, and the owner's to weigh: the licence.** About also says the app is
+     based on Zephkek/MIDIPlusPlus under GPLv3. A closed add-on loaded into a
+     GPLv3 program is, on the usual reading, part of that program, so whoever
+     is given the add-on may be entitled to its source and to pass it on. Not
+     giving it to the public is fine under the GPL; keeping it closed among the
+     people it is given to may not be. Not legal advice; it needs a real answer
+     before the add-on goes to anyone.
    - **Signed.** The app loads only a mod signed with the owner's key, because a
      mod is code and "download this mod" is a malware route. The signature can
      carry a name and an expiry, which is the licence if it goes to many people.
@@ -726,3 +743,29 @@ From the owner and a tester in one session. Nothing here is optional.
      would let anyone share a Legit clone.
    - Out of reach without code, and left alone: moving or removing panels,
      other icons, fonts the app does not ship.
+7. **A help button.** The owner's, 2026-09-18: one button, and behind it the
+   questions people actually have, each framed as the user would ask it. It is
+   where the app's explaining goes, since the controls carry none. Not started.
+   - Each entry is first a defect report: if a control can be made to answer
+     the question itself, fix the control and leave the entry out
+     (`HANDOFF.md` section 15). What is left is what no control can say.
+   - Wording is the owner's voice: a question, then one or two sentences.
+   - Candidates, from what testers have tripped on and what this page records:
+     - Why did it type into my browser? (it types into whatever has focus, and
+       the lowest 88-key notes are `ctrl+` combinations, so `G#1` is `ctrl+w`)
+     - Why do I hear extra notes with Velocity on? (the velocity keys are the
+       note keys; the game's script has to take the modified keypress)
+     - 61 or 88 keys, and what does folding out-of-range notes do?
+     - Which MIDI input do I pick, and what is Kernel Streaming?
+     - What is MidiConnect?
+     - What does AutoVol do, and why does it want calibrating?
+     - What does the sustain cutoff change?
+     - Why is a hotkey greyed out? (another program holds that key)
+     - Why does Solo Piano leave some tracks playing, or mute a piano?
+     - What do Hands, and the Estimated mark on a slider, mean?
+     - Where do my sheets and converted files go?
+     - Why does the converter ask me to sign in?
+     - What is the addons folder for? (item 3)
+   - Open: where the button lives (the top strip beside Settings is the
+     obvious place), and whether it is a popover like Settings or its own
+     window in mini.
