@@ -102,8 +102,8 @@ that hand themselves.
 and pedal up, when it comes up. In Tap the clock stands still and each tap plays
 the next note or chord with the take's own spread and velocities: the rhythm is
 the user's and the touch is the recording's. Two keys can tap, so a run can
-alternate between them, and each lets go of its own notes. **Tap Holds the
-Note** in Settings chooses between a note that lasts as long as the tap key and
+alternate between them, and each lets go of its own notes. **Hold Tapped
+Notes** in Settings chooses between a note that lasts as long as the tap key and
 one that keeps the recording's length. The pedal between two taps is run on the
 way to the second.
 

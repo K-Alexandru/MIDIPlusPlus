@@ -1922,7 +1922,7 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
     }
     if (state->trigger == 2) {
         bool holds = state->tapHolds;
-        if (SettingSwitch("Tap Holds the Note", holds, nullptr, fonts, design, dpi))
+        if (SettingSwitch("Hold Tapped Notes", holds, nullptr, fonts, design, dpi))
             engine.Send({ShellEngine::Action::TapLength, {}, 0, 0, holds});
     }
     bool shuffle = state->shuffle;
@@ -1984,7 +1984,7 @@ void Panels::DrawSettings(const Fonts& fonts, const skin::Skin& design, float dp
         // Armed, the cap is empty inside the accent ring, as in Key Mapping.
         // A key another program holds wears the legend's dead-key ink.
         const std::string actions[kHotkeys]{"Play/Pause", "Skip back", "Skip forward", "Stop", "Previous song", "Next song",
-                                            "Hold to play", "Tap", "Tap, second key"};
+                                            "Hold to play", "Tap", "Tap (second key)"};
         const float height = s.metric.controlHeight, gap = 8 * dpi, capWidth = 112 * dpi;
         auto* draw = ImGui::GetWindowDrawList();
         for (size_t i = 0; i < kHotkeys; ++i) {

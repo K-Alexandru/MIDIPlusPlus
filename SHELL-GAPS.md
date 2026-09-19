@@ -573,7 +573,7 @@ From the owner and a tester in one session. Nothing here is optional.
    places: a moved slider does not read Custom, the chosen player stays
    chosen because it also sets how hard Difficulty bites and whether there
    are hesitations, and choosing it again puts the sliders back; Hand Split
-   and Tap Holds the Note are in Settings and show only when they apply; the
+   and Hold Tapped Notes are in Settings and show only when they apply; the
    mini window has Hands and Trigger, unlabelled, and no Speed, which it
    never had.
    Owed: the owner's ear on Pro, Student and Beginner with his recordings; a
@@ -753,20 +753,20 @@ From the owner and a tester in one session. Nothing here is optional.
    - **In folders,** the owner's, 2026-09-18, so someone past the basics goes
      straight to what is new. Sections that open, as Settings has them:
      The owner turned down a folder called "New", and a folder per tool: the
-     categories can be better. Proposed, not settled, by what the person is
+     categories can be better, and every name plain and professional, as the
+     rest of the app's are. Proposed, not settled, by what the person is
      trying to do, since that is how they arrive:
-     - **Basics**: opening a file, Play and the hotkeys, where the app types,
-       61 or 88 keys. The tour's replay button sits here. The owner: the name
-       may stay.
-     - **Playing a File**: speed, transpose, Hands, tracks and Solo Piano,
+     - **Getting Started**: opening a file, Play and the hotkeys, where the app types,
+       61 or 88 keys. The tour's replay button sits here.
+     - **Playback**: speed, transpose, Hands, tracks and Solo Piano,
        shuffle, the countdown.
-     - **Playing Live**: choosing an input, Kernel Streaming and WinMM,
+     - **Live Input**: choosing an input, Kernel Streaming and WinMM,
        MidiConnect, Wooting, the channel.
-     - **Velocity and Sound**: velocity hotkeys, the curve editor, the sustain
+     - **Velocity and Output**: velocity hotkeys, the curve editor, the sustain
        cutoff, AutoVol, MIDI output.
-     - **Making Files**: the converter and its sign-in, sheets, where files go.
-     - **Look and Keys**: themes, hotkeys, key mapping, mini, opacity.
-     - **Something Is Wrong**: it typed into my browser, extra notes, a greyed
+     - **Conversion and Sheets**: the converter and its sign-in, sheets, where files go.
+     - **Appearance and Controls**: themes, hotkeys, key mapping, mini, opacity.
+     - **Troubleshooting**: it typed into my browser, extra notes, a greyed
        hotkey, a stuck key, nothing plays.
      - **Add-ons**.
      - What a build added is not a folder. Each entry carries the build it
