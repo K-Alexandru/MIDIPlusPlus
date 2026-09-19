@@ -29,9 +29,9 @@ seat owns `ui/` (`SEATS.md`); what the owner asks for there is in scope.
 - Custom themes (item 2): colour only, like every skin; the swatches and the
   picker are the app's own drawing, not ImGui's widgets.
 - Legit Mode (`LEGIT-MODE.md`) is a fresh live take of a human recording,
-  never a repair of a poor file; the player is Pro, Student or Beginner and
-  Difficulty is an estimate the user overrides. Its Experimental tag stays
-  until the owner says it convinces. Speed is a plain slider for everyone.
+  never a repair of a poor file. It is to leave the app and become a signed,
+  DM-only mod; Speed and Hands stay (`SHELL-GAPS.md` item 3 has the plan). Not
+  to start until the owner has tested it and says so. Push nothing new of it.
 - The game owns the key protocol: Alt is velocity, Ctrl is the 88-key notes,
   the velocity keys are the note keys. A fix or a test never changes a bind.
 - Test builds stay on this PC: `make-release.ps1` zips to `build\release\`.
@@ -115,5 +115,5 @@ seat owns `ui/` (`SEATS.md`); what the owner asks for there is in scope.
 ## Next action
 
 Take what the owner says after hearing Legit mode and pressing Hands, Hold and
-Tap, and fix that first. Otherwise item 4 of `SHELL-GAPS.md`: AutoVol reads
-`VOLUME_UP_KEY` and `VOLUME_DOWN_KEY` where `MIDI2Key.cpp` hardcodes the arrows.
+Tap, and fix that first; on his word, the mod split in item 3. Otherwise item 4
+of `SHELL-GAPS.md`: AutoVol's keys, where `MIDI2Key.cpp` hardcodes the arrows.

@@ -581,6 +581,41 @@ From the owner and a tester in one session. Nothing here is optional.
    table; the native suite, which takes the cursor and was not run;
    `skin-system.html` knows none of it.
 
+   **Planned, not started, and not to start until the owner has tested Legit
+   mode and says so: Legit mode leaves the app and becomes a mod.** The owner,
+   2026-09-18: a build that passes autoplay off as live playing is like AI art
+   passed off as hand-drawn, most people do not need it, and the app is smaller
+   and cleaner without it. A password or an online unlock locks nothing in open
+   source, so the gate is that the code is not in the public source at all.
+   - **The test for what leaves**, the owner's: do people who are not trying to
+     hide autoplay need it? Speed as a slider: yes, it stays. Hands: yes,
+     someone practising plays the other hand themselves; it stays. Everything
+     that varies a take, the players, Difficulty, Mistakes, hesitations: no.
+     Hold and Tap: no, play and pause already exist and Tap puts a human rhythm
+     on someone else's notes; they leave too. Per-song memory goes wherever
+     what it remembers goes.
+   - **A clean cut:** no Legit word, switch, tag, setting or hotkey row in the
+     app. The app keeps one extension point and draws whatever a mod declares:
+     its name, sliders, presets, which sliders carry an Estimated mark, and
+     its keys. With no mod there is no section.
+   - **The mod** is a DLL in a `mods` folder beside the exe, behind a C ABI:
+     the app hands it the score, a seed and the speed and takes back a time, a
+     velocity and a skip per event. Tap lives in the playback loop today, so the
+     ABI also needs a way for a mod to hold the clock and step it.
+   - **Signed.** The app loads only a mod signed with the owner's key, because a
+     mod is code and "download this mod" is a malware route. The signature can
+     carry a name and an expiry, which is the licence if it goes to many people.
+   - **Source** in `D:\Dev\QuartzMIDI-legit`, its own local git, no remote, until
+     the owner makes a private repository. The mod's tests go with it; the
+     public tests use a dummy mod.
+   - **`origin` is public and holds today's Legit commits.** The owner: whatever
+     is required so people cannot get it there, and make it clear it is a mod
+     people DM him for. That is a rewrite of this branch without the Legit code
+     and a force-push, on his yes at the time; it does not reach a clone or
+     fork already made. `greasebob/QuartzMIDI` never gets it.
+   - Until then nothing Legit is pushed beyond what is there, and the work
+     stays as built so the owner can test it.
+
    **The outline as agreed:**
    - The recording is the performance; Legit mode is a fresh take of it. Every
      offset is a small displacement around what the file already says.
