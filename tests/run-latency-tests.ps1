@@ -1,4 +1,4 @@
-param([string]$LoopbackPort, [switch]$ListPorts, [switch]$Legit)
+param([string]$LoopbackPort, [switch]$ListPorts, [switch]$Legit, [string]$Fidelity)
 $ErrorActionPreference = 'Stop'
 $repoPath = Split-Path -Parent $PSScriptRoot
 $msbuildPath = 'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe'
@@ -16,6 +16,7 @@ try {
     $ErrorActionPreference = 'Continue'
     if ($ListPorts) { & '.\LatencyTests.exe' --list }
     elseif ($Legit) { & '.\LatencyTests.exe' --legit }
+    elseif ($Fidelity) { & '.\LatencyTests.exe' --fidelity (Resolve-Path -LiteralPath (Join-Path $repoPath $Fidelity)).Path }
     elseif ($LoopbackPort) { & '.\LatencyTests.exe' --loopback $LoopbackPort }
     else { & '.\LatencyTests.exe' }
     $exitCode = $LASTEXITCODE

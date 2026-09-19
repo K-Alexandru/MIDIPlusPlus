@@ -4,7 +4,11 @@
 #include "InputLatencyWindow.hpp"
 #include <gdiplus.h>
 
+#include "midi_parser.h"
+
+#include <algorithm>
 #include <chrono>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
@@ -434,6 +438,84 @@ void legitModeTests() {
     std::cout << "PASS legit mode: disabled path, skip pairing, no stranded keys, no accumulated drift\n";
 }
 
+// Does plain playback keep a recording's own timing? Plays the opening of each
+// file in a folder through the real dispatch path and compares when each press
+// was injected with when the score asked for it. Measures; asserts nothing
+// about a file it has never seen beyond every press going out.
+void fidelityReport(const std::filesystem::path& folder) {
+    VirtualPianoPlayer player;
+    g_player = &player;
+    SetPriorityClass(GetCurrentProcess(), NORMAL_PRIORITY_CLASS);
+    TestSink sink;
+    require(start(), "measurement hook start");
+    player.enable_velocity_keypress = false;
+    player.legit_mode_active.store(false, std::memory_order_relaxed);
+    constexpr auto opening = 25s;
+
+    for (const auto& entry : std::filesystem::directory_iterator(folder)) {
+        auto extension = entry.path().extension().wstring();
+        for (auto& c : extension) c = static_cast<wchar_t>(towlower(c));
+        if (extension != L".mid" && extension != L".midi") continue;
+        MidiParser parser;
+        const auto file = parser.parse(entry.path().string());
+        player.midi_file = file;
+        player.trackMuted.clear();
+        player.trackSoloed.clear();
+        for (size_t i = 0; i < file.tracks.size(); ++i) {
+            player.trackMuted.push_back(std::make_shared<std::atomic<bool>>(false));
+            player.trackSoloed.push_back(std::make_shared<std::atomic<bool>>(false));
+        }
+        player.process_tracks(file);
+        std::erase_if(player.note_events, [&](const RawNoteEvent& e) { return e.time > opening; });
+        std::vector<double> scoreMs;
+        for (const auto& e : player.note_events)
+            if (e.action == EventType::Press && e.note_or_control != "sustain")
+                scoreMs.push_back(e.time.count() / 1e6);
+        std::stable_sort(scoreMs.begin(), scoreMs.end());
+
+        const size_t total = player.note_events.size();
+        Collector collector;
+        player.restart_song();
+        const auto deadline = std::chrono::steady_clock::now() + opening + 5s;
+        while (player.buffer_index.load(std::memory_order_acquire) < total &&
+               std::chrono::steady_clock::now() < deadline) {
+            poll(collector);
+            takeCaptured();
+            std::this_thread::sleep_for(2ms);
+        }
+        std::this_thread::sleep_for(200ms);
+        player.should_stop.store(true, std::memory_order_release);
+        SetEvent(player.command_event);
+        player.playback_thread->join();
+        player.release_all_keys();
+        std::this_thread::sleep_for(50ms);
+        poll(collector);
+        takeCaptured();
+
+        std::vector<double> sentMs;
+        for (const auto& sample : collector.samples(Source::Autoplay))
+            if (sample.submission.kind == Kind::NoteOn)
+                sentMs.push_back(sample.submission.t1 * 1000.0 / frequency());
+        std::sort(sentMs.begin(), sentMs.end());
+        std::cout << entry.path().filename().string() << "\n  presses in score " << scoreMs.size()
+            << ", injected " << sentMs.size() << '\n';
+        if (sentMs.size() != scoreMs.size() || sentMs.size() < 2) continue;
+
+        std::vector<double> error;
+        size_t close = 0, merged = 0;
+        for (size_t i = 1; i < sentMs.size(); ++i) {
+            const double scoreGap = scoreMs[i] - scoreMs[i - 1], sentGap = sentMs[i] - sentMs[i - 1];
+            error.push_back(std::abs((sentMs[i] - sentMs[0]) - (scoreMs[i] - scoreMs[0])));
+            if (scoreGap > 0 && scoreGap < 3) { ++close; if (sentGap < scoreGap / 2) ++merged; }
+        }
+        const auto p = percentiles(error);
+        std::cout << "  timing error ms p50/p95/p99 " << p.p50 << '/' << p.p95 << '/' << p.p99
+            << "  onsets under 3 ms apart " << close << ", sent at under half their gap " << merged << '\n';
+    }
+    stop();
+    g_player = nullptr;
+}
+
 void loopbackTests(const std::wstring& portName) {
     UINT outputIndex = midiOutGetNumDevs();
     for (UINT i = 0; i < midiOutGetNumDevs(); ++i) {
@@ -591,6 +673,7 @@ int wmain(int argc, wchar_t** argv) {
             return 0;
         }
         if (argc == 2 && std::wstring(argv[1]) == L"--legit") { legitModeTests(); return 0; }
+        if (argc == 3 && std::wstring(argv[1]) == L"--fidelity") { fidelityReport(argv[2]); return 0; }
         if (argc == 3 && std::wstring(argv[1]) == L"--loopback") { loopbackTests(argv[2]); legitModeTests(); }
         wrapperTests();
         std::cout << "PASS all requested checks\n";
